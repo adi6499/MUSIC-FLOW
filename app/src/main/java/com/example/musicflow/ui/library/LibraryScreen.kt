@@ -36,6 +36,7 @@ fun LibraryScreen(
 ) {
     val playlists by viewModel.playlists.collectAsState()
     val favorites by viewModel.favorites.collectAsState()
+    val allSongs by viewModel.allSongs.collectAsState()
     val history by viewModel.history.collectAsState()
     val downloads by viewModel.downloads.collectAsState()
     
@@ -80,7 +81,7 @@ fun LibraryScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(BackgroundDark)
+            .background(MaterialTheme.colorScheme.background)
             .statusBarsPadding()
     ) {
         Row(
@@ -93,13 +94,13 @@ fun LibraryScreen(
             Text(
                 text = "Library",
                 style = MaterialTheme.typography.displayLarge,
-                color = Color.White
+                color = MaterialTheme.colorScheme.onBackground
             )
             IconButton(
                 onClick = { showCreateDialog = true },
-                modifier = Modifier.background(SurfaceVariantDark, CircleShape)
+                modifier = Modifier.background(MaterialTheme.colorScheme.surface, CircleShape)
             ) {
-                Icon(Icons.Filled.Add, contentDescription = "Add", tint = Color.White)
+                Icon(Icons.Filled.Add, contentDescription = "Add", tint = MaterialTheme.colorScheme.onSurface)
             }
         }
 
@@ -131,7 +132,7 @@ fun LibraryScreen(
                         Text(
                             text = title,
                             style = if (selectedTab == index) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyLarge,
-                            color = if (selectedTab == index) Color.White else Secondary
+                            color = if (selectedTab == index) MaterialTheme.colorScheme.onBackground else Secondary
                         )
                     }
                 )
@@ -153,7 +154,7 @@ fun LibraryScreen(
                             imageUrl = null,
                             trailingIcon = Icons.Default.Favorite,
                             onTrailingClick = { /* No menu for Liked Songs */ },
-                            onClick = { selectedTab = 1 }
+                            onClick = { onPlaylistClick("liked") }
                         )
                     }
                     items(playlists, key = { it.id }) { playlist ->
@@ -166,8 +167,6 @@ fun LibraryScreen(
                             onClick = { onPlaylistClick(playlist.id) }
                         )
                     }
-                    // No empty state here if we always show Liked Songs?
-                    // Or only show a small hint if NO playlists exist.
                     if (playlists.isEmpty()) {
                         item {
                             Spacer(modifier = Modifier.height(Dimens.PaddingLarge))
@@ -181,15 +180,15 @@ fun LibraryScreen(
                     }
                 }
                 1 -> { // Songs
-                    if (favorites.isEmpty()) {
+                    if (allSongs.isEmpty()) {
                         item {
                             EmptyState(
-                                message = "No liked songs yet.",
-                                icon = Icons.Default.FavoriteBorder
+                                message = "No songs in library yet.\nSongs you play will be cached here.",
+                                icon = Icons.Filled.MusicNote
                             )
                         }
                     } else {
-                        items(favorites, key = { it.id }) { song ->
+                        items(allSongs.distinctBy { it.id }, key = { "song_${it.id}" }) { song ->
                             MFListRow(
                                 title = song.name,
                                 subtitle = song.artists,
@@ -223,7 +222,7 @@ fun LibraryScreen(
                             )
                         }
                     } else {
-                        items(history, key = { it.id }) { song ->
+                        items(history.distinctBy { it.id }, key = { "hist_${it.id}" }) { song ->
                             MFListRow(
                                 title = song.name,
                                 subtitle = song.artists,
@@ -243,7 +242,7 @@ fun LibraryScreen(
                             )
                         }
                     } else {
-                        items(downloads, key = { it.id }) { song ->
+                        items(downloads.distinctBy { it.id }, key = { "down_${it.id}" }) { song ->
                             MFListRow(
                                 title = song.name,
                                 subtitle = song.artists,

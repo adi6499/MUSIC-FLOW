@@ -32,7 +32,7 @@ fun ExploreScreen(
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var newPlaylistNameDialog by remember { mutableStateOf("") }
 
-    Box(modifier = Modifier.fillMaxSize().background(BackgroundDark)) {
+    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -41,7 +41,7 @@ fun ExploreScreen(
             Text(
                 text = "Explore",
                 style = MaterialTheme.typography.displayLarge,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onBackground,
                 modifier = Modifier.padding(horizontal = Dimens.ScreenPadding, vertical = Dimens.PaddingLarge)
             )
 

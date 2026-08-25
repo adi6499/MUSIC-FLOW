@@ -13,21 +13,21 @@ import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
 private val LightColorScheme = lightColorScheme(
-    primary = Primary,
-    onPrimary = OnPrimary,
-    primaryContainer = PrimaryContainer,
-    onPrimaryContainer = OnPrimaryContainer,
-    secondary = Secondary,
-    onSecondary = OnSecondary,
-    secondaryContainer = SecondaryContainer,
-    onSecondaryContainer = OnSecondaryContainer,
-    background = BackgroundLight,
-    onBackground = OnBackgroundLight,
-    surface = SurfaceLight,
-    onSurface = OnSurfaceLight,
-    surfaceVariant = SurfaceVariantLight,
-    onSurfaceVariant = OnSurfaceVariantLight,
-    outline = OnSurfaceVariantLight.copy(alpha = 0.1f)
+    primary = MusicRed,
+    onPrimary = Color.White,
+    primaryContainer = Color(0xFFFFEBEE),
+    onPrimaryContainer = MusicRed,
+    secondary = Color(0xFF5F6368),
+    onSecondary = Color.White,
+    secondaryContainer = Color(0xFFECEFF3),
+    onSecondaryContainer = Color(0xFF101012),
+    background = Color(0xFFF7F8FA),
+    onBackground = Color(0xFF101012),
+    surface = Color(0xFFFFFFFF),
+    onSurface = Color(0xFF101012),
+    surfaceVariant = Color(0xFFECEFF3),
+    onSurfaceVariant = Color(0xFF5F6368),
+    outline = Color(0x1F000000)
 )
 
 private val DarkColorScheme = darkColorScheme(

@@ -95,4 +95,11 @@ interface MusicDao {
 
     @Query("SELECT EXISTS(SELECT 1 FROM followed_artists WHERE id = :artistId)")
     suspend fun isArtistFollowed(artistId: String): Boolean
+
+    // --- Lyrics Cache ---
+    @Query("SELECT * FROM lyrics_cache WHERE cacheKey = :cacheKey LIMIT 1")
+    suspend fun getLyricsCache(cacheKey: String): LyricsCacheEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertLyricsCache(lyrics: LyricsCacheEntity)
 }

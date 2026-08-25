@@ -58,15 +58,19 @@ fun AlbumDto.toDomain(preferredQuality: String = "320kbps"): Album {
     )
 }
 
-fun ArtistDto.toDomain(): Artist {
+fun ArtistDto.toDomain(preferredQuality: String = "320kbps"): Artist {
     val name = (this.name ?: this.title ?: "Unknown Artist").decodeHtml()
     val image = getHighResImage(this.image)
+    val parsedSongs = (this.topSongs ?: this.songs)?.map { it.toDomain(preferredQuality) } ?: emptyList()
+    val parsedAlbums = (this.topAlbums ?: this.albums)?.map { it.toDomain(preferredQuality) } ?: emptyList()
     
     return Artist(
         id = this.id ?: "",
         name = name,
         image = image,
-        role = this.role ?: "Artist"
+        role = this.role ?: "Artist",
+        topSongs = parsedSongs,
+        topAlbums = parsedAlbums
     )
 }
 
@@ -89,8 +93,11 @@ fun PlaylistDto.toDomain(preferredQuality: String = "320kbps"): Playlist {
 private fun getArtistsString(artists: Any?, primaryArtists: Any?): String {
     fun extractName(a: Any?): String? {
         return when (a) {
-            is String -> if (a != "[object Object]") a else null
-            is Map<*, *> -> (a["name"] ?: a["title"] ?: a["artist"] ?: a["role"]) as? String
+            is String -> a.trim().takeIf { it.isNotBlank() && it != "[object Object]" }
+            is Map<*, *> -> {
+                val n = (a["name"] ?: a["title"] ?: a["artist"]) as? String
+                n?.trim()?.takeIf { it.isNotBlank() && it != "[object Object]" }
+            }
             else -> null
         }
     }
@@ -98,49 +105,65 @@ private fun getArtistsString(artists: Any?, primaryArtists: Any?): String {
     val results = mutableListOf<String>()
     
     when (artists) {
-        is String -> if (artists != "[object Object]") results.add(artists)
+        is String -> extractName(artists)?.let { results.add(it) }
         is List<*> -> artists.forEach { extractName(it)?.let { name -> results.add(name) } }
         is Map<*, *> -> {
             val primary = artists["primary"]
             if (primary is List<*>) primary.forEach { extractName(it)?.let { name -> results.add(name) } }
             else extractName(primary)?.let { results.add(it) }
+
+            val featured = artists["featured"]
+            if (featured is List<*>) featured.forEach { extractName(it)?.let { name -> results.add(name) } }
+            else extractName(featured)?.let { results.add(it) }
             
             if (results.isEmpty()) {
                 val all = artists["all"]
                 if (all is List<*>) all.forEach { extractName(it)?.let { name -> results.add(name) } }
+                else extractName(all)?.let { results.add(it) }
             }
         }
     }
 
     if (results.isEmpty()) {
         when (primaryArtists) {
-            is String -> if (primaryArtists != "[object Object]") results.add(primaryArtists)
+            is String -> extractName(primaryArtists)?.let { results.add(it) }
             is List<*> -> primaryArtists.forEach { extractName(it)?.let { name -> results.add(name) } }
+            is Map<*, *> -> extractName(primaryArtists)?.let { results.add(it) }
         }
     }
 
-    return results.filter { it.isNotBlank() }.joinToString(", ").ifBlank { "Unknown Artist" }.decodeHtml()
+    return results.filter { it.isNotBlank() }.distinct().joinToString(", ").ifBlank { "Unknown Artist" }.decodeHtml()
 }
 
 private fun getHighResImage(image: Any?): String {
-    val url = when (image) {
-        is String -> image
-        is List<*> -> {
-            val last = image.lastOrNull()
-            when (last) {
-                is String -> last
-                is Map<*, *> -> (last["url"] ?: last["link"]) as? String
-                else -> ""
+    fun extractUrl(item: Any?): String? {
+        return when (item) {
+            is String -> item.takeIf { it.isNotBlank() && (it.startsWith("http://") || it.startsWith("https://")) }
+            is Map<*, *> -> {
+                val u = (item["url"] ?: item["link"] ?: item["image"]) as? String
+                u?.takeIf { it.isNotBlank() && (it.startsWith("http://") || it.startsWith("https://")) }
             }
+            else -> null
         }
-        is Map<*, *> -> (image["url"] ?: image["link"]) as? String
-        else -> ""
+    }
+
+    val url = when (image) {
+        is String -> extractUrl(image)
+        is List<*> -> {
+            val urls = image.mapNotNull { extractUrl(it) }
+            urls.firstOrNull { it.contains("500x500") }
+                ?: urls.firstOrNull { it.contains("150x150") }
+                ?: urls.lastOrNull()
+        }
+        is Map<*, *> -> extractUrl(image)
+        else -> null
     } ?: ""
 
     return if (url.isBlank()) ""
     else url.replace("50x50", "500x500")
         .replace("150x150", "500x500")
         .replace("175x175", "500x500")
+        .replace("http://", "https://")
 }
 
 private fun String.decodeHtml(): String {

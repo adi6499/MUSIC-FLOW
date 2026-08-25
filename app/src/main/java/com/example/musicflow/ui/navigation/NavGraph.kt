@@ -1,5 +1,7 @@
 package com.example.musicflow.ui.navigation
 
+import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -28,6 +30,7 @@ fun NavGraph(
     albumViewModel: com.example.musicflow.ui.album.AlbumViewModel,
     artistViewModel: com.example.musicflow.ui.artist.ArtistViewModel,
     onSongClick: (Song) -> Unit,
+    onSongIdClick: (String) -> Unit = {},
     onLogout: () -> Unit = {},
     bottomPadding: androidx.compose.ui.unit.Dp,
     modifier: Modifier = Modifier
@@ -35,17 +38,31 @@ fun NavGraph(
     NavHost(
         navController = navController,
         startDestination = "home",
-        modifier = modifier
+        modifier = modifier,
+        enterTransition = { fadeIn(tween(220)) + scaleIn(initialScale = 0.96f, animationSpec = tween(220)) },
+        exitTransition = { fadeOut(tween(180)) },
+        popEnterTransition = { fadeIn(tween(220)) + scaleIn(initialScale = 0.96f, animationSpec = tween(220)) },
+        popExitTransition = { fadeOut(tween(180)) }
     ) {
         composable("home") {
             HomeScreen(
                 viewModel = homeViewModel,
                 onSongClick = onSongClick,
-                onAlbumClick = { navController.navigate("album/$it") },
-                onArtistClick = { navController.navigate("artist/$it") },
+                onAlbumClick = { navController.navigate("album/${java.net.URLEncoder.encode(it, "UTF-8")}") },
+                onArtistClick = { navController.navigate("artist/${java.net.URLEncoder.encode(it, "UTF-8")}") },
                 onProfileClick = { navController.navigate("profile") },
                 onSettingsClick = { navController.navigate("settings") },
-                onNavigate = { navController.navigate(it) },
+                onNavigate = { route ->
+                    when (route) {
+                        "recommend_more" -> navController.navigate("songs_list/Recommend")
+                        "new_releases" -> navController.navigate("songs_list/New for you")
+                        "charts" -> navController.navigate("songs_list/Trending Now")
+                        "albums" -> navController.navigate("search")
+                        else -> {
+                            try { navController.navigate(route) } catch (e: Exception) { /* safe fallback */ }
+                        }
+                    }
+                },
                 bottomPadding = bottomPadding
             )
         }
@@ -53,14 +70,23 @@ fun NavGraph(
             com.example.musicflow.ui.explore.ExploreScreen(
                 viewModel = homeViewModel,
                 onSongClick = onSongClick,
-                onNavigate = { navController.navigate(it) },
+                onNavigate = { route ->
+                    when (route) {
+                        "recommend_more" -> navController.navigate("songs_list/Recommend")
+                        "new_releases" -> navController.navigate("songs_list/New for you")
+                        "charts" -> navController.navigate("songs_list/Trending Now")
+                        else -> {
+                            try { navController.navigate(route) } catch (e: Exception) { /* safe fallback */ }
+                        }
+                    }
+                },
                 bottomPadding = bottomPadding
             )
         }
         composable("search") {
             SearchScreen(
                 viewModel = searchViewModel,
-                onSongClick = onSongClick,
+                onSongClick = { song -> onSongIdClick(song.id) },
                 onAlbumClick = { navController.navigate("album/$it") },
                 onArtistClick = { navController.navigate("artist/$it") },
                 bottomPadding = bottomPadding
@@ -79,6 +105,10 @@ fun NavGraph(
                 viewModel = profileViewModel,
                 onBack = { navController.popBackStack() },
                 onSettingsClick = { navController.navigate("settings") },
+                onSongClick = onSongClick,
+                onPlaylistClick = { navController.navigate("playlist/$it") },
+                onArtistClick = { navController.navigate("artist/$it") },
+                onAlbumClick = { navController.navigate("album/$it") },
                 bottomPadding = bottomPadding
             )
         }
@@ -86,8 +116,13 @@ fun NavGraph(
             com.example.musicflow.ui.profile.SettingsScreen(
                 viewModel = profileViewModel,
                 onBack = { navController.popBackStack() },
-                onLogout = onLogout,
-                bottomPadding = bottomPadding
+                onEqualizerClick = { navController.navigate("equalizer") },
+                onRestartOnboarding = onLogout
+            )
+        }
+        composable("equalizer") {
+            com.example.musicflow.ui.equalizer.EqualizerScreen(
+                onBack = { navController.popBackStack() }
             )
         }
         composable("playlist/{playlistId}") { backStackEntry ->
@@ -111,11 +146,13 @@ fun NavGraph(
             )
         }
         composable("songs_list/{title}") { backStackEntry ->
-            val title = backStackEntry.arguments?.getString("title") ?: "Songs"
-            val songs by when(title) {
-                "New for you" -> homeViewModel.newReleases.collectAsState()
-                "New songs", "Trending Now" -> homeViewModel.trendingSongs.collectAsState()
-                "Recommend" -> homeViewModel.recommendations.collectAsState()
+            val rawTitle = backStackEntry.arguments?.getString("title") ?: "Songs"
+            val title = try { java.net.URLDecoder.decode(rawTitle, "UTF-8") } catch (e: Exception) { rawTitle }
+            val songs by when {
+                title == "New for you" -> homeViewModel.newReleases.collectAsState()
+                title == "New songs" || title == "Trending Now" -> homeViewModel.trendingSongs.collectAsState()
+                title == "Recommend" -> homeViewModel.recommendations.collectAsState()
+                title.startsWith("Top tracks") -> artistViewModel.topSongs.collectAsState()
                 else -> homeViewModel.recommendations.collectAsState()
             }
             val playlists by homeViewModel.playlists.collectAsState()
@@ -136,13 +173,16 @@ fun NavGraph(
             )
         }
         composable("artist/{artistId}") { backStackEntry ->
-            val artistId = backStackEntry.arguments?.getString("artistId") ?: ""
+            val rawId = backStackEntry.arguments?.getString("artistId") ?: ""
+            val artistId = try { java.net.URLDecoder.decode(rawId, "UTF-8") } catch (e: Exception) { rawId }
             com.example.musicflow.ui.artist.ArtistScreen(
                 artistId = artistId,
                 viewModel = artistViewModel,
                 onBack = { navController.popBackStack() },
                 onSongClick = onSongClick,
-                onAlbumClick = { navController.navigate("album/$it") },
+                onAlbumClick = { navController.navigate("album/${java.net.URLEncoder.encode(it, "UTF-8")}") },
+                onArtistClick = { navController.navigate("artist/${java.net.URLEncoder.encode(it, "UTF-8")}") },
+                onTopTracksClick = { navController.navigate("songs_list/${java.net.URLEncoder.encode("Top tracks - $it", "UTF-8")}") },
                 bottomPadding = bottomPadding
             )
         }

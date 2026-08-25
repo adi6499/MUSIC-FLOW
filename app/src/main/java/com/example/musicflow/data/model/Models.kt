@@ -36,7 +36,9 @@ data class Artist(
     val id: String,
     val name: String,
     val image: String,
-    val role: String = "Artist"
+    val role: String = "Artist",
+    val topSongs: List<Song> = emptyList(),
+    val topAlbums: List<Album> = emptyList()
 )
 
 @Immutable
@@ -90,7 +92,21 @@ data class ArtistDto(
     @SerializedName("name") val name: String?,
     @SerializedName("title") val title: String?,
     @SerializedName("image") val image: Any?,
-    @SerializedName("role") val role: String?
+    @SerializedName("role") val role: String?,
+    @SerializedName("topSongs") val topSongs: List<SongDto>? = null,
+    @SerializedName("topAlbums") val topAlbums: List<AlbumDto>? = null,
+    @SerializedName("songs") val songs: List<SongDto>? = null,
+    @SerializedName("albums") val albums: List<AlbumDto>? = null
+)
+
+data class ArtistSongsDto(
+    @SerializedName("total") val total: Int?,
+    @SerializedName("songs") val songs: List<SongDto>?
+)
+
+data class ArtistAlbumsDto(
+    @SerializedName("total") val total: Int?,
+    @SerializedName("albums") val albums: List<AlbumDto>?
 )
 
 data class PlaylistDto(
@@ -139,6 +155,48 @@ data class LyricsDto(
     @SerializedName("snippet") val snippet: String?,
     @SerializedName("copyright") val copyright: String?
 )
+
+data class LyricsData(
+    val syncedLyrics: String? = null,
+    val plainLyrics: String? = null
+) {
+    val hasLyrics: Boolean get() = !syncedLyrics.isNullOrBlank() || !plainLyrics.isNullOrBlank()
+    val isSynced: Boolean get() = !syncedLyrics.isNullOrBlank()
+}
+
+data class LrcLine(
+    val timeMs: Long,
+    val text: String
+)
+
+object LrcParser {
+    private val LRC_REGEX = Regex("""\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\](.*)""")
+
+    fun parse(lrcText: String?): List<LrcLine> {
+        if (lrcText.isNullOrBlank()) return emptyList()
+        val result = mutableListOf<LrcLine>()
+        lrcText.lines().forEach { line ->
+            val match = LRC_REGEX.find(line.trim())
+            if (match != null) {
+                val min = match.groupValues[1].toLongOrNull() ?: 0L
+                val sec = match.groupValues[2].toLongOrNull() ?: 0L
+                val fracStr = match.groupValues[3]
+                val fracMs = when (fracStr.length) {
+                    1 -> fracStr.toLong() * 100
+                    2 -> fracStr.toLong() * 10
+                    3 -> fracStr.toLong()
+                    else -> 0L
+                }
+                val timeMs = (min * 60 + sec) * 1000 + fracMs
+                val text = match.groupValues[4].trim()
+                if (text.isNotBlank()) {
+                    result.add(LrcLine(timeMs, text))
+                }
+            }
+        }
+        return result.sortedBy { it.timeMs }
+    }
+}
 
 data class HomeModulesDto(
     @SerializedName("albums") val albums: List<AlbumDto>?,

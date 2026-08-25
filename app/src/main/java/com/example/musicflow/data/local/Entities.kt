@@ -77,6 +77,14 @@ data class SongMetadataEntity(
     val lastUpdated: Long = System.currentTimeMillis()
 )
 
+@Entity(tableName = "lyrics_cache")
+data class LyricsCacheEntity(
+    @PrimaryKey val cacheKey: String,
+    val syncedLyrics: String?,
+    val plainLyrics: String?,
+    val cachedAt: Long = System.currentTimeMillis()
+)
+
 fun Song.toFavoriteEntity() = FavoriteSongEntity(
     id = id ?: "",
     name = name ?: "",

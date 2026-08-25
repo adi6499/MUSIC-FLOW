@@ -24,6 +24,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.draw.scale
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import coil.compose.AsyncImage
@@ -74,8 +76,8 @@ class MainActivity : ComponentActivity() {
         val homeViewModel = HomeViewModel(repository, userPreferences, musicController)
         val searchViewModel = SearchViewModel(repository, userPreferences, musicController, androidx.lifecycle.SavedStateHandle())
         val libraryViewModel = com.example.musicflow.ui.library.LibraryViewModel(repository, musicController)
-        playerViewModel = PlayerViewModel(musicController, repository)
-        val profileViewModel = com.example.musicflow.ui.profile.ProfileViewModel(userPreferences, repository)
+        playerViewModel = PlayerViewModel(musicController, repository, userPreferences)
+        val profileViewModel = com.example.musicflow.ui.profile.ProfileViewModel(userPreferences, repository, musicController)
         val onboardingViewModel = OnboardingViewModel(userPreferences)
         val albumViewModel = com.example.musicflow.ui.album.AlbumViewModel(repository, musicController)
         val artistViewModel = com.example.musicflow.ui.artist.ArtistViewModel(repository, musicController)
@@ -110,6 +112,7 @@ class MainActivity : ComponentActivity() {
                             )
                         } else {
                             MainScreen(
+                                repository,
                                 homeViewModel, 
                                 searchViewModel, 
                                 libraryViewModel, 
@@ -171,6 +174,7 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
+    repository: MusicRepository,
     homeViewModel: HomeViewModel,
     searchViewModel: SearchViewModel,
     libraryViewModel: com.example.musicflow.ui.library.LibraryViewModel,
@@ -203,13 +207,46 @@ fun MainScreen(
                     viewModel = playerViewModel,
                     onCollapse = {
                         scope.launch { sheetState.partialExpand() }
+                    },
+                    onNavigateToArtist = { artistQuery ->
+                        scope.launch {
+                            sheetState.partialExpand()
+                            val cleanQuery = artistQuery.split(",", "&", "feat.", "ft.", "–", "-").firstOrNull()?.trim() ?: artistQuery
+                            val id = try {
+                                val searchRes = repository.searchArtists(cleanQuery)
+                                searchRes.firstOrNull()?.id ?: cleanQuery
+                            } catch (e: Exception) {
+                                cleanQuery
+                            }
+                            val encoded = java.net.URLEncoder.encode(id, "UTF-8")
+                            navController.navigate("artist/$encoded")
+                        }
+                    },
+                    onNavigateToAlbum = { albumQuery ->
+                        scope.launch {
+                            sheetState.partialExpand()
+                            val id = try {
+                                val searchRes = repository.searchAlbums(albumQuery)
+                                searchRes.firstOrNull()?.id ?: albumQuery
+                            } catch (e: Exception) {
+                                albumQuery
+                            }
+                            val encoded = java.net.URLEncoder.encode(id, "UTF-8")
+                            navController.navigate("album/$encoded")
+                        }
+                    },
+                    onEqualizerClick = {
+                        scope.launch {
+                            sheetState.partialExpand()
+                            navController.navigate("equalizer")
+                        }
                     }
                 )
             } else {
                 Box(Modifier.fillMaxWidth().height(1.dp))
             }
         },
-        sheetPeekHeight = if (currentSong != null) 80.dp else 0.dp,
+        sheetPeekHeight = 0.dp,
         sheetDragHandle = null,
         sheetSwipeEnabled = currentSong != null,
         sheetContainerColor = MaterialTheme.colorScheme.background
@@ -224,8 +261,9 @@ fun MainScreen(
                 albumViewModel = albumViewModel,
                 artistViewModel = artistViewModel,
                 onSongClick = { playerViewModel.playSong(it) },
+                onSongIdClick = { playerViewModel.playSongById(it) },
                 onLogout = onLogout,
-                bottomPadding = (if (currentSong != null) 190.dp else 112.dp) + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+                bottomPadding = (if (currentSong != null) 160.dp else 90.dp) + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
             )
 
             // Mini Player & Bottom Nav Container
@@ -233,9 +271,9 @@ fun MainScreen(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .windowInsetsPadding(WindowInsets.navigationBars)
-                    .padding(horizontal = 16.dp, vertical = 24.dp),
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 androidx.compose.animation.AnimatedVisibility(
                     visible = currentSong != null && sheetState.currentValue == SheetValue.PartiallyExpanded,
@@ -257,7 +295,9 @@ fun MainScreen(
                     currentRoute = currentRoute,
                     onNavigate = { route ->
                         navController.navigate(route) {
-                            popUpTo("home") { saveState = true }
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                saveState = true
+                            }
                             launchSingleTop = true
                             restoreState = true
                         }
@@ -276,14 +316,12 @@ fun MiniPlayer(
     onSkipNext: () -> Unit,
     onClick: () -> Unit
 ) {
-    Surface(
+    com.example.musicflow.ui.components.LiquidGlassSurface(
         modifier = Modifier
             .fillMaxWidth()
             .height(64.dp)
             .clickable(onClick = onClick),
-        color = com.example.musicflow.ui.theme.SurfaceDark,
-        shape = RoundedCornerShape(Dimens.RadiusLarge),
-        border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.05f))
+        shape = RoundedCornerShape(Dimens.RadiusLarge)
     ) {
         Row(
             modifier = Modifier
@@ -317,23 +355,19 @@ fun MiniPlayer(
                 )
             }
             
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onTogglePlayPause) {
-                    Icon(
-                        imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                        contentDescription = if (isPlaying) "Pause" else "Play",
-                        tint = Color.White,
-                        modifier = Modifier.size(28.dp)
-                    )
-                }
-                IconButton(onClick = onSkipNext) {
-                    Icon(
-                        imageVector = Icons.Filled.SkipNext,
-                        contentDescription = "Next",
-                        tint = Color.White,
-                        modifier = Modifier.size(28.dp)
-                    )
-                }
+            IconButton(onClick = onTogglePlayPause) {
+                Icon(
+                    imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                    contentDescription = if (isPlaying) "Pause" else "Play",
+                    tint = Color.White
+                )
+            }
+            IconButton(onClick = onSkipNext) {
+                Icon(
+                    imageVector = Icons.Filled.SkipNext,
+                    contentDescription = "Next",
+                    tint = Color.White
+                )
             }
         }
     }
@@ -344,42 +378,42 @@ fun FloatingNavBar(
     currentRoute: String?,
     onNavigate: (String) -> Unit
 ) {
-    Surface(
+    com.example.musicflow.ui.components.LiquidGlassSurface(
         modifier = Modifier
-            .fillMaxWidth(),
-        color = com.example.musicflow.ui.theme.BackgroundDark.copy(alpha = 0.98f),
-        border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.05f)),
-        shape = RoundedCornerShape(Dimens.RadiusLarge)
+            .fillMaxWidth()
+            .padding(horizontal = 4.dp),
+        shape = RoundedCornerShape(32.dp)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(64.dp),
+                .height(64.dp)
+                .padding(horizontal = 8.dp),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
             NavBarItem(
                 isSelected = currentRoute == "home",
-                icon = if (currentRoute == "home") Icons.Filled.Home else Icons.Default.Home,
+                icon = com.example.musicflow.ui.theme.MFIcons.Home,
                 label = "Home",
                 onClick = { onNavigate("home") }
             )
             NavBarItem(
                 isSelected = currentRoute == "explore",
-                icon = if (currentRoute == "explore") Icons.Filled.Explore else Icons.Default.Explore,
-                label = "Explore",
+                icon = com.example.musicflow.ui.theme.MFIcons.Navigator,
+                label = "Navigation",
                 onClick = { onNavigate("explore") }
             )
             NavBarItem(
                 isSelected = currentRoute == "search",
-                icon = Icons.Filled.Search,
+                icon = com.example.musicflow.ui.theme.MFIcons.Search,
                 label = "Search",
                 onClick = { onNavigate("search") }
             )
             NavBarItem(
                 isSelected = currentRoute == "library",
-                icon = if (currentRoute == "library") Icons.Filled.LibraryMusic else Icons.Default.LibraryMusic,
-                label = "Library",
+                icon = com.example.musicflow.ui.theme.MFIcons.MyMusic,
+                label = "My music",
                 onClick = { onNavigate("library") }
             )
         }
@@ -393,26 +427,55 @@ fun RowScope.NavBarItem(
     label: String,
     onClick: () -> Unit
 ) {
-    val contentColor = if (isSelected) com.example.musicflow.ui.theme.MusicAccent else com.example.musicflow.ui.theme.Secondary
+    val animatedScale by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (isSelected) 1.15f else 1.0f,
+        animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.5f, stiffness = 400f),
+        label = "nav_icon_scale"
+    )
+    val contentColor by animateColorAsState(
+        targetValue = if (isSelected) com.example.musicflow.ui.theme.MusicAccent else com.example.musicflow.ui.theme.Secondary,
+        label = "nav_item_color"
+    )
 
-    Column(
+    Box(
         modifier = Modifier
             .weight(1f)
-            .clickable(onClick = onClick),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+            .fillMaxHeight()
+            .clickable(
+                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            ),
+        contentAlignment = Alignment.Center
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = label,
-            tint = contentColor,
-            modifier = Modifier.size(24.dp)
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = contentColor
-        )
+        if (isSelected) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.85f)
+                    .height(48.dp)
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(com.example.musicflow.ui.theme.MusicAccent.copy(alpha = 0.12f))
+            )
+        }
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.scale(animatedScale)
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = contentColor,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.height(3.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = contentColor,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                fontSize = 10.5.sp
+            )
+        }
     }
 }

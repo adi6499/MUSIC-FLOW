@@ -81,22 +81,41 @@ class LibraryViewModel(
     }
 
     fun addToQueue(song: Song) {
-        musicController.addToQueue(song)
+        viewModelScope.launch {
+            val fullSong = if (song.streamUrl.isNotBlank()) song else repository.getSongDetails(song.id) ?: song
+            musicController.addToQueue(fullSong)
+        }
     }
 
     fun playNext(song: Song) {
-        musicController.playNext(song)
+        viewModelScope.launch {
+            val fullSong = if (song.streamUrl.isNotBlank()) song else repository.getSongDetails(song.id) ?: song
+            musicController.playNext(fullSong)
+        }
     }
 
     fun startRadio(song: Song) {
         viewModelScope.launch {
             try {
-                val related = repository.searchSongs(song.name, limit = 20)
-                if (related.isNotEmpty()) {
-                    musicController.playQueue(listOf(song) + related.filter { it.id != song.id })
+                val fullSong = if (song.streamUrl.isNotBlank()) song else repository.getSongDetails(song.id) ?: song
+                val artistQuery = fullSong.artists.split(",", "&", "feat.", "ft.").firstOrNull()?.trim()?.takeIf { it.isNotBlank() && it != "Unknown Artist" }
+                val related = if (!artistQuery.isNullOrBlank()) {
+                    repository.searchComprehensiveSongs(artistQuery)
+                } else {
+                    repository.searchComprehensiveSongs(fullSong.name)
+                }
+                val validRelated = related.filter { it.id != fullSong.id && it.streamUrl.isNotBlank() }
+                val queue = (listOf(fullSong) + validRelated).distinctBy { it.id }
+
+                val isCurrent = musicController.currentSong.value?.id == fullSong.id
+                if (isCurrent && musicController.isPlaying.value) {
+                    musicController.setRadioQueueKeepPlaying(queue)
+                } else {
+                    musicController.playQueue(queue, 0)
                 }
             } catch (e: Exception) {
-                musicController.playSong(song)
+                val fullSong = if (song.streamUrl.isNotBlank()) song else repository.getSongDetails(song.id) ?: song
+                musicController.playSong(fullSong)
             }
         }
     }

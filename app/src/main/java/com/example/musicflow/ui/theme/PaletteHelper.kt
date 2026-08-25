@@ -9,25 +9,38 @@ import coil.ImageLoader
 import coil.request.ImageRequest
 import coil.request.SuccessResult
 
+private val paletteMemoryCache = java.util.concurrent.ConcurrentHashMap<String, MusicPalette>()
+private val dominantColorMemoryCache = java.util.concurrent.ConcurrentHashMap<String, Color>()
+
 @Composable
 fun rememberDominantColor(imageUrl: String?): Color {
     val context = LocalContext.current
-    var dominantColor by remember { mutableStateOf(Primary) }
+    val cached = imageUrl?.let { dominantColorMemoryCache[it] }
+    var dominantColor by remember(imageUrl) { mutableStateOf(cached ?: Primary) }
 
     LaunchedEffect(imageUrl) {
         if (!imageUrl.isNullOrBlank()) {
-            val loader = ImageLoader(context)
-            val request = ImageRequest.Builder(context)
-                .data(imageUrl)
-                .allowHardware(false) // Required for Palette
-                .build()
+            dominantColorMemoryCache[imageUrl]?.let {
+                dominantColor = it
+                return@LaunchedEffect
+            }
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val loader = coil.Coil.imageLoader(context)
+                val request = ImageRequest.Builder(context)
+                    .data(imageUrl)
+                    .size(100, 100) // Downsample for 10x faster palette extraction
+                    .allowHardware(false)
+                    .build()
 
-            val result = (loader.execute(request) as? SuccessResult)?.drawable
-            if (result is BitmapDrawable) {
-                val bitmap = result.bitmap
-                Palette.from(bitmap).generate { palette ->
-                    palette?.dominantSwatch?.rgb?.let { color ->
-                        dominantColor = Color(color)
+                val result = (loader.execute(request) as? SuccessResult)?.drawable
+                if (result is BitmapDrawable) {
+                    val bitmap = result.bitmap
+                    Palette.from(bitmap).generate { palette ->
+                        palette?.dominantSwatch?.rgb?.let { color ->
+                            val c = Color(color)
+                            dominantColorMemoryCache[imageUrl] = c
+                            dominantColor = c
+                        }
                     }
                 }
             }
@@ -46,28 +59,38 @@ data class MusicPalette(
 @Composable
 fun rememberMusicPalette(imageUrl: String?): MusicPalette {
     val context = LocalContext.current
-    var paletteState by remember { 
-        mutableStateOf(MusicPalette(Primary, Surface, Secondary)) 
+    val cached = imageUrl?.let { paletteMemoryCache[it] }
+    var paletteState by remember(imageUrl) { 
+        mutableStateOf(cached ?: MusicPalette(Primary, Surface, Secondary)) 
     }
 
     LaunchedEffect(imageUrl) {
         if (!imageUrl.isNullOrBlank()) {
-            val loader = ImageLoader(context)
-            val request = ImageRequest.Builder(context)
-                .data(imageUrl)
-                .allowHardware(false)
-                .build()
+            paletteMemoryCache[imageUrl]?.let {
+                paletteState = it
+                return@LaunchedEffect
+            }
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val loader = coil.Coil.imageLoader(context)
+                val request = ImageRequest.Builder(context)
+                    .data(imageUrl)
+                    .size(100, 100) // Downsample for 10x faster palette extraction
+                    .allowHardware(false)
+                    .build()
 
-            val result = (loader.execute(request) as? SuccessResult)?.drawable
-            if (result is BitmapDrawable) {
-                val bitmap = result.bitmap
-                Palette.from(bitmap).generate { palette ->
-                    palette?.let {
-                        paletteState = MusicPalette(
-                            dominant = Color(it.getDominantColor(Primary.toArgb())),
-                            muted = Color(it.getMutedColor(Surface.toArgb())),
-                            vibrant = Color(it.getVibrantColor(Secondary.toArgb()))
-                        )
+                val result = (loader.execute(request) as? SuccessResult)?.drawable
+                if (result is BitmapDrawable) {
+                    val bitmap = result.bitmap
+                    Palette.from(bitmap).generate { palette ->
+                        palette?.let {
+                            val pal = MusicPalette(
+                                dominant = Color(it.getDominantColor(Primary.toArgb())),
+                                muted = Color(it.getMutedColor(Surface.toArgb())),
+                                vibrant = Color(it.getVibrantColor(Secondary.toArgb()))
+                            )
+                            paletteMemoryCache[imageUrl] = pal
+                            paletteState = pal
+                        }
                     }
                 }
             }

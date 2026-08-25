@@ -58,12 +58,19 @@ interface MusicApiService {
         @Query("limit") limit: Int = 100
     ): Response<ApiResponse<PlaylistDto>>
 
-    @GET("api/artists/{id}")
+    @GET("api/artists")
     suspend fun getArtistDetails(
+        @Query("id") id: String,
+        @Query("songCount") songCount: Int = 50,
+        @Query("albumCount") albumCount: Int = 50
+    ): Response<ApiResponse<ArtistDto>>
+
+    @GET("api/artists/{id}")
+    suspend fun getArtistDetailsByPath(
         @Path("id") id: String,
         @Query("songCount") songCount: Int = 50,
         @Query("albumCount") albumCount: Int = 50
-    ): Response<ApiResponse<ArtistDto>> // Wait, artist details usually return more info
+    ): Response<ApiResponse<ArtistDto>>
 
     @GET("api/artists/{id}/songs")
     suspend fun getArtistSongs(
@@ -71,13 +78,13 @@ interface MusicApiService {
         @Query("page") page: Int = 0,
         @Query("sortBy") sortBy: String = "popularity",
         @Query("sortOrder") sortOrder: String = "desc"
-    ): Response<ApiResponse<List<SongDto>>>
+    ): Response<ApiResponse<ArtistSongsDto>>
 
     @GET("api/artists/{id}/albums")
     suspend fun getArtistAlbums(
         @Path("id") id: String,
         @Query("page") page: Int = 0
-    ): Response<ApiResponse<List<AlbumDto>>>
+    ): Response<ApiResponse<ArtistAlbumsDto>>
 
     @GET("api/lyrics")
     suspend fun getLyrics(

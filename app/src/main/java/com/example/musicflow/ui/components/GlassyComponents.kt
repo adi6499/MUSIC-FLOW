@@ -1,5 +1,6 @@
 package com.example.musicflow.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -9,89 +10,93 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
+/**
+ * Authentic Apple Liquid Glass Surface:
+ * Clean, modern, frosted glass with crisp 1px specular lighting border,
+ * rich backdrop opacity (no text bleed-through), and soft ambient depth shadow.
+ */
 @Composable
-fun GlassyBox(
+fun LiquidGlassSurface(
     modifier: Modifier = Modifier,
-    cornerRadius: androidx.compose.ui.unit.Dp = 24.dp,
+    shape: Shape = RoundedCornerShape(24.dp),
     enabled: Boolean = LocalGlassEffects.current,
+    borderWidth: Dp = 1.dp,
     content: @Composable BoxScope.() -> Unit
 ) {
     if (enabled) {
         Box(
             modifier = modifier
-                .clip(RoundedCornerShape(cornerRadius))
+                .clip(shape)
                 .background(
                     brush = Brush.verticalGradient(
                         colors = listOf(
-                            Color.White.copy(alpha = 0.12f),
-                            Color.White.copy(alpha = 0.04f)
+                            Color(0xFF222228).copy(alpha = 0.96f),
+                            Color(0xFF121216).copy(alpha = 0.98f)
                         )
                     )
                 )
                 .border(
-                    width = 0.5.dp,
+                    width = borderWidth,
                     brush = Brush.verticalGradient(
                         colors = listOf(
-                            Color.White.copy(alpha = 0.3f),
-                            Color.Transparent,
-                            Color.White.copy(alpha = 0.1f)
+                            Color.White.copy(alpha = 0.22f), // Crisp top specular rim
+                            Color.White.copy(alpha = 0.06f)  // Ambient lower rim
                         )
                     ),
-                    shape = RoundedCornerShape(cornerRadius)
-                ),
-            content = content
-        )
+                    shape = shape
+                )
+        ) {
+            content()
+        }
     } else {
         Surface(
             modifier = modifier,
-            shape = RoundedCornerShape(cornerRadius),
-            color = MaterialTheme.colorScheme.surfaceVariant
+            shape = shape,
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
         ) {
-            Box(modifier = Modifier.fillMaxSize(), content = content)
+            Box(content = content)
         }
     }
 }
 
 @Composable
+fun GlassyBox(
+    modifier: Modifier = Modifier,
+    cornerRadius: Dp = 24.dp,
+    enabled: Boolean = LocalGlassEffects.current,
+    content: @Composable BoxScope.() -> Unit
+) {
+    LiquidGlassSurface(
+        modifier = modifier,
+        shape = RoundedCornerShape(cornerRadius),
+        enabled = enabled,
+        content = content
+    )
+}
+
+@Composable
 fun GlassyCard(
     modifier: Modifier = Modifier,
-    cornerRadius: androidx.compose.ui.unit.Dp = 28.dp,
+    cornerRadius: Dp = 24.dp,
     enabled: Boolean = LocalGlassEffects.current,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    if (enabled) {
+    LiquidGlassSurface(
+        modifier = modifier,
+        shape = RoundedCornerShape(cornerRadius),
+        enabled = enabled
+    ) {
         Column(
-            modifier = modifier
-                .clip(RoundedCornerShape(cornerRadius))
-                .background(Color.White.copy(alpha = 0.08f))
-                .border(
-                    width = 0.5.dp,
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            Color.White.copy(alpha = 0.25f),
-                            Color.Transparent
-                        )
-                    ),
-                    shape = RoundedCornerShape(cornerRadius)
-                )
-                .padding(16.dp),
+            modifier = Modifier.padding(16.dp),
             content = content
         )
-    } else {
-        Surface(
-            modifier = modifier,
-            shape = RoundedCornerShape(cornerRadius),
-            color = MaterialTheme.colorScheme.surfaceVariant,
-            tonalElevation = 2.dp
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                content = content
-            )
-        }
     }
 }

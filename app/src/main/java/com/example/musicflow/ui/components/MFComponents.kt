@@ -143,7 +143,7 @@ fun MFListRow(
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleLarge,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -290,14 +290,19 @@ fun SongContextMenu(
     onAddToQueue: () -> Unit = {},
     onAddToPlaylist: () -> Unit = {},
     onStartRadio: () -> Unit = {},
+    onGoToArtist: (() -> Unit)? = null,
+    onGoToAlbum: (() -> Unit)? = null,
     onLike: () -> Unit = {},
     onShare: () -> Unit = {},
+    onShareStory: (() -> Unit)? = null,
+    onQualityClick: (() -> Unit)? = null,
+    onEqualizerClick: (() -> Unit)? = null,
     onRemoveFromPlaylist: (() -> Unit)? = null
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = SurfaceDark,
-        dragHandle = { BottomSheetDefaults.DragHandle(color = Color.White.copy(alpha = 0.1f)) }
+        containerColor = MaterialTheme.colorScheme.surface,
+        dragHandle = { BottomSheetDefaults.DragHandle(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)) }
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(bottom = 32.dp)) {
             Row(
@@ -312,18 +317,33 @@ fun SongContextMenu(
                 )
                 Spacer(modifier = Modifier.width(Dimens.PaddingLarge))
                 Column {
-                    Text(text = song.name, style = MaterialTheme.typography.titleLarge, color = Color.White)
+                    Text(text = song.name, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
                     Text(text = song.artists, style = MaterialTheme.typography.bodyMedium, color = Secondary)
                 }
             }
             
-            HorizontalDivider(color = DividerColor, thickness = 0.5.dp)
+            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f), thickness = 0.5.dp)
             
             LazyColumn(modifier = Modifier.fillMaxWidth()) {
                 item { ContextMenuItem(Icons.AutoMirrored.Filled.PlaylistPlay, "Play next", onPlayNext) }
                 item { ContextMenuItem(Icons.AutoMirrored.Filled.QueueMusic, "Add to queue", onAddToQueue) }
                 item { ContextMenuItem(Icons.Default.Radio, "Start Radio", onStartRadio) }
+                onGoToArtist?.let {
+                    item { ContextMenuItem(Icons.Default.Person, "Go to artist", it) }
+                }
+                onGoToAlbum?.let {
+                    item { ContextMenuItem(Icons.Default.Album, "Go to album", it) }
+                }
                 item { ContextMenuItem(Icons.AutoMirrored.Filled.PlaylistAdd, "Add to playlist", onAddToPlaylist) }
+                onQualityClick?.let {
+                    item { ContextMenuItem(Icons.Default.HighQuality, "Audio Quality", it) }
+                }
+                onEqualizerClick?.let {
+                    item { ContextMenuItem(Icons.Default.GraphicEq, "Equalizer & Sound Effects", it) }
+                }
+                onShareStory?.let {
+                    item { ContextMenuItem(Icons.Default.AutoAwesome, "Share Story Card (Instagram / WhatsApp)", it) }
+                }
                 item { 
                     ContextMenuItem(
                         icon = if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder, 
@@ -331,13 +351,107 @@ fun SongContextMenu(
                         onLike
                     ) 
                 }
-                item { ContextMenuItem(Icons.Default.Share, "Share", onShare) }
+                item { ContextMenuItem(Icons.Default.Share, "Share Track Link", onShare) }
                 onRemoveFromPlaylist?.let {
                     item { ContextMenuItem(Icons.Default.Delete, "Remove from playlist", it) }
                 }
             }
         }
     }
+}
+
+@Composable
+fun AudioQualityDialog(
+    currentQuality: String,
+    onDismiss: () -> Unit,
+    onQualitySelected: (String) -> Unit
+) {
+    val options = listOf(
+        Triple("320kbps", "Lossless & Hi-Res Master (320 kbps)", "Highest studio master fidelity, lossless dynamics"),
+        Triple("256kbps", "High Fidelity (256 kbps)", "Apple Music AAC standard, ultra clean sound"),
+        Triple("160kbps", "High Quality (160 kbps)", "Crisp sound, balanced data usage"),
+        Triple("128kbps", "Standard (128 kbps)", "Smooth streaming, standard data usage"),
+        Triple("96kbps", "Normal / Data Saver (96 kbps)", "Low data consumption, quick buffering"),
+        Triple("48kbps", "Ultra Data Saver (48 kbps)", "Minimum data usage, ideal for slow networks")
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.HighQuality,
+                    contentDescription = null,
+                    tint = MusicAccent,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text("Streaming Audio Quality", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
+            }
+        },
+        text = {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                options.forEach { (key, title, subtitle) ->
+                    val isSelected = currentQuality == key || currentQuality.contains(key, ignoreCase = true)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(Dimens.RadiusMedium))
+                            .clickable {
+                                onQualitySelected(key)
+                                onDismiss()
+                            }
+                            .background(if (isSelected) MusicAccent.copy(alpha = 0.12f) else Color.Transparent)
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = isSelected,
+                            onClick = null,
+                            colors = RadioButtonDefaults.colors(selectedColor = MusicAccent)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = title,
+                                    style = MaterialTheme.typography.titleMedium.copy(fontSize = 14.sp),
+                                    color = if (isSelected) MusicAccent else MaterialTheme.colorScheme.onSurface,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                )
+                                if (key == "320kbps") {
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = MusicAccent.copy(alpha = 0.2f)
+                                    ) {
+                                        Text(
+                                            text = "LOSSLESS",
+                                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                            color = MusicAccent,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                        )
+                                    }
+                                }
+                            }
+                            Text(
+                                text = subtitle,
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                color = Secondary
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(2.dp))
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Close", color = Secondary) }
+        }
+    )
 }
 
 @Composable
@@ -383,7 +497,7 @@ fun PlaylistSelectionDialog(
 }
 
 @Composable
-private fun ContextMenuItem(icon: ImageVector, label: String, onClick: () -> Unit) {
+fun ContextMenuItem(icon: ImageVector, label: String, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -415,5 +529,31 @@ fun ExploreGenreCard(name: String, color: Color, modifier: Modifier = Modifier, 
                 modifier = Modifier.align(Alignment.BottomStart)
             )
         }
+    }
+}
+
+@Composable
+fun ArtistAvatarRow(name: String, imageUrl: String, onClick: () -> Unit = {}) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.width(80.dp).clickable(onClick = onClick)
+    ) {
+        AsyncImage(
+            model = imageUrl,
+            contentDescription = null,
+            modifier = Modifier
+                .size(80.dp)
+                .clip(CircleShape)
+                .background(SurfaceVariantDark),
+            contentScale = ContentScale.Crop
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = name,
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.White,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }

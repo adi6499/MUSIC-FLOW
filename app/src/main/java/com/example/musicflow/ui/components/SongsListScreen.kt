@@ -37,19 +37,19 @@ fun SongsListScreen(
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var newPlaylistName by remember { mutableStateOf("") }
 
-    Box(modifier = Modifier.fillMaxSize().background(BackgroundDark)) {
+    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(vertical = Dimens.PaddingSmall),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onBackground)
                 }
                 Text(
                     text = title,
                     style = MaterialTheme.typography.headlineMedium,
-                    color = Color.White
+                    color = MaterialTheme.colorScheme.onBackground
                 )
             }
 
@@ -57,7 +57,7 @@ fun SongsListScreen(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = bottomPadding + Dimens.PaddingLarge)
             ) {
-                items(songs) { song ->
+                items(songs.distinctBy { it.id }, key = { "song_${it.id}" }) { song ->
                     MFListRow(
                         title = song.name,
                         subtitle = song.artists,
@@ -106,7 +106,8 @@ fun SongsListScreen(
         if (showCreatePlaylistDialog) {
             AlertDialog(
                 onDismissRequest = { showCreatePlaylistDialog = false },
-                title = { Text("New Playlist", color = Color.White) },
+                containerColor = MaterialTheme.colorScheme.surface,
+                title = { Text("New Playlist", color = MaterialTheme.colorScheme.onSurface) },
                 text = {
                     TextField(
                         value = newPlaylistName,

@@ -54,22 +54,39 @@ class AlbumViewModel(
     }
 
     fun playNext(song: Song) {
-        musicController.playNext(song)
+        viewModelScope.launch {
+            val fullSong = if (song.streamUrl.isNotBlank()) song else repository.getSongDetails(song.id) ?: song
+            musicController.playNext(fullSong)
+        }
     }
 
     fun addToQueue(song: Song) {
-        musicController.addToQueue(song)
+        viewModelScope.launch {
+            val fullSong = if (song.streamUrl.isNotBlank()) song else repository.getSongDetails(song.id) ?: song
+            musicController.addToQueue(fullSong)
+        }
     }
 
     fun startRadio(song: Song) {
         viewModelScope.launch {
             try {
-                val related = repository.searchSongs(song.name, limit = 20)
-                if (related.isNotEmpty()) {
-                    musicController.playQueue(listOf(song) + related.filter { it.id != song.id })
+                val fullSong = if (song.streamUrl.isNotBlank()) song else repository.getSongDetails(song.id) ?: song
+                val artistQuery = fullSong.artists.split(",").firstOrNull()?.trim()?.takeIf { it.isNotBlank() && it != "Unknown Artist" }
+                val related = if (!artistQuery.isNullOrBlank()) {
+                    repository.searchSongs(artistQuery, limit = 25)
+                } else {
+                    repository.searchSongs(fullSong.name, limit = 25)
                 }
+                val validRelated = related.filter { it.id != fullSong.id && it.streamUrl.isNotBlank() }
+                val queue = if (validRelated.isNotEmpty()) {
+                    listOf(fullSong) + validRelated
+                } else {
+                    listOf(fullSong)
+                }
+                musicController.playQueue(queue, 0)
             } catch (e: Exception) {
-                musicController.playSong(song)
+                val fullSong = if (song.streamUrl.isNotBlank()) song else repository.getSongDetails(song.id) ?: song
+                musicController.playSong(fullSong)
             }
         }
     }

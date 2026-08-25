@@ -13,11 +13,15 @@ import com.example.musicflow.service.MusicService
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-class MusicController(context: Context) {
+class MusicController(
+    private val context: Context,
+    private val userPreferences: com.example.musicflow.data.local.UserPreferences = com.example.musicflow.data.local.UserPreferences(context)
+) {
 
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private var controller: MediaController? = null
@@ -59,22 +63,50 @@ class MusicController(context: Context) {
     }
 
     private var positionJob: Job? = null
+    private var lastSavedSec = 0L
 
     private fun setupController() {
         controller?.let {
-            _currentSong.value = it.currentMediaItem?.toDomain()
-            _isPlaying.value = it.isPlaying
-            _shuffleMode.value = it.shuffleModeEnabled
-            _repeatMode.value = it.repeatMode
-            _duration.value = it.duration.coerceAtLeast(0L)
-            updateQueue()
-            if (it.isPlaying) startPositionPolling()
+            val mediaItem = it.currentMediaItem
+            if (mediaItem != null) {
+                _currentSong.value = mediaItem.toDomain()
+                _isPlaying.value = it.isPlaying
+                _shuffleMode.value = it.shuffleModeEnabled
+                _repeatMode.value = it.repeatMode
+                _duration.value = it.duration.coerceAtLeast(0L)
+                updateQueue()
+                if (it.isPlaying) startPositionPolling()
+            } else {
+                // Restore last played song and seek position on app startup
+                scope.launch {
+                    try {
+                        val lastSong = userPreferences.lastSavedSong.first()
+                        val lastPos = userPreferences.lastPositionMs.first()
+                        if (lastSong != null && lastSong.streamUrl.isNotBlank()) {
+                            _currentSong.value = lastSong
+                            _currentPosition.value = lastPos
+                            _duration.value = (lastSong.duration * 1000L).coerceAtLeast(0L)
+                            _queue.value = listOf(lastSong)
+                            val mItem = lastSong.toMediaItem()
+                            controller?.setMediaItem(mItem, lastPos)
+                            controller?.prepare()
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("MusicController", "Restore playback state error: ${e.message}")
+                    }
+                }
+            }
         }
 
         controller?.addListener(object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                _currentSong.value = mediaItem?.toDomain()
+                val song = mediaItem?.toDomain()
+                _currentSong.value = song
                 _duration.value = controller?.duration?.coerceAtLeast(0L) ?: 0L
+                if (song != null) {
+                    val pos = controller?.currentPosition?.coerceAtLeast(0L) ?: 0L
+                    scope.launch { userPreferences.saveLastPlaybackState(song, pos) }
+                }
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -83,6 +115,10 @@ class MusicController(context: Context) {
                     startPositionPolling()
                 } else {
                     stopPositionPolling()
+                    _currentSong.value?.let { song ->
+                        val pos = controller?.currentPosition?.coerceAtLeast(0L) ?: _currentPosition.value
+                        scope.launch { userPreferences.updateLastPlaybackPosition(pos) }
+                    }
                 }
             }
 
@@ -121,7 +157,13 @@ class MusicController(context: Context) {
         positionJob?.cancel()
         positionJob = scope.launch {
             while (isActive) {
-                _currentPosition.value = controller?.currentPosition ?: 0L
+                val pos = controller?.currentPosition ?: 0L
+                _currentPosition.value = pos
+                val currentSec = pos / 4000L
+                if (currentSec != lastSavedSec) {
+                    lastSavedSec = currentSec
+                    userPreferences.updateLastPlaybackPosition(pos)
+                }
                 delay(250)
             }
         }
@@ -143,7 +185,17 @@ class MusicController(context: Context) {
         }
     }
 
+    private fun showToast(message: String) {
+        android.os.Handler(android.os.Looper.getMainLooper()).post {
+            android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+
     fun playSong(song: Song) {
+        if (song.streamUrl.isBlank()) {
+            showToast("Couldn't load this track")
+            return
+        }
         val mediaItem = song.toMediaItem()
         controller?.run {
             setMediaItem(mediaItem)
@@ -152,14 +204,63 @@ class MusicController(context: Context) {
         }
     }
 
+    fun switchSongStream(song: Song) {
+        if (song.streamUrl.isBlank()) {
+            showToast("Couldn't load this track")
+            return
+        }
+        val currentPos = controller?.currentPosition ?: 0L
+        val wasPlaying = controller?.isPlaying == true
+        val mediaItem = song.toMediaItem()
+        _currentSong.value = song
+        controller?.run {
+            setMediaItem(mediaItem, currentPos)
+            prepare()
+            if (wasPlaying) play()
+        }
+    }
+
     fun playQueue(songs: List<Song>, startIndex: Int = 0) {
-        val mediaItems = songs.map { it.toMediaItem() }
+        val validSongs = songs.filter { it.streamUrl.isNotBlank() }
+        if (validSongs.isEmpty()) {
+            showToast("Couldn't load tracks")
+            return
+        }
+        val safeIndex = if (startIndex in validSongs.indices) startIndex else 0
+        val mediaItems = validSongs.map { it.toMediaItem() }
         controller?.run {
             setMediaItems(mediaItems)
-            seekTo(startIndex, 0L)
+            seekTo(safeIndex, 0L)
             prepare()
             play()
         }
+    }
+
+    fun setRadioQueueKeepPlaying(songs: List<Song>) {
+        val validSongs = songs.filter { it.streamUrl.isNotBlank() }
+        if (validSongs.isEmpty()) return
+        val currentCtrl = controller ?: return
+        
+        val currentIdx = currentCtrl.currentMediaItemIndex
+        val totalCount = currentCtrl.mediaItemCount
+        
+        // Remove old upcoming queue items after current playing song
+        if (totalCount > currentIdx + 1) {
+            currentCtrl.removeMediaItems(currentIdx + 1, totalCount)
+        }
+        
+        // Add new radio tracks (excluding the first one if it matches currently playing song)
+        val songsToAdd = if (validSongs.firstOrNull()?.id == _currentSong.value?.id) {
+            validSongs.drop(1)
+        } else {
+            validSongs
+        }
+        
+        val mediaItems = songsToAdd.map { it.toMediaItem() }
+        if (mediaItems.isNotEmpty()) {
+            currentCtrl.addMediaItems(mediaItems)
+        }
+        showToast("Radio mode active • Playing endlessly")
     }
 
     fun togglePlayPause() {
@@ -173,20 +274,48 @@ class MusicController(context: Context) {
     }
 
     fun skipNext() {
-        controller?.seekToNext()
+        controller?.run {
+            seekToNext()
+            play()
+        }
     }
 
     fun skipPrevious() {
-        controller?.seekToPrevious()
+        controller?.run {
+            seekToPrevious()
+            play()
+        }
     }
 
     // --- Queue Management ---
 
     fun addToQueue(song: Song) {
+        if (song.streamUrl.isBlank()) {
+            showToast("Couldn't load this track")
+            return
+        }
         controller?.addMediaItem(song.toMediaItem())
     }
 
+    fun addMultipleToQueue(songs: List<Song>) {
+        val validSongs = songs.filter { it.streamUrl.isNotBlank() }
+        if (validSongs.isEmpty()) return
+        val currentCtrl = controller ?: return
+        val existingIds = mutableSetOf<String>()
+        for (i in 0 until currentCtrl.mediaItemCount) {
+            existingIds.add(currentCtrl.getMediaItemAt(i).mediaId)
+        }
+        val itemsToAdd = validSongs.filter { !existingIds.contains(it.id) }.map { it.toMediaItem() }
+        if (itemsToAdd.isNotEmpty()) {
+            currentCtrl.addMediaItems(itemsToAdd)
+        }
+    }
+
     fun playNext(song: Song) {
+        if (song.streamUrl.isBlank()) {
+            showToast("Couldn't load this track")
+            return
+        }
         controller?.let {
             val nextIndex = if (it.mediaItemCount > 0) it.currentMediaItemIndex + 1 else 0
             it.addMediaItem(nextIndex, song.toMediaItem())
@@ -221,13 +350,19 @@ class MusicController(context: Context) {
         
         sleepTimerJob = scope.launch {
             var remaining = totalMs
+            val initialVol = controller?.volume ?: 1.0f
             while (remaining > 0) {
                 delay(1000)
                 remaining -= 1000
                 _sleepTimerRemaining.value = remaining
+                if (remaining <= 60000L) {
+                    val fadeFactor = (remaining.toFloat() / 60000f).coerceIn(0.05f, 1f)
+                    controller?.volume = initialVol * fadeFactor
+                }
             }
             _sleepTimerRemaining.value = null
             controller?.pause()
+            controller?.volume = initialVol
         }
     }
 
@@ -242,15 +377,16 @@ class MusicController(context: Context) {
 // --- Extensions ---
 
 fun Song.toMediaItem(): MediaItem {
+    val uri = if (streamUrl.isNotBlank()) android.net.Uri.parse(streamUrl) else android.net.Uri.EMPTY
     return MediaItem.Builder()
         .setMediaId(id ?: "")
-        .setUri(streamUrl ?: "")
+        .setUri(uri)
         .setMediaMetadata(
             MediaMetadata.Builder()
                 .setTitle(name ?: "")
                 .setArtist(artists ?: "")
                 .setAlbumTitle(album ?: "")
-                .setArtworkUri(if (image != null) android.net.Uri.parse(image) else android.net.Uri.EMPTY)
+                .setArtworkUri(if (!image.isNullOrBlank()) android.net.Uri.parse(image) else android.net.Uri.EMPTY)
                 .build()
         )
         .build()

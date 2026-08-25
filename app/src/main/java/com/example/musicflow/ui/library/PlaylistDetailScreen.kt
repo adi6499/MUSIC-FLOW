@@ -37,9 +37,14 @@ fun PlaylistDetailScreen(
     onBack: () -> Unit,
     bottomPadding: androidx.compose.ui.unit.Dp
 ) {
-    val songs by viewModel.getPlaylistSongs(playlistId).collectAsState(initial = emptyList())
+    val isLikedSongs = playlistId == "liked"
+    val songs by (if (isLikedSongs) viewModel.favorites else viewModel.getPlaylistSongs(playlistId)).collectAsState(initial = emptyList())
     val playlists by viewModel.playlists.collectAsState()
-    val playlist = playlists.find { it.id == playlistId }
+    val playlist = if (isLikedSongs) {
+        com.example.musicflow.data.local.PlaylistEntity("liked", "Liked Songs", "", "")
+    } else {
+        playlists.find { it.id == playlistId }
+    }
 
     Box(
         modifier = Modifier
@@ -57,10 +62,10 @@ fun PlaylistDetailScreen(
         ) {
             item {
                 PlaylistHeader(
-                    title = playlist?.name ?: "Playlist",
+                    title = if (isLikedSongs) "Liked Songs" else (playlist?.name ?: "Playlist"),
                     subtitle = "${songs.size} songs",
                     onBack = onBack,
-                    onMenuClick = { showMenu = true }
+                    onMenuClick = if (isLikedSongs) null else { { showMenu = true } }
                 )
             }
             
@@ -195,7 +200,7 @@ fun PlaylistHeader(
     title: String,
     subtitle: String,
     onBack: () -> Unit,
-    onMenuClick: () -> Unit
+    onMenuClick: (() -> Unit)? = null
 ) {
     Box(
         modifier = Modifier
@@ -207,14 +212,14 @@ fun PlaylistHeader(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            Color.DarkGray.copy(alpha = 0.5f),
-                            BackgroundDark
-                        ),
-                        startY = 0.3f
-                    )
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color.DarkGray.copy(alpha = 0.5f),
+                        BackgroundDark
+                    ),
+                    startY = 0.3f
                 )
+            )
         )
         
         Column(
@@ -234,11 +239,15 @@ fun PlaylistHeader(
                 ) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
                 }
-                IconButton(
-                    onClick = onMenuClick,
-                    modifier = Modifier.background(Color.Black.copy(alpha = 0.2f), CircleShape)
-                ) {
-                    Icon(Icons.Default.MoreVert, contentDescription = "Menu", tint = Color.White)
+                if (onMenuClick != null) {
+                    IconButton(
+                        onClick = onMenuClick,
+                        modifier = Modifier.background(Color.Black.copy(alpha = 0.2f), CircleShape)
+                    ) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "Menu", tint = Color.White)
+                    }
+                } else {
+                    Spacer(modifier = Modifier.size(48.dp))
                 }
             }
             

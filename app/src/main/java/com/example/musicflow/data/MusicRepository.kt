@@ -5,6 +5,8 @@ import com.example.musicflow.data.local.*
 import com.example.musicflow.data.model.*
 import androidx.work.*
 import com.example.musicflow.worker.DownloadWorker
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -21,98 +23,397 @@ class MusicRepository(
         return userPreferences.audioQuality.first()
     }
 
+    companion object {
+        private val lyricsMemoryCache = java.util.concurrent.ConcurrentHashMap<String, LyricsData>()
+
+        fun cleanSearchQuery(query: String): String {
+            var q = query.trim().replace(Regex("""\s+"""), " ")
+            val prefixes = listOf("ok ", "okay ", "hey ", "play ", "song ", "songs ", "track ", "tracks ", "listen to ", "artist ", "artists ")
+            for (p in prefixes) {
+                if (q.startsWith(p, ignoreCase = true)) {
+                    val candidate = q.substring(p.length).trim()
+                    if (candidate.isNotBlank()) {
+                        q = candidate
+                    }
+                }
+            }
+            return q
+        }
+
+        fun cleanTrackTitle(name: String): String {
+            return name
+                .replace(Regex("""\(.*?\)""", RegexOption.DOT_MATCHES_ALL), "")
+                .replace(Regex("""\[.*?\]""", RegexOption.DOT_MATCHES_ALL), "")
+                .replace(Regex("""(?i)feat\..*|ft\..*|prod\..*|official.*|slowed.*|reverb.*"""), "")
+                .trim()
+        }
+
+        fun cleanArtistName(artists: String): String {
+            val first = artists.split(",", "&", "feat.", "ft.").firstOrNull()?.trim() ?: ""
+            return first.replace(Regex("""(?i)feat\..*|ft\..*"""), "").trim()
+        }
+    }
+
     // --- API Calls ---
 
     suspend fun searchSongs(query: String, limit: Int = 50, page: Int = 1): List<Song> {
         val quality = getPreferredQuality()
-        val response = api.searchSongs(query, limit, page)
-        return response.body()?.data?.results?.map { it.toDomain(quality) } ?: emptyList()
+        val clean = cleanSearchQuery(query)
+        return try {
+            val response = api.searchSongs(clean, limit, page)
+            response.body()?.data?.results?.map { it.toDomain(quality) } ?: emptyList()
+        } catch (e: Exception) {
+            android.util.Log.e("MusicRepository", "searchSongs failed: ${e.message}", e)
+            emptyList()
+        }
+    }
+
+    suspend fun searchComprehensiveSongs(query: String): List<Song> {
+        val quality = getPreferredQuality()
+        val clean = cleanSearchQuery(query)
+        return try {
+            coroutineScope {
+                val directSongsDef = async {
+                    try {
+                        api.searchSongs(clean, limit = 50, page = 1).body()?.data?.results?.map { it.toDomain(quality) } ?: emptyList()
+                    } catch (e: Exception) {
+                        emptyList()
+                    }
+                }
+                val artistSearchDef = async {
+                    try {
+                        api.searchArtists(clean, limit = 3, page = 1).body()?.data?.results?.firstOrNull()?.id
+                    } catch (e: Exception) {
+                        null
+                    }
+                }
+                val playlistsDef = async {
+                    try {
+                        api.searchPlaylists(clean, limit = 4, page = 1).body()?.data?.results ?: emptyList()
+                    } catch (e: Exception) {
+                        emptyList()
+                    }
+                }
+                val albumsDef = async {
+                    try {
+                        api.searchAlbums(clean, limit = 4, page = 1).body()?.data?.results ?: emptyList()
+                    } catch (e: Exception) {
+                        emptyList()
+                    }
+                }
+
+                val directSongs = directSongsDef.await()
+                val topArtistId = artistSearchDef.await()
+                val playlistDtos = playlistsDef.await()
+                val albumDtos = albumsDef.await()
+
+                val artistTopSongsDef = if (!topArtistId.isNullOrBlank()) {
+                    async {
+                        try {
+                            api.getArtistSongs(topArtistId).body()?.data?.songs?.map { it.toDomain(quality) } ?: emptyList()
+                        } catch (e: Exception) {
+                            emptyList()
+                        }
+                    }
+                } else null
+
+                val playlistSongsDeferred = playlistDtos.map { playlistDto ->
+                    async {
+                        try {
+                            val pid = playlistDto.id ?: return@async emptyList<Song>()
+                            api.getPlaylistDetails(pid).body()?.data?.songs?.map { it.toDomain(quality) } ?: emptyList()
+                        } catch (e: Exception) {
+                            emptyList()
+                        }
+                    }
+                }
+
+                val albumSongsDeferred = albumDtos.map { albumDto ->
+                    async {
+                        try {
+                            val aid = albumDto.id ?: return@async emptyList<Song>()
+                            api.getAlbumDetails(aid).body()?.data?.songs?.map { it.toDomain(quality) } ?: emptyList()
+                        } catch (e: Exception) {
+                            emptyList()
+                        }
+                    }
+                }
+
+                val artistTopSongs = artistTopSongsDef?.await() ?: emptyList()
+                val playlistSongs = playlistSongsDeferred.flatMap { it.await() }
+                val albumSongs = albumSongsDeferred.flatMap { it.await() }
+
+                val combined: List<Song> = artistTopSongs + directSongs + playlistSongs + albumSongs
+                val seenNames = mutableSetOf<String>()
+                val uniqueSongs = mutableListOf<Song>()
+
+                for (song in combined) {
+                    val normalizedKey = song.name.lowercase().trim().replace(Regex("[^a-z0-9]"), "")
+                    if (normalizedKey.isNotBlank() && seenNames.add(normalizedKey)) {
+                        uniqueSongs.add(song)
+                    }
+                }
+
+                if (uniqueSongs.isNotEmpty()) uniqueSongs else directSongs
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("MusicRepository", "searchComprehensiveSongs failed: ${e.message}", e)
+            searchSongs(clean)
+        }
     }
 
     suspend fun searchAlbums(query: String, limit: Int = 20, page: Int = 1): List<Album> {
         val quality = getPreferredQuality()
-        val response = api.searchAlbums(query, limit, page)
-        return response.body()?.data?.results?.map { it.toDomain(quality) } ?: emptyList()
+        val clean = cleanSearchQuery(query)
+        return try {
+            val response = api.searchAlbums(clean, limit, page)
+            response.body()?.data?.results?.map { it.toDomain(quality) } ?: emptyList()
+        } catch (e: Exception) {
+            android.util.Log.e("MusicRepository", "searchAlbums failed: ${e.message}", e)
+            emptyList()
+        }
     }
 
     suspend fun searchArtists(query: String, limit: Int = 20, page: Int = 1): List<Artist> {
-        val response = api.searchArtists(query, limit, page)
-        return response.body()?.data?.results?.map { it.toDomain() } ?: emptyList()
+        val clean = cleanSearchQuery(query)
+        return try {
+            val response = api.searchArtists(clean, limit, page)
+            val results = response.body()?.data?.results?.map { it.toDomain() } ?: emptyList()
+            if (results.isNotEmpty()) {
+                results
+            } else if (clean != query) {
+                api.searchArtists(query, limit, page).body()?.data?.results?.map { it.toDomain() } ?: emptyList()
+            } else {
+                emptyList()
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("MusicRepository", "searchArtists failed: ${e.message}", e)
+            emptyList()
+        }
     }
 
     suspend fun searchPlaylists(query: String, limit: Int = 20, page: Int = 1): List<Playlist> {
         val quality = getPreferredQuality()
-        val response = api.searchPlaylists(query, limit, page)
-        return response.body()?.data?.results?.map { it.toDomain(quality) } ?: emptyList()
+        val clean = cleanSearchQuery(query)
+        return try {
+            val response = api.searchPlaylists(clean, limit, page)
+            response.body()?.data?.results?.map { it.toDomain(quality) } ?: emptyList()
+        } catch (e: Exception) {
+            android.util.Log.e("MusicRepository", "searchPlaylists failed: ${e.message}", e)
+            emptyList()
+        }
     }
+
+    suspend fun getTopCharts(limit: Int = 10): List<Playlist> {
+        val quality = getPreferredQuality()
+        return try {
+            val response = api.searchPlaylists("Trending Playlists", limit = limit, page = 1)
+            val results = response.body()?.data?.results?.map { it.toDomain(quality) } ?: emptyList()
+            if (results.isNotEmpty()) {
+                results
+            } else {
+                val fallbackResponse = api.searchPlaylists("Top Charts", limit = limit, page = 1)
+                fallbackResponse.body()?.data?.results?.map { it.toDomain(quality) } ?: emptyList()
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
 
     suspend fun getSongDetails(id: String): Song? {
         val quality = getPreferredQuality()
-        val response = api.getSongDetails(id)
-        return response.body()?.data?.firstOrNull()?.toDomain(quality)
+        return try {
+            val response = api.getSongDetails(id)
+            response.body()?.data?.firstOrNull()?.toDomain(quality)
+        } catch (e: Exception) {
+            android.util.Log.e("MusicRepository", "getSongDetails failed for id $id: ${e.message}", e)
+            null
+        }
     }
 
     suspend fun getAlbumDetails(id: String): Album? {
         val quality = getPreferredQuality()
-        val response = api.getAlbumDetails(id)
-        return response.body()?.data?.toDomain(quality)
+        return try {
+            val response = api.getAlbumDetails(id)
+            response.body()?.data?.toDomain(quality)
+        } catch (e: Exception) {
+            android.util.Log.e("MusicRepository", "getAlbumDetails failed for id $id: ${e.message}", e)
+            null
+        }
     }
 
     suspend fun getPlaylistDetails(id: String): Playlist? {
         val quality = getPreferredQuality()
-        val response = api.getPlaylistDetails(id)
-        return response.body()?.data?.toDomain(quality)
+        return try {
+            val response = api.getPlaylistDetails(id)
+            response.body()?.data?.toDomain(quality)
+        } catch (e: Exception) {
+            android.util.Log.e("MusicRepository", "getPlaylistDetails failed for id $id: ${e.message}", e)
+            null
+        }
     }
 
     suspend fun getArtistDetails(id: String): Artist? {
-        val response = api.getArtistDetails(id)
-        return response.body()?.data?.toDomain()
+        val quality = getPreferredQuality()
+        return try {
+            val response = api.getArtistDetails(id)
+            val data = response.body()?.data
+            if (data != null) {
+                data.toDomain(quality)
+            } else {
+                val pathRes = api.getArtistDetailsByPath(id)
+                pathRes.body()?.data?.toDomain(quality)
+            }
+        } catch (e: Exception) {
+            try {
+                val pathRes = api.getArtistDetailsByPath(id)
+                pathRes.body()?.data?.toDomain(quality)
+            } catch (ex: Exception) {
+                android.util.Log.e("MusicRepository", "getArtistDetails failed for id $id: ${ex.message}")
+                null
+            }
+        }
     }
 
     suspend fun getArtistSongs(id: String): List<Song> {
         val quality = getPreferredQuality()
-        val response = api.getArtistSongs(id)
-        return response.body()?.data?.map { it.toDomain(quality) } ?: emptyList()
+        return try {
+            val response = api.getArtistSongs(id)
+            response.body()?.data?.songs?.map { it.toDomain(quality) } ?: emptyList()
+        } catch (e: Exception) {
+            android.util.Log.e("MusicRepository", "getArtistSongs failed for id $id: ${e.message}", e)
+            emptyList()
+        }
     }
 
     suspend fun getArtistAlbums(id: String): List<Album> {
         val quality = getPreferredQuality()
-        val response = api.getArtistAlbums(id)
-        return response.body()?.data?.map { it.toDomain(quality) } ?: emptyList()
-    }
-
-    suspend fun getLyrics(song: Song): String? {
-        // Try primary API first
-        try {
-            val response = api.getLyrics(song.id)
-            val lyrics = response.body()?.data?.lyrics
-            if (!lyrics.isNullOrBlank()) return lyrics
-        } catch (e: Exception) {
-            // Log error
-        }
-
-        // Try LrcLib as third party fallback
-        val primaryArtist = song.artists.split(",").first().trim()
-        
-        var lyrics = fetchLyricsFromLrcLib(song.name, song.artists)
-        if (lyrics == null && primaryArtist != song.artists) {
-            lyrics = fetchLyricsFromLrcLib(song.name, primaryArtist)
-        }
-        
-        return lyrics
-    }
-
-    private suspend fun fetchLyricsFromLrcLib(name: String, artists: String): String? {
         return try {
-            val response = lrcApi.getLyrics(name, artists)
-            if (response.isSuccessful) {
-                response.body()?.syncedLyrics ?: response.body()?.plainLyrics
-            } else {
-                null
+            val response = api.getArtistAlbums(id)
+            response.body()?.data?.albums?.map { it.toDomain(quality) } ?: emptyList()
+        } catch (e: Exception) {
+            android.util.Log.e("MusicRepository", "getArtistAlbums failed for id $id: ${e.message}", e)
+            emptyList()
+        }
+    }
+
+    suspend fun getLyrics(song: Song): LyricsData? {
+        val cleanTitle = cleanTrackTitle(song.name)
+        if (cleanTitle.isBlank()) return null
+        val cleanArtist = cleanArtistName(song.artists)
+        val cacheKey = "${cleanTitle.lowercase()}__${cleanArtist.lowercase()}".trim()
+
+        // 1. Instant Memory Cache Check (0ms response)
+        lyricsMemoryCache[cacheKey]?.let { return it }
+
+        // 2. Local Database Cache Check (Persistent offline cache)
+        try {
+            val cachedEntity = dao.getLyricsCache(cacheKey)
+            if (cachedEntity != null && (!cachedEntity.syncedLyrics.isNullOrBlank() || !cachedEntity.plainLyrics.isNullOrBlank())) {
+                val cachedData = LyricsData(
+                    syncedLyrics = cachedEntity.syncedLyrics,
+                    plainLyrics = cachedEntity.plainLyrics
+                )
+                lyricsMemoryCache[cacheKey] = cachedData
+                return cachedData
             }
         } catch (e: Exception) {
-            null
+            android.util.Log.e("MusicRepository", "Error reading lyrics cache: ${e.message}")
         }
+
+        // 3. Fast Parallel Multi-Query Execution against LRCLIB
+        val secondaryArtist = if (song.artists.contains(",")) {
+            song.artists.split(",").getOrNull(1)?.trim()?.replace(Regex("""(?i)feat\..*|ft\..*"""), "")?.trim()
+        } else if (song.artists.contains("&")) {
+            song.artists.split("&").getOrNull(1)?.trim()?.replace(Regex("""(?i)feat\..*|ft\..*"""), "")?.trim()
+        } else null
+
+        var lyricsResult: LyricsData? = null
+
+        try {
+            coroutineScope {
+                val q1 = async {
+                    try {
+                        val res = lrcApi.searchLyrics("$cleanTitle $cleanArtist".trim())
+                        if (res.isSuccessful) res.body() else null
+                    } catch (_: Exception) { null }
+                }
+                val q2 = async {
+                    try {
+                        val durationSec = if (song.duration > 0) song.duration else null
+                        val res = lrcApi.getLyrics(trackName = cleanTitle, artistName = cleanArtist, duration = durationSec)
+                        if (res.isSuccessful) res.body()?.let { listOf(it) } else null
+                    } catch (_: Exception) { null }
+                }
+                val q3 = async {
+                    try {
+                        val res = lrcApi.searchLyrics(cleanTitle)
+                        if (res.isSuccessful) res.body() else null
+                    } catch (_: Exception) { null }
+                }
+                val q4 = if (!secondaryArtist.isNullOrBlank()) {
+                    async {
+                        try {
+                            val res = lrcApi.searchLyrics("$cleanTitle $secondaryArtist".trim())
+                            if (res.isSuccessful) res.body() else null
+                        } catch (_: Exception) { null }
+                    }
+                } else null
+
+                val r1 = q1.await() ?: emptyList()
+                val r2 = q2.await() ?: emptyList()
+                val r3 = q3.await() ?: emptyList()
+                val r4 = q4?.await() ?: emptyList()
+
+                val allCandidates = (r2 + r1 + r4 + r3)
+
+                // Select candidate: prefer syncedLyrics first, then plainLyrics
+                val bestMatch = allCandidates.firstOrNull { !it.syncedLyrics.isNullOrBlank() }
+                    ?: allCandidates.firstOrNull { !it.plainLyrics.isNullOrBlank() }
+
+                if (bestMatch != null && (!bestMatch.syncedLyrics.isNullOrBlank() || !bestMatch.plainLyrics.isNullOrBlank())) {
+                    lyricsResult = LyricsData(
+                        syncedLyrics = bestMatch.syncedLyrics,
+                        plainLyrics = bestMatch.plainLyrics ?: bestMatch.syncedLyrics
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("MusicRepository", "LRCLIB query error: ${e.message}")
+        }
+
+        // 4. Fallback to Primary JioSaavn Lyrics API if LRCLIB returned null
+        if (lyricsResult == null) {
+            try {
+                val primaryRes = api.getLyrics(song.id)
+                val plain = primaryRes.body()?.data?.lyrics
+                if (!plain.isNullOrBlank()) {
+                    lyricsResult = LyricsData(
+                        syncedLyrics = null,
+                        plainLyrics = plain
+                    )
+                }
+            } catch (_: Exception) {}
+        }
+
+        // 5. Store in Dual-Layer Cache
+        lyricsResult?.let { result ->
+            lyricsMemoryCache[cacheKey] = result
+            try {
+                dao.insertLyricsCache(
+                    LyricsCacheEntity(
+                        cacheKey = cacheKey,
+                        syncedLyrics = result.syncedLyrics,
+                        plainLyrics = result.plainLyrics
+                    )
+                )
+            } catch (e: Exception) {
+                android.util.Log.e("MusicRepository", "Error storing lyrics cache: ${e.message}")
+            }
+        }
+
+        return lyricsResult
     }
 
     suspend fun getHomeModules(): HomeModulesDto? {

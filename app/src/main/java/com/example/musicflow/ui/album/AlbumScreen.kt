@@ -53,7 +53,7 @@ fun AlbumScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(BackgroundDark)
+            .background(MaterialTheme.colorScheme.background)
     ) {
         if (isLoading) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -187,7 +187,7 @@ fun AlbumHeroHeader(
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        colors = listOf(Color.Transparent, BackgroundDark),
+                        colors = listOf(Color.Transparent, MaterialTheme.colorScheme.background),
                         startY = 0.5f
                     )
                 )

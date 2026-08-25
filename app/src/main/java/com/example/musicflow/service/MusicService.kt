@@ -25,6 +25,8 @@ class MusicService : MediaSessionService() {
             .setHandleAudioBecomingNoisy(true)
             .build()
 
+        com.example.musicflow.player.AudioEffectsManager.initAudioEffects(player.audioSessionId)
+
         mediaSession = MediaSession.Builder(this, player)
             .build()
     }
@@ -34,6 +36,7 @@ class MusicService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        com.example.musicflow.player.AudioEffectsManager.release()
         mediaSession?.run {
             player.release()
             release()

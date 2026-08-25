@@ -7,6 +7,7 @@ import com.example.musicflow.data.local.UserPreferences
 import com.example.musicflow.data.model.*
 import com.example.musicflow.player.MusicController
 import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -15,6 +16,14 @@ class HomeViewModel(
     private val userPreferences: UserPreferences,
     private val musicController: MusicController
 ) : ViewModel() {
+
+    val moods = listOf("All", "Energize", "Relax", "Workout", "Focus", "Party", "Romance", "Sleep")
+    
+    private val _selectedMood = MutableStateFlow("All")
+    val selectedMood: StateFlow<String> = _selectedMood.asStateFlow()
+
+    private val _quickPicks = MutableStateFlow<List<Song>>(emptyList())
+    val quickPicks: StateFlow<List<Song>> = _quickPicks.asStateFlow()
 
     private val _recentlyPlayed = MutableStateFlow<List<Song>>(emptyList())
     val recentlyPlayed: StateFlow<List<Song>> = _recentlyPlayed.asStateFlow()
@@ -25,11 +34,11 @@ class HomeViewModel(
     private val _newReleases = MutableStateFlow<List<Song>>(emptyList())
     val newReleases: StateFlow<List<Song>> = _newReleases.asStateFlow()
 
-    private val _trendingAlbums = MutableStateFlow<List<com.example.musicflow.data.model.Album>>(emptyList())
-    val trendingAlbums: StateFlow<List<com.example.musicflow.data.model.Album>> = _trendingAlbums.asStateFlow()
+    private val _trendingAlbums = MutableStateFlow<List<Album>>(emptyList())
+    val trendingAlbums: StateFlow<List<Album>> = _trendingAlbums.asStateFlow()
 
-    private val _topCharts = MutableStateFlow<List<com.example.musicflow.data.model.Playlist>>(emptyList())
-    val topCharts: StateFlow<List<com.example.musicflow.data.model.Playlist>> = _topCharts.asStateFlow()
+    private val _topCharts = MutableStateFlow<List<Playlist>>(emptyList())
+    val topCharts: StateFlow<List<Playlist>> = _topCharts.asStateFlow()
 
     val favorites: StateFlow<List<Song>> = repository.getFavorites()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -46,18 +55,67 @@ class HomeViewModel(
     val userName: StateFlow<String?> = userPreferences.userName
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+    val languages: StateFlow<Set<String>> = userPreferences.languages
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), setOf("hindi", "english"))
+
     val playlists: StateFlow<List<com.example.musicflow.data.local.PlaylistEntity>> = repository.getPlaylists()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     init {
         loadHomeData()
         observeHistory()
+        observeLanguages()
     }
 
     private fun observeHistory() {
         repository.getHistory()
-            .onEach { _recentlyPlayed.value = it.take(8) }
+            .onEach { _recentlyPlayed.value = it.take(12) }
             .launchIn(viewModelScope)
+    }
+
+    private fun observeLanguages() {
+        userPreferences.languages
+            .drop(1)
+            .distinctUntilChanged()
+            .onEach {
+                loadHomeData()
+            }
+            .launchIn(viewModelScope)
+    }
+
+    fun setMood(mood: String) {
+        if (_selectedMood.value == mood) return
+        _selectedMood.value = mood
+        viewModelScope.launch {
+            _isLoading.value = true
+            try {
+                val query = when (mood) {
+                    "Energize" -> "High Energy EDM Party Hits"
+                    "Relax" -> "Chill Acoustic Relaxing Lo-Fi"
+                    "Workout" -> "Gym Workout Motivation Phonk"
+                    "Focus" -> "Deep Focus Ambient Study Beats"
+                    "Party" -> "Party Dance Club Hits 2026"
+                    "Romance" -> "Romantic Love Songs Acoustic"
+                    "Sleep" -> "Sleep Ambient Calm Waves"
+                    else -> null
+                }
+                
+                if (query != null) {
+                    val moodSongs = repository.searchComprehensiveSongs(query)
+                    if (moodSongs.isNotEmpty()) {
+                        _quickPicks.value = moodSongs.take(16)
+                        _recommendations.value = moodSongs.drop(4).take(12)
+                        _trendingSongs.value = moodSongs
+                    }
+                } else {
+                    loadHomeData()
+                }
+            } catch (e: Exception) {
+                // Keep current data
+            } finally {
+                _isLoading.value = false
+            }
+        }
     }
 
     fun loadHomeData() {
@@ -65,28 +123,73 @@ class HomeViewModel(
             _isLoading.value = true
             _error.value = null
             try {
-                val quality = repository.getPreferredQuality()
-                try {
-                    val modules = repository.getHomeModules()
-                    if (modules != null) {
-                        _trendingSongs.value = modules.trending?.songs?.map { it.toDomain(quality) } ?: emptyList()
-                        _trendingAlbums.value = modules.trending?.albums?.map { it.toDomain(quality) } ?: emptyList()
-                        _newReleases.value = modules.albums?.map { it.toDomain(quality) }?.flatMap { it.songs }?.take(20) 
-                            ?: modules.trending?.songs?.map { it.toDomain(quality) } ?: emptyList()
-                        _topCharts.value = modules.charts?.map { it.toDomain(quality) } ?: emptyList()
-                        _recommendations.value = _trendingSongs.value.shuffled().take(10)
-                        
-                        if (_trendingSongs.value.isEmpty() && _trendingAlbums.value.isEmpty()) {
-                             loadFallbackData()
+                val selectedLanguages = userPreferences.languages.first()
+                val primaryLang = selectedLanguages.firstOrNull() ?: "hindi"
+                val hourOfDay = (System.currentTimeMillis() / (1000 * 3600 * 4)).toInt()
+
+                val searchQueries = listOf(
+                    "$primaryLang top hits",
+                    "$primaryLang trending 2026",
+                    "$primaryLang new releases",
+                    "$primaryLang pop",
+                    "trending global hits"
+                )
+                val hourlyQuery = searchQueries[hourOfDay % searchQueries.size]
+
+                coroutineScope {
+                    val trendingDeferred = async {
+                        try {
+                            val res = repository.searchComprehensiveSongs(hourlyQuery)
+                            if (res.isNotEmpty()) res else repository.searchSongs(primaryLang, limit = 25)
+                        } catch (e: Exception) {
+                            emptyList()
                         }
-                        return@launch
                     }
-                } catch (e: Exception) {
-                    android.util.Log.e("HomeViewModel", "API Error: ${e.message}", e)
+
+                    val newReleasesDeferred = async {
+                        try {
+                            repository.searchComprehensiveSongs("$primaryLang new releases 2026")
+                        } catch (e: Exception) {
+                            emptyList()
+                        }
+                    }
+
+                    val albumsDeferred = async {
+                        try {
+                            repository.searchAlbums("$primaryLang hits", limit = 12)
+                        } catch (e: Exception) {
+                            emptyList()
+                        }
+                    }
+
+                    val chartsDeferred = async {
+                        try {
+                            val charts = repository.searchPlaylists("$primaryLang top 50", limit = 8)
+                            if (charts.isNotEmpty()) charts else repository.getTopCharts(limit = 8)
+                        } catch (e: Exception) {
+                            repository.getTopCharts(limit = 8)
+                        }
+                    }
+
+                    val trending = trendingDeferred.await()
+                    val newRel = newReleasesDeferred.await()
+                    val albums = albumsDeferred.await()
+                    val charts = chartsDeferred.await()
+
+                    _trendingSongs.value = trending
+                    _newReleases.value = if (newRel.isNotEmpty()) newRel else trending.shuffled()
+                    _trendingAlbums.value = albums
+                    _topCharts.value = charts
+                    _quickPicks.value = trending.take(16)
+                    _recommendations.value = trending.shuffled().take(12)
+                }
+
+                if (_trendingSongs.value.isEmpty()) {
                     loadFallbackData()
                 }
             } catch (e: Exception) {
-                _error.value = "Connection Error: ${e.localizedMessage ?: "Please check your internet connection."}"
+                android.util.Log.e("HomeViewModel", "Home load error: ${e.message}", e)
+                loadFallbackData()
             } finally {
                 _isLoading.value = false
             }
@@ -95,22 +198,76 @@ class HomeViewModel(
 
     private suspend fun loadFallbackData() {
         try {
-            kotlinx.coroutines.coroutineScope {
-                val trendingSearch = async { repository.searchSongs("trending", limit = 20) }
-                val newSearch = async { repository.searchSongs("2026 hits", limit = 20) }
-                val albumSearch = async { repository.searchAlbums("top hits", limit = 10) }
-                
+            coroutineScope {
+                val trendingSearch = async { repository.searchSongs("trending hits", limit = 20) }
+                val newSearch = async { repository.searchSongs("top releases", limit = 20) }
+                val albumSearch = async { repository.searchAlbums("top albums", limit = 10) }
+                val chartsSearch = async { repository.getTopCharts(limit = 10) }
+
                 _trendingSongs.value = trendingSearch.await()
                 _newReleases.value = newSearch.await()
                 _trendingAlbums.value = albumSearch.await()
+                _topCharts.value = chartsSearch.await()
+                _quickPicks.value = _trendingSongs.value.take(16)
                 _recommendations.value = _trendingSongs.value.shuffled().take(10)
             }
-            
-            if (_trendingSongs.value.isEmpty()) {
-                _error.value = "No music data available at the moment."
-            }
         } catch (e: Exception) {
-            _error.value = "Fallback failed: ${e.localizedMessage}"
+            _error.value = "Unable to load music. Please check your connection."
+        }
+    }
+
+    // --- Functional Hero Mix Actions ---
+
+    fun playQuickPicks() {
+        viewModelScope.launch {
+            val songs = if (_quickPicks.value.isNotEmpty()) _quickPicks.value else _trendingSongs.value
+            if (songs.isNotEmpty()) {
+                musicController.playQueue(songs, 0)
+            }
+        }
+    }
+
+    fun playYourMix() {
+        viewModelScope.launch {
+            val songs = if (_recommendations.value.isNotEmpty()) _recommendations.value else _trendingSongs.value
+            if (songs.isNotEmpty()) {
+                musicController.playQueue(songs, 0)
+            } else {
+                val mix = repository.searchComprehensiveSongs("Top Hits 2026")
+                if (mix.isNotEmpty()) musicController.playQueue(mix, 0)
+            }
+        }
+    }
+
+    fun playPhonkMix() {
+        viewModelScope.launch {
+            val phonkSongs = repository.searchComprehensiveSongs("Phonk")
+            if (phonkSongs.isNotEmpty()) {
+                musicController.playQueue(phonkSongs, 0)
+            } else {
+                val fallback = repository.searchSongs("Brazilian Phonk", limit = 25)
+                if (fallback.isNotEmpty()) musicController.playQueue(fallback, 0)
+            }
+        }
+    }
+
+    fun playLoFiMix() {
+        viewModelScope.launch {
+            val lofiSongs = repository.searchComprehensiveSongs("Lo-Fi Chill")
+            if (lofiSongs.isNotEmpty()) {
+                musicController.playQueue(lofiSongs, 0)
+            } else {
+                val fallback = repository.searchSongs("Lofi Study Beats", limit = 25)
+                if (fallback.isNotEmpty()) musicController.playQueue(fallback, 0)
+            }
+        }
+    }
+
+    fun playMoodMix(mood: String) {
+        setMood(mood)
+        viewModelScope.launch {
+            kotlinx.coroutines.delay(200)
+            playQuickPicks()
         }
     }
 
@@ -131,12 +288,11 @@ class HomeViewModel(
     fun startRadio(song: Song) {
         viewModelScope.launch {
             try {
-                val related = repository.searchSongs(song.name, limit = 20)
-                if (related.isNotEmpty()) {
-                    musicController.playQueue(listOf(song) + related.filter { it.id != song.id })
-                }
+                val artistQuery = song.artists.split(",", "&", "feat.", "ft.").firstOrNull()?.trim() ?: song.artists
+                val related = repository.searchComprehensiveSongs(artistQuery)
+                val fullList = listOf(song) + related.filter { it.id != song.id }
+                musicController.playQueue(fullList, 0)
             } catch (e: Exception) {
-                // Fallback to just playing the song
                 musicController.playSong(song)
             }
         }
@@ -150,19 +306,15 @@ class HomeViewModel(
 
     fun createPlaylist(name: String) {
         viewModelScope.launch {
-            val id = System.currentTimeMillis().toString()
-            repository.addPlaylist(com.example.musicflow.data.local.PlaylistEntity(id, name, "", ""))
-        }
-    }
-
-    fun playPlaylist(playlist: Playlist) {
-        viewModelScope.launch {
-            val songs = if (playlist.songs.isNotEmpty()) playlist.songs else {
-                repository.getPlaylistDetails(playlist.id)?.songs ?: emptyList()
-            }
-            if (songs.isNotEmpty()) {
-                musicController.playQueue(songs, 0)
-            }
+            val id = "pl_${System.currentTimeMillis()}"
+            repository.addPlaylist(
+                com.example.musicflow.data.local.PlaylistEntity(
+                    id = id,
+                    name = name,
+                    subtitle = "User playlist",
+                    image = ""
+                )
+            )
         }
     }
 }

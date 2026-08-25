@@ -9,6 +9,7 @@ on:
       - '.github/workflows/build-ios.yml'
       - 'capacitor.config.json'
       - 'package.json'
+      - 'package-lock.json'
   pull_request:
     branches:
       - main
@@ -31,7 +32,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          npm ci || npm install
+          npm ci
 
       - name: Add Capacitor iOS platform
         run: |
@@ -53,7 +54,7 @@ jobs:
             -configuration Release \
             -sdk iphoneos \
             -destination "generic/platform=iOS" \
-            -archivePath build/App.xcarchive \
+            -archivePath "$GITHUB_WORKSPACE/build/App.xcarchive" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
@@ -61,25 +62,24 @@ jobs:
 
       - name: Package into Sideloadable IPA
         run: |
-          mkdir -p build/Payload
-          cp -R build/App.xcarchive/Products/Applications/App.app build/Payload/MusicFlow.app
+          mkdir -p "$GITHUB_WORKSPACE/build/Payload"
+          cp -R "$GITHUB_WORKSPACE/build/App.xcarchive/Products/Applications/App.app" "$GITHUB_WORKSPACE/build/Payload/MusicFlow.app"
           
           # Match CFBundleExecutable with binary
-          cd build/Payload/MusicFlow.app
+          cd "$GITHUB_WORKSPACE/build/Payload/MusicFlow.app"
           if [ -f "App" ]; then
             mv App MusicFlow
             /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable MusicFlow" Info.plist
           fi
-          cd ../..
           
-          cd build
+          # Zip into unsigned IPA
+          cd "$GITHUB_WORKSPACE/build"
           zip -r -y MusicFlow.ipa Payload
-          cd ..
 
       - name: Validate Mach-O Binary
         run: |
           echo "=== Verifying Compiled Binary in IPA ==="
-          unzip -l build/MusicFlow.ipa | grep MusicFlow.app/MusicFlow
+          unzip -l "$GITHUB_WORKSPACE/build/MusicFlow.ipa" | grep "MusicFlow.app/MusicFlow"
           echo "=== Mach-O Binary Present and Valid ==="
 
       - name: Upload IPA Artifact

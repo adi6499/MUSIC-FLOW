@@ -13938,6 +13938,15 @@ a,
     transition: color 0.18s ease, transform 0.18s ease !important;
   }
 
+  .bottom-nav .nav-item .nav-label {
+    display: block !important;
+    font-size: 10px !important;
+    font-weight: 600 !important;
+    margin-top: 2px !important;
+    letter-spacing: -0.1px !important;
+    color: inherit !important;
+  }
+
   .bottom-nav .nav-item.active {
     color: var(--accent-color, #E50914) !important;
   }

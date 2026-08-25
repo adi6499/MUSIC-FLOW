@@ -266,55 +266,9 @@
             </div>
           </div>
 
-          <!-- MINDFULNESS & AMBIENCE STUDIO SPOTLIGHT (Compact Liquid Glass) -->
-          <div class="mindful-home-spotlight" onclick="if(window.App && App.navigateToPage) App.navigateToPage('page-mindfulness')">
-            <div style="display: flex; align-items: center; gap: 14px; min-width: 0; flex: 1;">
-              <div class="mindful-spotlight-icon-wrap">
-                <span class="material-symbols-outlined" style="font-size: 22px;">spa</span>
-              </div>
-              <div style="min-width: 0; flex: 1;">
-                <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
-                  <h3 style="font-size: 15px; font-weight: 800; color: #fff; margin: 0; letter-spacing: -0.2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Mindfulness &amp; Ambience Studio</h3>
-                  <span style="font-size: 9.5px; font-weight: 800; background: rgba(250, 45, 72, 0.18); color: var(--accent-color, #FA2D48); padding: 2px 7px; border-radius: 9999px; border: 1px solid rgba(250, 45, 72, 0.35); letter-spacing: 0.5px;">STUDIO</span>
-                </div>
-                <p style="font-size: 12px; color: rgba(255,255,255,0.7); margin: 3px 0 0 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Ocean waves, rain soundscapes, meditation, and focus flows.</p>
-              </div>
-            </div>
-            <button class="mindful-spotlight-btn">
-              <span>Open</span>
-              <span class="material-symbols-outlined" style="font-size: 15px;">arrow_forward</span>
-            </button>
-          </div>
-
-          <!-- YTM-STYLE STICKY MOOD & ACTIVITY FILTER CHIPS -->
+          <!-- YTM-STYLE STICKY MOOD & ACTIVITY FILTER CHIPS (Matching Android App) -->
           <div class="filter-chips-bar" id="mood-chips-container">
             <!-- Injected via UI.renderMoodChips -->
-          </div>
-
-          <!-- ======== SKIPER48 3D CARDS DECK CAROUSEL ======== -->
-          <div class="home-cards-deck-section" id="cards-deck-section">
-            <div class="shelf-header deck-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-              <div>
-                <span class="shelf-tag" style="color: var(--accent-color); font-size: 11px; font-weight: 700; letter-spacing: 1px;">3D SOUND DECK</span>
-                <h2 class="shelf-title" style="font-size: 20px; font-weight: 800; letter-spacing: -0.4px; margin: 2px 0 0 0;">Trending Highlights</h2>
-              </div>
-              <div class="deck-nav-buttons" style="display: flex; gap: 8px;">
-                <button class="deck-nav-btn swiper-cards-prev" aria-label="Previous card" title="Previous">
-                  <span class="material-symbols-outlined" style="font-size: 20px;">chevron_left</span>
-                </button>
-                <button class="deck-nav-btn swiper-cards-next" aria-label="Next card" title="Next">
-                  <span class="material-symbols-outlined" style="font-size: 20px;">chevron_right</span>
-                </button>
-              </div>
-            </div>
-
-            <div class="skiper48-deck-wrapper">
-              <div class="swiper home-cards-swiper" id="home-cards-swiper">
-                <div class="swiper-wrapper" id="home-cards-swiper-wrapper">
-                  <!-- Dynamically populated via UI.render3DCardsCarousel -->
-                </div>
-              </div>
-            </div>
           </div>
 
           <!-- ======== DESKTOP-ONLY DISCOVER & TOP ARTIST SUITE ======== -->
@@ -1250,26 +1204,24 @@
       </div>
     </div>
 
-    <!-- ======== FLOATING FROSTED GLASS CAPSULE BOTTOM NAV (ICONS ONLY) ======== -->
+    <!-- ======== CLEAN 4-TAB BOTTOM NAV (Matching Android App) ======== -->
     <nav class="bottom-nav" id="bottom-nav">
       <div class="bottom-nav-indicator" id="bottom-nav-indicator"></div>
       <button class="nav-item active" data-route="home" data-page="page-home" aria-label="Home" title="Home">
         <span class="material-symbols-outlined">home</span>
+        <span class="nav-label">Home</span>
       </button>
       <button class="nav-item" data-route="search" data-page="page-search" aria-label="Search" title="Search">
         <span class="material-symbols-outlined">search</span>
-      </button>
-      <button class="nav-item" data-route="samples" data-page="page-samples" aria-label="Samples" title="Samples">
-        <span class="material-symbols-outlined">subscriptions</span>
-      </button>
-      <button class="nav-item" id="btn-open-radio-tuner-mobile" data-route="tuner" aria-label="Tune Radio" title="Radio Tuner">
-        <span class="material-symbols-outlined">radio</span>
+        <span class="nav-label">Search</span>
       </button>
       <button class="nav-item" data-route="library" data-page="page-favorites" aria-label="Library" title="Library">
         <span class="material-symbols-outlined">library_music</span>
+        <span class="nav-label">Library</span>
       </button>
-      <button class="nav-item" data-action="open-settings" aria-label="Settings" title="Settings">
-        <span class="material-symbols-outlined">settings</span>
+      <button class="nav-item" data-action="open-settings" aria-label="Profile" title="Profile">
+        <span class="material-symbols-outlined">person</span>
+        <span class="nav-label">Profile</span>
       </button>
     </nav>
   </div>

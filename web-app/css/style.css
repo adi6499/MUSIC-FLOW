@@ -1,37 +1,50 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Outfit:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap');
 
 /* ========================================
    MusicFlow — Design System & Variables
+   (Aligned with Native Android Jetpack Compose Theme)
    ======================================== */
 
 :root {
-  /* Default Signature Theme: Obsidian Dark & Electric Neon-Lime */
-  --bg-base: #0c0d12;
-  --bg-elevated: #14151e;
-  --bg-surface: #1b1d28;
+  /* True OLED Dark Backgrounds */
+  --bg-base: #0B0B0C;
+  --bg-elevated: #141416;
+  --bg-surface: #1C1C1E;
   
-  --bg-card: rgba(255, 255, 255, 0.04);
-  --bg-card-hover: rgba(255, 255, 255, 0.08);
-  --bg-glass: rgba(20, 22, 30, 0.72);
-  --bg-glass-heavy: rgba(12, 13, 18, 0.9);
-  --bg-input: rgba(255, 255, 255, 0.07);
+  --bg-card: rgba(24, 24, 27, 0.75);
+  --bg-card-hover: rgba(34, 34, 38, 0.85);
+  --bg-glass: rgba(20, 20, 22, 0.82);
+  --bg-glass-heavy: rgba(11, 11, 12, 0.94);
+  --bg-input: rgba(255, 255, 255, 0.08);
 
-  --text-primary: #ffffff;
-  --text-secondary: #a2a8b8;
-  --text-tertiary: #6b7280;
+  --text-primary: #FFFFFF;
+  --text-secondary: #8E8E93;
+  --text-tertiary: #6E6E73;
 
-  --border: rgba(255, 255, 255, 0.08);
-  --border-hover: rgba(255, 255, 255, 0.18);
+  --border: rgba(255, 255, 255, 0.10);
+  --border-hover: rgba(255, 255, 255, 0.22);
+  --glass-border: rgba(255, 255, 255, 0.16);
   
-  /* Signature Accent: Apple Music Ruby Crimson & Velvet Rose (Sleek Audiophile Redesign) */
-  --accent-color: #FA2D48;
-  --primary: #FA2D48;
-  --accent-light: #FF5E7E;
-  --accent-dark: #D61B36;
-  --accent-glow: rgba(250, 45, 72, 0.35);
-  --accent-gradient: linear-gradient(135deg, #FA2D48 0%, #FA2366 50%, #E0245E 100%);
+  /* Primary Vibrant Brand Red (from Android Theme) */
+  --accent-color: #E50914;
+  --primary: #E50914;
+  --accent-light: #FF2B35;
+  --accent-dark: #B80009;
+  --accent-glow: rgba(229, 9, 20, 0.40);
+  --accent-gradient: linear-gradient(135deg, #E50914 0%, #FF1E27 50%, #B80009 100%);
   --accent-contrast: #FFFFFF;
   --on-primary: #FFFFFF;
+  
+  /* Genre Tile Tokens (Matching Android Mockups) */
+  --genre-purple: #7C4DFF;
+  --genre-coral: #FF5252;
+  --genre-magenta: #E040FB;
+  --genre-emerald: #00E676;
+  --genre-blue: #2D8FE0;
+  --genre-pink: #E0388B;
+  --genre-mint: #3ECF8E;
+  --genre-yellow: #E0B94A;
+  --genre-teal: #1F8E8E;
   
   /* Pastel Accent Tokens (Curated Discovery Cards) */
   --accent-pastel: #FAD0D6;
@@ -54,8 +67,8 @@
   --space-3xl: 64px;
 
   /* Typography */
-  --font-heading: 'Outfit', -apple-system, sans-serif;
-  --font-body: 'Inter', -apple-system, sans-serif;
+  --font-heading: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-body: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   
   /* Fluid Typography Baseline */
   --font-size-xs: 0.75rem;

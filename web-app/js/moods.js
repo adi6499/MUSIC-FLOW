@@ -7,150 +7,82 @@ const Moods = (() => {
     all: {
       id: 'all',
       label: 'All',
-      icon: '✨',
+      icon: '',
       isDefault: true
     },
-    new_releases: {
-      id: 'new_releases',
-      label: 'New Release',
-      icon: '🚀',
-      gradient: 'linear-gradient(135deg, #FA2D48, #FF5E7E)',
-      queries: [
-        { title: 'Fresh New Releases', query: 'latest release hot tracks', type: 'song' },
-        { title: 'Brand New Singles', query: 'latest new hit singles', type: 'song' },
-        { title: 'New Albums & EPs', query: 'latest album release songs', type: 'song' }
-      ]
-    },
-    trending: {
-      id: 'trending',
-      label: 'Trending',
-      icon: '🔥',
+    energize: {
+      id: 'energize',
+      label: 'Energize',
+      icon: '',
       gradient: 'linear-gradient(135deg, #FF416C, #FF4B2B)',
       queries: [
-        { title: 'Trending Global Chartbusters', query: 'top trending music hits', type: 'song' },
-        { title: 'Viral Music Right Now', query: 'viral trending social hits', type: 'song' },
-        { title: 'High Velocity Streams', query: 'most streamed trending songs', type: 'song' }
-      ]
-    },
-    top: {
-      id: 'top',
-      label: 'Top Charts',
-      icon: '🏆',
-      gradient: 'linear-gradient(135deg, #f857a6, #ff5858)',
-      queries: [
-        { title: 'Top 50 Global Hits', query: 'top global 50 billboard hits', type: 'song' },
-        { title: 'All-Time Greatest Chartbusters', query: 'mega chartbusters top hits', type: 'song' }
+        { title: 'High Energy Hits', query: 'energy workout workout music hits', type: 'song' },
+        { title: 'Fast Beats & EDM', query: 'edm high tempo electronic dance', type: 'song' }
       ]
     },
     relax: {
       id: 'relax',
       label: 'Relax',
-      icon: '☕',
+      icon: '',
       gradient: 'linear-gradient(135deg, #1fa2ff, #12d8fa)',
       queries: [
-        { title: 'Chill Quick Picks', query: 'chill acoustic relax hits', type: 'song' },
         { title: 'Peaceful Acoustic & Lo-Fi', query: 'lo-fi chillhop acoustic vibes', type: 'song' },
-        { title: 'Calm Piano & Ambient Nights', query: 'peaceful piano ambient relaxation', type: 'song' },
-        { title: 'Soothing Evening Melodies', query: 'soft indie acoustic relaxation', type: 'song' }
-      ]
-    },
-    energise: {
-      id: 'energise',
-      label: 'Energise',
-      icon: '🔥',
-      gradient: 'linear-gradient(135deg, #FF416C, #FF4B2B)',
-      queries: [
-        { title: 'Instant Energy Boosters', query: 'supercharged high energy pop hits', type: 'song' },
-        { title: 'High Octane EDM Bangers', query: 'high energy edm festival bangers', type: 'song' },
-        { title: 'Uplifting Chartbusters', query: 'uplifting motivational top hits', type: 'song' },
-        { title: 'Bass Boosted Power', query: 'bass boosted electronic hype', type: 'song' }
+        { title: 'Calm Piano & Ambient', query: 'peaceful piano ambient relaxation', type: 'song' }
       ]
     },
     workout: {
       id: 'workout',
       label: 'Workout',
-      icon: '⚡',
+      icon: '',
       gradient: 'linear-gradient(135deg, #f857a6, #ff5858)',
       queries: [
-        { title: 'Gym Workout Quick Picks', query: 'gym workout pump hits', type: 'song' },
-        { title: 'Hardstyle & Drift Phonk', query: 'phonk drift high energy gym', type: 'song' },
-        { title: 'High BPM Cardio & Running', query: 'motivational running cardio beats', type: 'song' },
-        { title: 'Hype Hip-Hop & Rap', query: 'banger hip hop hype workout', type: 'song' }
+        { title: 'Gym & Cardio Fuel', query: 'cardio gym workout motivation hits', type: 'song' },
+        { title: 'Beast Mode Phonk', query: 'drift phonk workout bass boost', type: 'song' }
       ]
     },
     focus: {
       id: 'focus',
       label: 'Focus',
-      icon: '🎯',
-      gradient: 'linear-gradient(135deg, #38ef7d, #11998e)',
+      icon: '',
+      gradient: 'linear-gradient(135deg, #11998e, #38ef7d)',
       queries: [
-        { title: 'Deep Work Flow', query: 'deep focus electronic instrumental', type: 'song' },
-        { title: 'Synthwave & Coding Beats', query: 'braindance synthwave chillwave', type: 'song' },
-        { title: 'Lo-Fi Study Beats', query: 'lo-fi sleep study instrumental', type: 'song' },
-        { title: 'Instrumental Ambient Flow', query: 'instrumental study flow calm', type: 'song' }
-      ]
-    },
-    romance: {
-      id: 'romance',
-      label: 'Romance',
-      icon: '💖',
-      gradient: 'linear-gradient(135deg, #b224ef, #7579ff)',
-      queries: [
-        { title: 'Romantic Quick Picks', query: 'romantic love hits', type: 'song' },
-        { title: 'Soulful Bollywood Ballads', query: 'bollywood romantic superhits', type: 'song' },
-        { title: 'Late Night Love Songs', query: 'monsoon romantic love acoustic', type: 'song' },
-        { title: 'R&B & Acoustic Romance', query: 'r&b love acoustic ballads', type: 'song' }
+        { title: 'Deep Work & Study', query: 'deep focus instrumental study beats', type: 'song' },
+        { title: 'Ambient Synthesis', query: 'ambient soundscapes focus flow', type: 'song' }
       ]
     },
     party: {
       id: 'party',
       label: 'Party',
-      icon: '🎉',
-      gradient: 'linear-gradient(135deg, #8E2DE2, #4A00E0)',
+      icon: '',
+      gradient: 'linear-gradient(135deg, #FC466B, #3F5EFB)',
       queries: [
-        { title: 'Party Quick Picks', query: 'club dance party hits', type: 'song' },
-        { title: 'Weekend Club Anthems', query: 'dance pop party chartbusters', type: 'song' },
-        { title: 'Punjabi Club Banger Drops', query: 'punjabi pop top hits dance', type: 'song' },
-        { title: 'Remix Mashups & Drops', query: 'remix mashup banger party hits', type: 'song' }
+        { title: 'Club & Dance Anthems', query: 'dance party hits club remix', type: 'song' },
+        { title: 'Blockbuster Dance Tracks', query: 'top bollywood dance party hits', type: 'song' }
       ]
     },
-    sad: {
-      id: 'sad',
-      label: 'Sad',
-      icon: '🌧️',
-      gradient: 'linear-gradient(135deg, #141E30, #243B55)',
+    romance: {
+      id: 'romance',
+      label: 'Romance',
+      icon: '',
+      gradient: 'linear-gradient(135deg, #ee0979, #ff6a00)',
       queries: [
-        { title: 'Heartbreak & Melancholy', query: 'sad emotional songs', type: 'song' },
-        { title: 'Slow Acoustic Heartstrings', query: 'emotional piano acoustic sad hits', type: 'song' },
-        { title: 'Late Night Feelings', query: 'late night sad vibes acoustic', type: 'song' },
-        { title: 'Deep Melancholic Ballads', query: 'slow sad indie melodies', type: 'song' }
+        { title: 'Heartfelt Love Songs', query: 'romantic love songs acoustic hindi english', type: 'song' },
+        { title: 'Late Night Romance', query: 'slow romantic acoustic melodies', type: 'song' }
       ]
     },
     sleep: {
       id: 'sleep',
       label: 'Sleep',
-      icon: '🌙',
-      gradient: 'linear-gradient(135deg, #0F2027, #203A43, #2C5364)',
+      icon: '',
+      gradient: 'linear-gradient(135deg, #2c3e50, #3498db)',
       queries: [
-        { title: 'Bedtime Ambient Soundscapes', query: 'ambient sleep soundscape calm', type: 'song' },
-        { title: 'Soft Piano For Sleeping', query: 'soft peaceful piano bedtime', type: 'song' },
-        { title: 'Delta Wave & Rain Beats', query: 'rain sounds lofi sleep', type: 'song' },
-        { title: 'Gentle Acoustic Lullabies', query: 'peaceful night acoustic calm', type: 'song' }
-      ]
-    },
-    commute: {
-      id: 'commute',
-      label: 'Commute',
-      icon: '🚗',
-      gradient: 'linear-gradient(135deg, #F3904F, #3B4371)',
-      queries: [
-        { title: 'Road Trip Singalongs', query: 'feel good road trip pop hits', type: 'song' },
-        { title: 'Highway Cruise Beats', query: 'upbeat driving songs indie', type: 'song' },
-        { title: 'Morning Transit Energy', query: 'morning acoustic pop commute', type: 'song' },
-        { title: 'Vibrant Car Tunes', query: 'upbeat car tunes international hits', type: 'song' }
+        { title: 'Gentle Sleep Waves', query: 'deep sleep delta waves peaceful rain', type: 'song' },
+        { title: 'Soft Nighttime Melodies', query: 'soothing bedtime acoustic lullabies', type: 'song' }
       ]
     }
   };
+
+  let activeMoodId = 'all';
 
   let activeMoodId = 'all';
 

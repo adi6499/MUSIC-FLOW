@@ -1,0 +1,15 @@
+{
+  "name": "musicflow",
+  "version": "2.4.0",
+  "description": "MusicFlow - Lossless Music Player for Android & iOS",
+  "private": true,
+  "scripts": {
+    "cap:sync": "npx cap sync",
+    "cap:build:ios": "npx cap sync ios"
+  },
+  "dependencies": {
+    "@capacitor/cli": "^6.1.2",
+    "@capacitor/core": "^6.1.2",
+    "@capacitor/ios": "^6.1.2"
+  }
+}

@@ -1,0 +1,91 @@
+name: Build iOS IPA
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'web-app/**'
+      - '.github/workflows/build-ios.yml'
+      - 'capacitor.config.json'
+      - 'package.json'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    name: Build & Package iOS IPA
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          npm ci || npm install
+
+      - name: Add Capacitor iOS platform
+        run: |
+          npx cap add ios
+          npx cap sync ios
+
+      - name: Configure iOS Background Audio & Info.plist
+        run: |
+          /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes array" ios/App/App/Info.plist || true
+          /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:0 string audio" ios/App/App/Info.plist || true
+          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName MusicFlow" ios/App/App/Info.plist || true
+          /usr/libexec/PlistBuddy -c "Set :CFBundleName MusicFlow" ios/App/App/Info.plist || true
+
+      - name: Build Xcode Archive (Mach-O Binary)
+        run: |
+          xcodebuild \
+            -workspace ios/App/App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -archivePath build/App.xcarchive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            archive
+
+      - name: Package into Sideloadable IPA
+        run: |
+          mkdir -p build/Payload
+          cp -R build/App.xcarchive/Products/Applications/App.app build/Payload/MusicFlow.app
+          
+          # Match CFBundleExecutable with binary
+          cd build/Payload/MusicFlow.app
+          if [ -f "App" ]; then
+            mv App MusicFlow
+            /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable MusicFlow" Info.plist
+          fi
+          cd ../..
+          
+          cd build
+          zip -r -y MusicFlow.ipa Payload
+          cd ..
+
+      - name: Validate Mach-O Binary
+        run: |
+          echo "=== Verifying Compiled Binary in IPA ==="
+          unzip -l build/MusicFlow.ipa | grep MusicFlow.app/MusicFlow
+          echo "=== Mach-O Binary Present and Valid ==="
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MusicFlow-iOS-IPA
+          path: build/MusicFlow.ipa
+          if-no-files-found: error
+          retention-days: 14

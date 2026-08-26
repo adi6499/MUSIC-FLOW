@@ -280,13 +280,22 @@ const Player = (() => {
     }
   }
 
+  function getAbsoluteImageUrl(url) {
+    if (!url) url = 'assets/logo.png';
+    if (url.startsWith('//')) return 'https:' + url;
+    if (url.startsWith('http://')) return url.replace('http://', 'https://');
+    if (url.startsWith('https://')) return url;
+    try {
+      return new URL(url, window.location.href).href;
+    } catch (e) {
+      return url;
+    }
+  }
+
   function updateMediaSession(song) {
     if (!('mediaSession' in navigator) || !song) return;
 
-    let artUrl = song.image || 'assets/logo.png';
-    if (artUrl.startsWith('http://')) {
-      artUrl = artUrl.replace('http://', 'https://');
-    }
+    const artUrl = getAbsoluteImageUrl(song.image || 'assets/logo.png');
 
     navigator.mediaSession.metadata = new MediaMetadata({
       title: song.name || 'Unknown Track',

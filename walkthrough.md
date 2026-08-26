@@ -1,20 +1,22 @@
-# MusicFlow — Lock Screen Next/Previous Buttons & Lowered Navbar Walkthrough
+# MusicFlow — Updated APK & iOS IPA Synced to Website
 
-### 1. Fixed Lock Screen Controls (Next ⏭ & Previous ⏮ Track Buttons)
-- **Root Cause**: When registering `seekbackward` and `seekforward` in MediaSession API, iOS WebKit flags the session as a podcast/audiobook and replaces the track skip buttons with 10-second skip buttons.
-- **The Fix**:
-  - Removed `seekbackward` and `seekforward` and explicitly cleared their handlers (`null`).
-  - Retained `previoustrack`, `nexttrack`, `play`, `pause`, `seekto`, and `stop`.
-  - iOS Lock Screen, Dynamic Island, and Control Center now display the standard **⏮ Previous Song**, **⏯ Play/Pause**, and **⏭ Next Song** buttons!
+### 1. Fresh APK & iOS IPA Built and Synced
+- **Fresh Android APK Built & Uploaded**:
+  - Recompiled debug APK with all latest lockscreen audio fixes, navbar geometry, and UI changes.
+  - Placed at [`website/downloads/MusicFlow.apk`](file:///c:/Users/PC/AndroidStudioProjects/MUSICFLOW/website/downloads/MusicFlow.apk) (33.8 MB).
+- **Latest iOS IPA Uploaded**:
+  - [`website/downloads/MusicFlow.ipa`](file:///c:/Users/PC/AndroidStudioProjects/MUSICFLOW/website/downloads/MusicFlow.ipa) (3.8 MB).
+
+### 2. Features Included in this Build
+- **Lock Screen Next (⏭) / Previous (⏮) song controls** (10s skip removed).
+- **Lowered bottom navigation bar & mini player dock** for seamless edge-to-edge layout.
+- **Dedicated Back `<` and Close `✕` buttons** in Settings, Queue, and all dialogs.
+- **Continuous Artist Radio mixes & instant playback**.
+- **Live synchronized lyrics & 5-band studio equalizer**.
+- **Updated crimson red background & white music flow emblem app icon**.
 
 ---
 
-### 2. Lowered Bottom Navigation Bar & Mini Player
-- **Adjusted Insets**:
-  - Re-adjusted `.floating-bottom-nav` (`bottom: max(6px, calc(env(safe-area-inset-bottom, 0px) - 18px))`) to bring it closer down to the bottom of the screen.
-  - Positioned `.mini-player-dock` right above it (`bottom: calc(... + 64px)`), keeping the entire interface clean and compact.
-
----
-
-### 3. Live GitHub Actions Build Link
-👉 **[View Live iOS Build Run (Run #32999264366)](https://github.com/adi6499/MUSIC-FLOW/actions/runs/32999264366)**
+### 3. Pushed to GitHub
+- Website repository: [https://github.com/adi6499/MUSICFLOW](https://github.com/adi6499/MUSICFLOW) ([commit `edb52ad`](https://github.com/adi6499/MUSICFLOW/commit/edb52ad)).
+- Main repository: [https://github.com/adi6499/MUSIC-FLOW](https://github.com/adi6499/MUSIC-FLOW).

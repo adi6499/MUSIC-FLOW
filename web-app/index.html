@@ -763,10 +763,15 @@
   <div class="bottom-sheet-backdrop" id="sheet-queue" onclick="App.closeBottomSheet('sheet-queue')">
     <div class="bottom-sheet-panel" onclick="event.stopPropagation()" style="max-height:85vh; display:flex; flex-direction:column;">
       <div class="sheet-drag-handle"></div>
-      <div class="queue-sheet-head">
-        <div>
-          <h3 class="screen-title" style="font-size:18px;">Now Playing Queue</h3>
-          <span style="font-size:12px; color:var(--text-secondary);" id="queue-tracks-count">0 tracks</span>
+      <div class="queue-sheet-head" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <button class="player-top-action-btn" onclick="App.closeBottomSheet('sheet-queue')" aria-label="Back" style="width:36px; height:36px; background:rgba(255,255,255,0.08); border-radius:50%; border:none; color:#FFFFFF; display:flex; align-items:center; justify-content:center; cursor:pointer;">
+            <span class="material-symbols-outlined" style="font-size:20px;">arrow_back</span>
+          </button>
+          <div>
+            <h3 class="screen-title" style="font-size:18px;">Now Playing Queue</h3>
+            <span style="font-size:12px; color:var(--text-secondary);" id="queue-tracks-count">0 tracks</span>
+          </div>
         </div>
         <button class="search-clear-all-btn" onclick="Player.clearQueue()">Clear Queue</button>
       </div>
@@ -829,9 +834,14 @@
   <!-- 5. Sleep Timer Dialog with Preset Chips -->
   <div class="dialog-backdrop" id="dialog-sleep-timer" onclick="App.closeDialog('dialog-sleep-timer')">
     <div class="dialog-panel" onclick="event.stopPropagation()">
-      <div class="dialog-title-row">
-        <span class="material-symbols-outlined" style="color:#FF2A4D;">timer</span>
-        <h3 class="dialog-title">Sleep Timer</h3>
+      <div class="dialog-title-row" style="display:flex; justify-content:space-between; align-items:center;">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="material-symbols-outlined" style="color:#FF2A4D;">timer</span>
+          <h3 class="dialog-title">Sleep Timer</h3>
+        </div>
+        <button onclick="App.closeDialog('dialog-sleep-timer')" style="background:transparent; border:none; color:var(--text-secondary); cursor:pointer; display:flex; align-items:center;">
+          <span class="material-symbols-outlined">close</span>
+        </button>
       </div>
       <div class="sleep-chips-grid">
         <button class="sleep-chip-btn" onclick="App.setSleepPreset(15)">15 Minutes</button>
@@ -847,9 +857,14 @@
   <!-- 6. Music Languages Selection Dialog (MusicLanguageSelectionDialog in Android SettingsScreen.kt) -->
   <div class="dialog-backdrop" id="dialog-language-picker" onclick="App.closeDialog('dialog-language-picker')">
     <div class="dialog-panel" onclick="event.stopPropagation()" style="max-height:80vh; display:flex; flex-direction:column;">
-      <div class="dialog-title-row">
-        <span class="material-symbols-outlined" style="color:#FF2A4D;">translate</span>
-        <h3 class="dialog-title">Music Languages</h3>
+      <div class="dialog-title-row" style="display:flex; justify-content:space-between; align-items:center;">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="material-symbols-outlined" style="color:#FF2A4D;">translate</span>
+          <h3 class="dialog-title">Music Languages</h3>
+        </div>
+        <button onclick="App.closeDialog('dialog-language-picker')" style="background:transparent; border:none; color:var(--text-secondary); cursor:pointer; display:flex; align-items:center;">
+          <span class="material-symbols-outlined">close</span>
+        </button>
       </div>
       <div class="lang-selection-list" id="lang-selection-list" style="flex:1; overflow-y:auto; margin-bottom:16px;"></div>
       <button class="detail-play-btn" onclick="App.saveLanguagesAndRefresh()" style="width:100%;">
@@ -862,9 +877,14 @@
   <!-- 7. Playlist Selection & Create Modal Dialog (PlaylistSelectionDialog in MFComponents.kt) -->
   <div class="dialog-backdrop" id="dialog-playlist-picker" onclick="App.closeDialog('dialog-playlist-picker')">
     <div class="dialog-panel" onclick="event.stopPropagation()">
-      <div class="dialog-title-row">
-        <span class="material-symbols-outlined" style="color:#FF2A4D;">playlist_add</span>
-        <h3 class="dialog-title">Add to Playlist</h3>
+      <div class="dialog-title-row" style="display:flex; justify-content:space-between; align-items:center;">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="material-symbols-outlined" style="color:#FF2A4D;">playlist_add</span>
+          <h3 class="dialog-title">Add to Playlist</h3>
+        </div>
+        <button onclick="App.closeDialog('dialog-playlist-picker')" style="background:transparent; border:none; color:var(--text-secondary); cursor:pointer; display:flex; align-items:center;">
+          <span class="material-symbols-outlined">close</span>
+        </button>
       </div>
       <div style="margin-bottom:12px;">
         <button class="sheet-action-item" onclick="App.promptCreatePlaylistAndAdd()" style="background:rgba(255,42,77,0.12); color:#FF2A4D; font-weight:700; width:100%; border-radius:12px; justify-content:center;">
@@ -879,9 +899,14 @@
   <!-- 8. Audio Quality Selector Dialog (AudioQualityDialog in MFComponents.kt) -->
   <div class="dialog-backdrop" id="dialog-quality" onclick="App.closeDialog('dialog-quality')">
     <div class="dialog-panel" onclick="event.stopPropagation()">
-      <div class="dialog-title-row">
-        <span class="material-symbols-outlined" style="color:#FF2A4D;">high_quality</span>
-        <h3 class="dialog-title">Streaming Audio Quality</h3>
+      <div class="dialog-title-row" style="display:flex; justify-content:space-between; align-items:center;">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="material-symbols-outlined" style="color:#FF2A4D;">high_quality</span>
+          <h3 class="dialog-title">Streaming Audio Quality</h3>
+        </div>
+        <button onclick="App.closeDialog('dialog-quality')" style="background:transparent; border:none; color:var(--text-secondary); cursor:pointer; display:flex; align-items:center;">
+          <span class="material-symbols-outlined">close</span>
+        </button>
       </div>
       <div class="dialog-options-list" id="quality-options-list"></div>
     </div>
@@ -891,7 +916,17 @@
   <div class="bottom-sheet-backdrop" id="sheet-settings" onclick="App.closeBottomSheet('sheet-settings')">
     <div class="bottom-sheet-panel" onclick="event.stopPropagation()" style="max-height:85vh; overflow-y:auto;">
       <div class="sheet-drag-handle"></div>
-      <h3 class="screen-title" style="font-size:22px; margin-bottom:16px;">Settings</h3>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px;">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <button class="player-top-action-btn" onclick="App.closeBottomSheet('sheet-settings')" aria-label="Back" style="width:38px; height:38px; background:rgba(255,255,255,0.08); border-radius:50%; border:none; color:#FFFFFF; display:flex; align-items:center; justify-content:center; cursor:pointer;">
+            <span class="material-symbols-outlined" style="font-size:20px;">arrow_back</span>
+          </button>
+          <h3 class="screen-title" style="font-size:22px; margin-bottom:0;">Settings</h3>
+        </div>
+        <button class="player-top-action-btn" onclick="App.closeBottomSheet('sheet-settings')" aria-label="Close" style="width:38px; height:38px; background:rgba(255,255,255,0.08); border-radius:50%; border:none; color:#FFFFFF; display:flex; align-items:center; justify-content:center; cursor:pointer;">
+          <span class="material-symbols-outlined" style="font-size:20px;">close</span>
+        </button>
+      </div>
       
       <!-- Account & Profile Section -->
       <div class="settings-section">

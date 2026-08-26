@@ -1,26 +1,21 @@
-# MusicFlow — iOS IPA & Android APK Website Downloads Walkthrough
+# MusicFlow — iPhone Edge-to-Edge & Lock Screen Controls Walkthrough
 
-### 1. New iOS IPA Uploaded to Website
-- **File**: `website/downloads/MusicFlow.ipa` (3.8 MB)
-- **Source**: Extracted from latest GitHub Actions release build (`C:\Users\PC\Downloads\MusicFlow-iOS-IPA (6)`).
-- **Features Included**:
-  - Full lossless audio streaming & 320kbps resolution.
-  - 5-band studio equalizer & 3D virtualizer.
-  - Live synchronized lyrics engine.
-  - Artist radio mix & infinite search pagination.
-  - Crimson red & white app icon.
-  - Enabled iOS background audio capabilities in `Info.plist`.
+### 1. Fixed iPhone Bottom Black Area (Edge-to-Edge Layout)
+- **Viewport & Insets**:
+  - Updated `capacitor.config.json` with `"contentInset": "never"` and `"backgroundColor": "#050505"`.
+  - Configured `html, body, .app-container` with `100dvh`, `-webkit-fill-available`, and `position: fixed; inset: 0;` to stretch across the physical display without leaving any black gap below the home bar.
+  - Recalculated `.floating-bottom-nav` (`calc(12px + env(safe-area-inset-bottom, 10px))`) and `.mini-player-dock` (`calc(82px + env(safe-area-inset-bottom, 10px))`) to float above the iPhone home indicator seamlessly.
 
----
-
-### 2. Website Download Portal Updated
-- **Direct 1-Click Downloads**:
-  - **iOS Package (.IPA)**: `downloads/MusicFlow.ipa` (3.8 MB) — Sideload with AltStore / Sideloadly / Scarlet / TrollStore.
-  - **Android Package (.APK)**: `downloads/MusicFlow.apk` (25.2 MB) — Direct install on Android 8.0+.
-- **Version Banner**: Updated to **v2.5.0 PRO**.
+### 2. Lock Screen Background Playback & Full Media Controls (iOS & Android)
+- **Non-blocking Audio Pipeline**:
+  - Prevented automatic WebAudio API suspension from pausing audio when the device is locked.
+  - HTML5 audio streams run natively through the hardware audio pipeline with `UIBackgroundModes: ["audio"]`.
+- **Full Lock Screen Controls & Scrubber**:
+  - Registered full MediaSession handlers (`play`, `pause`, `previoustrack`, `nexttrack`, `seekto`, `seekbackward`, `seekforward`, `stop`).
+  - Added real-time `navigator.mediaSession.setPositionState()` for the lock screen scrubber and Dynamic Island widget.
+  - Added visibility and page lifecycle listeners to ensure audio never pauses when switching apps or locking the device.
 
 ---
 
-### 3. Pushed to GitHub
-- Pushed to Website repo: [https://github.com/adi6499/MUSICFLOW](https://github.com/adi6499/MUSICFLOW) ([commit `31c72cf`](https://github.com/adi6499/MUSICFLOW/commit/31c72cf)).
-- Pushed to Main repo: [https://github.com/adi6499/MUSIC-FLOW](https://github.com/adi6499/MUSIC-FLOW) ([commit `b236f7d`](https://github.com/adi6499/MUSIC-FLOW/commit/b236f7d)).
+### 3. Live GitHub Actions Build Link
+👉 **[View Live iOS Build Run (Run #32998416682)](https://github.com/adi6499/MUSIC-FLOW/actions/runs/32998416682)**

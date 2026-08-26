@@ -583,12 +583,18 @@ const UI = (() => {
         contextTitle.textContent = cleanContext || (song.primaryArtist ? `${song.primaryArtist} Radio` : 'Top Hits');
       }
 
-      const isFav = Storage.isFavorite(song.id);
+      const rawId = song.id || song.songId || song._id;
+      const isFav = Storage.isFavorite(rawId);
       if (heartIcon) {
         heartIcon.textContent = isFav ? 'favorite' : 'favorite_border';
         heartIcon.classList.toggle('fill-icon', isFav);
+        heartIcon.style.color = isFav ? '#FF2A4D' : 'rgba(255, 255, 255, 0.7)';
+        heartIcon.style.fontVariationSettings = isFav ? "'FILL' 1, 'wght' 600" : "'FILL' 0, 'wght' 400";
       }
-      if (heartBtn) heartBtn.classList.toggle('active', isFav);
+      if (heartBtn) {
+        heartBtn.classList.toggle('active', isFav);
+        heartBtn.style.color = isFav ? '#FF2A4D' : 'rgba(255, 255, 255, 0.7)';
+      }
 
       // Extract dynamic colors for ambient lighting
       setDynamicColor(song.image);
@@ -611,6 +617,36 @@ const UI = (() => {
       if (totTimeEl && duration > 0) totTimeEl.textContent = formatTime(duration);
       if (seekSlider && duration > 0) {
         seekSlider.value = (currentTime / duration) * 100;
+      }
+    },
+
+    updateShuffleState(isShuffle) {
+      const shuffleBtn = document.getElementById('btn-player-shuffle');
+      const shuffleIcon = document.getElementById('player-shuffle-icon');
+      if (shuffleBtn) {
+        shuffleBtn.classList.toggle('active', isShuffle);
+        shuffleBtn.style.color = isShuffle ? '#FF2A4D' : 'rgba(255, 255, 255, 0.7)';
+        shuffleBtn.style.transform = 'scale(1.25)';
+        setTimeout(() => { if (shuffleBtn) shuffleBtn.style.transform = ''; }, 150);
+      }
+      if (shuffleIcon) {
+        shuffleIcon.style.color = isShuffle ? '#FF2A4D' : 'rgba(255, 255, 255, 0.7)';
+      }
+    },
+
+    updateRepeatState(repeatMode) {
+      const repeatBtn = document.getElementById('btn-player-repeat');
+      const repeatIcon = document.getElementById('player-repeat-icon');
+      const isActive = repeatMode === 'ALL' || repeatMode === 'ONE';
+      if (repeatBtn) {
+        repeatBtn.classList.toggle('active', isActive);
+        repeatBtn.style.color = isActive ? '#FF2A4D' : 'rgba(255, 255, 255, 0.7)';
+        repeatBtn.style.transform = 'scale(1.25)';
+        setTimeout(() => { if (repeatBtn) repeatBtn.style.transform = ''; }, 150);
+      }
+      if (repeatIcon) {
+        repeatIcon.textContent = repeatMode === 'ONE' ? 'repeat_one' : 'repeat';
+        repeatIcon.style.color = isActive ? '#FF2A4D' : 'rgba(255, 255, 255, 0.7)';
       }
     },
 

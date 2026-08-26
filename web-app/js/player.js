@@ -234,8 +234,11 @@ const Player = (() => {
         ['pause', () => pause()],
         ['previoustrack', () => previous()],
         ['nexttrack', () => next()],
+        // Map seekforward / seekbackward directly to next / previous as fallback on iOS lockscreen
+        ['seekforward', () => next()],
+        ['seekbackward', () => previous()],
         ['seekto', (details) => {
-          if (details.seekTime !== undefined && audio && !isNaN(details.seekTime)) {
+          if (details && details.seekTime !== undefined && audio && !isNaN(details.seekTime)) {
             audio.currentTime = details.seekTime;
             updatePositionState();
           }
@@ -245,12 +248,6 @@ const Player = (() => {
           if (audio) audio.currentTime = 0;
         }]
       ];
-
-      // Explicitly disable seek backward/forward handlers so iOS/Android displays Next Track / Previous Track buttons!
-      try {
-        navigator.mediaSession.setActionHandler('seekbackward', null);
-        navigator.mediaSession.setActionHandler('seekforward', null);
-      } catch (_) {}
 
       actions.forEach(([action, handler]) => {
         try {
@@ -344,6 +341,7 @@ const Player = (() => {
     const song = queue[currentIndex];
 
     notify('trackChange', song);
+    setupMediaSession();
     updateMediaSession(song);
     Storage.addToHistory(song);
 
@@ -555,6 +553,7 @@ const Player = (() => {
       currentIndex = current ? queue.findIndex(s => String(s.id) === String(current.id)) : 0;
     }
 
+    notify('shuffleChange', isShuffle);
     notify('queueChange', queue);
     return isShuffle;
   }
@@ -563,6 +562,7 @@ const Player = (() => {
     if (repeatMode === 'OFF') repeatMode = 'ALL';
     else if (repeatMode === 'ALL') repeatMode = 'ONE';
     else repeatMode = 'OFF';
+    notify('repeatChange', repeatMode);
     return repeatMode;
   }
 

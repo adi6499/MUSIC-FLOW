@@ -216,11 +216,12 @@ class PlayerViewModel(
     }
 
     fun toggleFavorite() {
+        val song = currentSong.value ?: return
+        val targetFav = !_isFavorite.value
+        _isFavorite.value = targetFav // Instant optimistic feedback
         viewModelScope.launch {
-            currentSong.value?.let { song ->
-                repository.toggleFavorite(song)
-                _isFavorite.value = repository.isFavorite(song.id)
-            }
+            repository.toggleFavorite(song)
+            _isFavorite.value = repository.isFavorite(song.id)
         }
     }
 

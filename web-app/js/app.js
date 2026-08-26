@@ -133,6 +133,14 @@ const App = (() => {
     Player.on('queueChange', (queue) => {
       UI.renderQueueSheet(queue, queue.findIndex(s => s.id === Player.getCurrentTrack()?.id));
     });
+
+    Player.on('shuffleChange', (isShuffle) => {
+      UI.updateShuffleState(isShuffle);
+    });
+
+    Player.on('repeatChange', (repeatMode) => {
+      UI.updateRepeatState(repeatMode);
+    });
   }
 
   // ==========================================================================
@@ -806,8 +814,26 @@ const App = (() => {
   function toggleFavoriteCurrent() {
     const song = Player.getCurrentTrack();
     if (!song) return;
-    Storage.toggleFavorite(song);
+    const isFav = Storage.toggleFavorite(song);
     UI.updatePlayerBar(song);
+
+    // Dynamic tactile heart bounce and color lock
+    const heartBtn = document.getElementById('btn-player-favorite');
+    const heartIcon = document.getElementById('player-heart-icon');
+    if (heartBtn) {
+      heartBtn.classList.toggle('active', isFav);
+      heartBtn.style.color = isFav ? '#FF2A4D' : 'rgba(255, 255, 255, 0.7)';
+      heartBtn.style.transform = 'scale(1.35)';
+      setTimeout(() => {
+        if (heartBtn) heartBtn.style.transform = '';
+      }, 200);
+    }
+    if (heartIcon) {
+      heartIcon.textContent = isFav ? 'favorite' : 'favorite_border';
+      heartIcon.classList.toggle('fill-icon', isFav);
+      heartIcon.style.color = isFav ? '#FF2A4D' : 'rgba(255, 255, 255, 0.7)';
+      heartIcon.style.fontVariationSettings = isFav ? "'FILL' 1, 'wght' 600" : "'FILL' 0, 'wght' 400";
+    }
   }
 
   // ==========================================================================

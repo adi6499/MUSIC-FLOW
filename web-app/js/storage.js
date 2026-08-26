@@ -42,21 +42,27 @@ const Storage = (() => {
     },
 
     isFavorite(songId) {
+      if (!songId) return false;
       const favs = this.getFavorites();
-      return favs.some(s => String(s.id) === String(songId));
+      const targetId = String(songId).trim();
+      return favs.some(s => String(s.id || s.songId || '').trim() === targetId);
     },
 
     toggleFavorite(song) {
-      if (!song || !song.id) return false;
+      if (!song) return false;
+      const rawId = song.id || song.songId || song._id;
+      if (!rawId) return false;
+      const targetId = String(rawId).trim();
       const favs = this.getFavorites();
-      const idx = favs.findIndex(s => String(s.id) === String(song.id));
+      const idx = favs.findIndex(s => String(s.id || s.songId || '').trim() === targetId);
       let isFav = false;
 
       if (idx >= 0) {
         favs.splice(idx, 1);
         isFav = false;
       } else {
-        favs.unshift(song);
+        const fullSong = { ...song, id: targetId };
+        favs.unshift(fullSong);
         isFav = true;
       }
 

@@ -1,14 +1,20 @@
-# MusicFlow — iOS Lock Screen Controls Walkthrough
+# MusicFlow — Lock Screen Next/Previous Buttons & Lowered Navbar Walkthrough
 
-### 1. iOS Lock Screen Controls & Artwork Fix
-- **Why Controls Weren't Showing**:
-  - iOS WebKit `MPNowPlayingInfoCenter` requires fully qualified absolute `https://` URLs for artwork images. Relative paths (`assets/logo.png`) or `http://` URLs caused the lock screen info publisher to fail silently.
+### 1. Fixed Lock Screen Controls (Next ⏭ & Previous ⏮ Track Buttons)
+- **Root Cause**: When registering `seekbackward` and `seekforward` in MediaSession API, iOS WebKit flags the session as a podcast/audiobook and replaces the track skip buttons with 10-second skip buttons.
 - **The Fix**:
-  - Added `getAbsoluteImageUrl(url)` in [`web-app/js/player.js`](file:///c:/Users/PC/AndroidStudioProjects/MUSICFLOW/web-app/js/player.js) to resolve all artwork paths to absolute `https://` URLs across all CDN resolutions.
-  - Linked active position tracking (`updatePositionState()`) on playback events and periodic time updates to render the lock screen scrubber and Dynamic Island widget.
-  - Registered full remote command handlers (`play`, `pause`, `next`, `previous`, `seekto`, `seekforward`, `seekbackward`, `stop`).
+  - Removed `seekbackward` and `seekforward` and explicitly cleared their handlers (`null`).
+  - Retained `previoustrack`, `nexttrack`, `play`, `pause`, `seekto`, and `stop`.
+  - iOS Lock Screen, Dynamic Island, and Control Center now display the standard **⏮ Previous Song**, **⏯ Play/Pause**, and **⏭ Next Song** buttons!
 
 ---
 
-### 2. Live GitHub Actions Build Link
-👉 **[View Live iOS Build Run (Run #32998751608)](https://github.com/adi6499/MUSIC-FLOW/actions/runs/32998751608)**
+### 2. Lowered Bottom Navigation Bar & Mini Player
+- **Adjusted Insets**:
+  - Re-adjusted `.floating-bottom-nav` (`bottom: max(6px, calc(env(safe-area-inset-bottom, 0px) - 18px))`) to bring it closer down to the bottom of the screen.
+  - Positioned `.mini-player-dock` right above it (`bottom: calc(... + 64px)`), keeping the entire interface clean and compact.
+
+---
+
+### 3. Live GitHub Actions Build Link
+👉 **[View Live iOS Build Run (Run #32999264366)](https://github.com/adi6499/MUSIC-FLOW/actions/runs/32999264366)**

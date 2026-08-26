@@ -12,16 +12,18 @@ class MusicFlowApp : Application(), ImageLoaderFactory {
         return ImageLoader.Builder(this)
             .memoryCache {
                 MemoryCache.Builder(this)
-                    .maxSizePercent(0.25)
+                    .maxSizePercent(0.30)
                     .build()
             }
             .diskCache {
                 DiskCache.Builder()
                     .directory(this.cacheDir.resolve("image_cache"))
-                    .maxSizePercent(0.02)
+                    .maxSizePercent(0.05)
                     .build()
             }
-            .crossfade(true)
+            .crossfade(150)
+            .allowHardware(true)
+            .respectCacheHeaders(false)
             .build()
     }
 }

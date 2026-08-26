@@ -29,6 +29,9 @@ class PlayerViewModel(
     val audioQuality: StateFlow<String> = userPreferences.audioQuality
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "320kbps")
 
+    val motionArtworkEnabled: StateFlow<Boolean> = userPreferences.motionArtworkEnabled
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+
     val playlists: StateFlow<List<com.example.musicflow.data.local.PlaylistEntity>> = repository.getPlaylists()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -38,7 +41,7 @@ class PlayerViewModel(
     private val _isDownloaded = MutableStateFlow(false)
     val isDownloaded: StateFlow<Boolean> = _isDownloaded.asStateFlow()
 
-    private val _lyricsData = MutableStateFlow<LyricsData?>(null)
+    private val _lyricsData = MutableStateFlow< LyricsData?>(null)
     val lyricsData: StateFlow<LyricsData?> = _lyricsData.asStateFlow()
 
     private val _parsedLrcLines = MutableStateFlow<List<LrcLine>>(emptyList())
@@ -64,7 +67,9 @@ class PlayerViewModel(
             }
             idx
         }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), -1)
+    }
+    .distinctUntilChanged()
+    .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), -1)
 
     private val _playbackSpeed = MutableStateFlow(1.0f)
     val playbackSpeed: StateFlow<Float> = _playbackSpeed.asStateFlow()

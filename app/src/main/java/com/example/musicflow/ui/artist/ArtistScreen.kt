@@ -50,6 +50,10 @@ fun ArtistScreen(
     val artist by viewModel.artist.collectAsState()
     val topSongs by viewModel.topSongs.collectAsState()
     val albums by viewModel.albums.collectAsState()
+    val similarArtists by viewModel.similarArtists.collectAsState()
+    val genres by viewModel.genres.collectAsState()
+    val selectedGenre by viewModel.selectedGenre.collectAsState()
+    val monthlyListeners by viewModel.monthlyListeners.collectAsState()
     val playlists by viewModel.playlists.collectAsState()
     val isFollowed by viewModel.isFollowed.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
@@ -60,14 +64,8 @@ fun ArtistScreen(
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var newPlaylistName by remember { mutableStateOf("") }
 
-    val similarArtists = remember {
-        listOf(
-            Artist("sim_1", "Dua Lipa", "https://c.saavncdn.com/artists/Dua_Lipa_003_20240503074744_500x500.jpg"),
-            Artist("sim_2", "Daft Punk", "https://c.saavncdn.com/artists/Daft_Punk_500x500.jpg"),
-            Artist("sim_3", "Ed Sheeran", "https://c.saavncdn.com/artists/Ed_Sheeran_500x500.jpg"),
-            Artist("sim_4", "Rihanna", "https://c.saavncdn.com/artists/Rihanna_500x500.jpg")
-        )
-    }
+    val recentSong = remember(topSongs) { topSongs.firstOrNull() }
+    val displayTopTracks = remember(topSongs) { topSongs.take(5) }
 
     LaunchedEffect(artistId) {
         viewModel.loadArtist(artistId)
@@ -88,7 +86,7 @@ fun ArtistScreen(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = bottomPadding + 32.dp)
                 ) {
-                    // 1. Top Bar + Hero Photo Card (Image 1)
+                    // 1. Top Bar + Hero Photo Card
                     item {
                         ArtistHeroTopSection(
                             artist = artistData,
@@ -97,10 +95,11 @@ fun ArtistScreen(
                         )
                     }
 
-                    // 2. Artist Name, Monthly Listeners, Red Play, Radio & Like Button (Image 1)
+                    // 2. Artist Name, Monthly Listeners, Red Play, Radio & Like Button
                     item {
                         ArtistTitleActionSection(
                             artist = artistData,
+                            monthlyListeners = monthlyListeners,
                             isFollowed = isFollowed,
                             onPlayClick = { viewModel.playArtistTopSongs() },
                             onRadioClick = { viewModel.startArtistRadio() },
@@ -108,15 +107,18 @@ fun ArtistScreen(
                         )
                     }
 
-                    // 3. Genre Pills Row (Image 1)
-                    item {
-                        ArtistGenrePillsRow(
-                            genres = listOf("Pop", "Hip Hop", "R&B", "+ 04 Others")
-                        )
+                    // 3. Interactive Genre Pills Row
+                    if (genres.isNotEmpty()) {
+                        item {
+                            ArtistGenrePillsRow(
+                                genres = genres,
+                                selectedGenre = selectedGenre,
+                                onGenreClick = { viewModel.selectGenre(it) }
+                            )
+                        }
                     }
 
-                    // 4. "Recent release" Section (Image 1)
-                    val recentSong = topSongs.firstOrNull()
+                    // 4. "Recent release" Section
                     if (recentSong != null) {
                         item {
                             Text(
@@ -168,7 +170,7 @@ fun ArtistScreen(
                                         )
                                         Spacer(modifier = Modifier.height(2.dp))
                                         Text(
-                                            text = "${recentSong.year.ifBlank { "2022" }} • Single",
+                                            text = "${recentSong.year.ifBlank { "Popular" }} • Single",
                                             style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
                                             color = Secondary
                                         )
@@ -186,8 +188,8 @@ fun ArtistScreen(
                         }
                     }
 
-                    // 5. "Top tracks" Section (Image 2)
-                    if (topSongs.isNotEmpty()) {
+                    // 5. "Top tracks" Section with View All chevron
+                    if (displayTopTracks.isNotEmpty()) {
                         item {
                             Row(
                                 modifier = Modifier
@@ -214,7 +216,7 @@ fun ArtistScreen(
                             }
                         }
 
-                        itemsIndexed(topSongs.take(5), key = { index, song -> "artist_top_${song.id}_$index" }) { index, song ->
+                        itemsIndexed(displayTopTracks, key = { index, song -> "art_top_${song.id}_$index" }) { index, song ->
                             ArtistTrackNumberedRow(
                                 index = index + 1,
                                 song = song,
@@ -224,7 +226,7 @@ fun ArtistScreen(
                         }
                     }
 
-                    // 6. "Playlists" Section (Image 2)
+                    // 6. "Playlists" Section (Mixes)
                     item {
                         Text(
                             text = "Playlists",
@@ -245,25 +247,25 @@ fun ArtistScreen(
                             item {
                                 ArtistPlaylistHeroCard(
                                     title = "Best: ${artistData.name}",
-                                    subtitle = "49 songs • 1 h 17 min",
+                                    subtitle = "Top essential tracks",
                                     imageUrl = artistData.image,
                                     bgColor = Color(0xFF0F3838),
-                                    onClick = { viewModel.playArtistTopSongs() }
+                                    onClick = { viewModel.playArtistPlaylist("Best") }
                                 )
                             }
                             item {
                                 ArtistPlaylistHeroCard(
-                                    title = "Style: ${artistData.name}",
-                                    subtitle = "37 songs • 1 h 01 min",
+                                    title = "Radio: ${artistData.name}",
+                                    subtitle = "Endless artist radio mix",
                                     imageUrl = artistData.image,
                                     bgColor = Color(0xFF5A1C2C),
-                                    onClick = { viewModel.playArtistTopSongs() }
+                                    onClick = { viewModel.playArtistPlaylist("Radio") }
                                 )
                             }
                         }
                     }
 
-                    // 7. "Albums and EPs" Section (Image 2)
+                    // 7. "Albums and EPs" Section
                     if (albums.isNotEmpty()) {
                         item {
                             Text(
@@ -282,7 +284,7 @@ fun ArtistScreen(
                                 contentPadding = PaddingValues(horizontal = 20.dp),
                                 horizontalArrangement = Arrangement.spacedBy(14.dp)
                             ) {
-                                items(albums, key = { "alb_${it.id}" }) { album ->
+                                items(albums, key = { "art_alb_${it.id}" }) { album ->
                                     ArtistAlbumGlassCard(
                                         album = album,
                                         onClick = { onAlbumClick(album.id) }
@@ -292,65 +294,62 @@ fun ArtistScreen(
                         }
                     }
 
-                    // 8. "Similar artists" Section (Image 2)
-                    item {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 20.dp)
-                                .padding(top = 28.dp, bottom = 14.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Similar artists",
-                                style = MaterialTheme.typography.titleLarge.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 20.sp
-                                ),
-                                color = Color.White
-                            )
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                contentDescription = "See all",
-                                tint = Secondary
-                            )
+                    // 8. "Similar artists" Section
+                    if (similarArtists.isNotEmpty()) {
+                        item {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 20.dp)
+                                    .padding(top = 28.dp, bottom = 14.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Similar artists",
+                                    style = MaterialTheme.typography.titleLarge.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 20.sp
+                                    ),
+                                    color = Color.White
+                                )
+                            }
                         }
-                    }
 
-                    item {
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 20.dp),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            items(similarArtists) { simArtist ->
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    modifier = Modifier
-                                        .width(72.dp)
-                                        .clickable { onArtistClick(simArtist.name) }
-                                ) {
-                                    AsyncImage(
-                                        model = simArtist.image,
-                                        contentDescription = simArtist.name,
+                        item {
+                            LazyRow(
+                                contentPadding = PaddingValues(horizontal = 20.dp),
+                                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                            ) {
+                                items(similarArtists, key = { "sim_${it.id}_${it.name}" }) { simArtist ->
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
                                         modifier = Modifier
-                                            .size(68.dp)
-                                            .clip(CircleShape)
-                                            .background(MaterialTheme.colorScheme.surface),
-                                        contentScale = ContentScale.Crop
-                                    )
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Text(
-                                        text = simArtist.name,
-                                        style = MaterialTheme.typography.bodySmall.copy(
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Medium
-                                        ),
-                                        color = MaterialTheme.colorScheme.onBackground,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        textAlign = TextAlign.Center
-                                    )
+                                            .width(76.dp)
+                                            .clickable { onArtistClick(simArtist.id.ifBlank { simArtist.name }) }
+                                    ) {
+                                        AsyncImage(
+                                            model = simArtist.image,
+                                            contentDescription = simArtist.name,
+                                            modifier = Modifier
+                                                .size(68.dp)
+                                                .clip(CircleShape)
+                                                .background(SurfaceDark),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            text = simArtist.name,
+                                            style = MaterialTheme.typography.bodySmall.copy(
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Medium
+                                            ),
+                                            color = MaterialTheme.colorScheme.onBackground,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -359,7 +358,7 @@ fun ArtistScreen(
             }
         }
 
-        // Artist Options Bottom Sheet
+        // Artist Options Bottom Sheet Menu
         if (showArtistMenu) {
             val context = androidx.compose.ui.platform.LocalContext.current
             ModalBottomSheet(
@@ -407,7 +406,7 @@ fun ArtistScreen(
                         icon = Icons.Default.Radio,
                         label = "Start Artist Radio",
                         onClick = {
-                            topSongs.firstOrNull()?.let { viewModel.startRadio(it) }
+                            viewModel.startArtistRadio()
                             showArtistMenu = false
                         }
                     )
@@ -428,7 +427,7 @@ fun ArtistScreen(
             }
         }
 
-        // Context Menu
+        // Song Context Menu
         selectedSongForMenu?.let { song ->
             val context = androidx.compose.ui.platform.LocalContext.current
             SongContextMenu(
@@ -467,7 +466,7 @@ fun ArtistScreen(
 }
 
 // -------------------------------------------------------------
-// HERO TOP SECTION (Image 1)
+// HERO TOP SECTION
 // -------------------------------------------------------------
 @Composable
 fun ArtistHeroTopSection(
@@ -497,7 +496,7 @@ fun ArtistHeroTopSection(
                     contentScale = ContentScale.Crop
                 )
 
-                // Dark vignette overlay
+                // Dark gradient overlay
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -557,7 +556,10 @@ fun ArtistHeroTopSection(
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 14.sp
                 ),
-                color = Color.White
+                color = Color.White,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(max = 200.dp)
             )
 
             Surface(
@@ -582,11 +584,12 @@ fun ArtistHeroTopSection(
 }
 
 // -------------------------------------------------------------
-// TITLE & ACTION SECTION (Image 1)
+// TITLE & ACTION SECTION
 // -------------------------------------------------------------
 @Composable
 fun ArtistTitleActionSection(
     artist: Artist,
+    monthlyListeners: String,
     isFollowed: Boolean,
     onPlayClick: () -> Unit,
     onRadioClick: () -> Unit = {},
@@ -606,11 +609,13 @@ fun ArtistTitleActionSection(
                     fontWeight = FontWeight.Bold,
                     fontSize = 24.sp
                 ),
-                color = Color.White
+                color = Color.White,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "3 234 900 listeners per month",
+                text = monthlyListeners,
                 style = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp),
                 color = Secondary
             )
@@ -664,7 +669,7 @@ fun ArtistTitleActionSection(
                     .clickable(onClick = onLikeClick),
                 shape = CircleShape,
                 color = SurfaceDark,
-                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
+                border = BorderStroke(1.dp, if (isFollowed) MusicRed.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.08f))
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
@@ -680,26 +685,32 @@ fun ArtistTitleActionSection(
 }
 
 // -------------------------------------------------------------
-// GENRE PILLS ROW (Image 1)
+// INTERACTIVE GENRE PILLS ROW
 // -------------------------------------------------------------
 @Composable
-fun ArtistGenrePillsRow(genres: List<String>) {
+fun ArtistGenrePillsRow(
+    genres: List<String>,
+    selectedGenre: String,
+    onGenreClick: (String) -> Unit
+) {
     LazyRow(
         contentPadding = PaddingValues(horizontal = 20.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier.padding(vertical = 12.dp)
     ) {
-        items(genres) { genre ->
+        items(genres, key = { it }) { genre ->
+            val isSelected = genre == selectedGenre
             Surface(
+                modifier = Modifier.clickable { onGenreClick(genre) },
                 shape = RoundedCornerShape(16.dp),
-                color = SurfaceDark,
-                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f))
+                color = if (isSelected) MusicRed else SurfaceDark,
+                border = BorderStroke(1.dp, if (isSelected) MusicRed else Color.White.copy(alpha = 0.08f))
             ) {
                 Text(
                     text = genre,
                     style = MaterialTheme.typography.labelMedium.copy(
                         fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                     ),
                     color = Color.White,
                     modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp)
@@ -710,7 +721,7 @@ fun ArtistGenrePillsRow(genres: List<String>) {
 }
 
 // -------------------------------------------------------------
-// NUMBERED TRACK ROW (Image 2)
+// NUMBERED TRACK ROW
 // -------------------------------------------------------------
 @Composable
 fun ArtistTrackNumberedRow(
@@ -769,7 +780,7 @@ fun ArtistTrackNumberedRow(
 }
 
 // -------------------------------------------------------------
-// PLAYLIST HERO CARD (Image 2)
+// PLAYLIST HERO CARD
 // -------------------------------------------------------------
 @Composable
 fun ArtistPlaylistHeroCard(
@@ -795,13 +806,13 @@ fun ArtistPlaylistHeroCard(
                 contentScale = ContentScale.Crop
             )
 
-            // Gradient Overlay
+            // Single lightweight Gradient Overlay
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(
                         Brush.verticalGradient(
-                            colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.9f)),
+                            colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.88f)),
                             startY = 0.3f
                         )
                     )
@@ -855,7 +866,7 @@ fun ArtistPlaylistHeroCard(
 }
 
 // -------------------------------------------------------------
-// ALBUM GLASS CARD (Image 2)
+// ALBUM GLASS CARD
 // -------------------------------------------------------------
 @Composable
 fun ArtistAlbumGlassCard(
@@ -879,7 +890,7 @@ fun ArtistAlbumGlassCard(
                 contentScale = ContentScale.Crop
             )
 
-            // Bottom Glassmorphic Overlay Badge
+            // Bottom Overlay Badge
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()

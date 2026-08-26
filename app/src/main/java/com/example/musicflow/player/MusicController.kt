@@ -159,12 +159,12 @@ class MusicController(
             while (isActive) {
                 val pos = controller?.currentPosition ?: 0L
                 _currentPosition.value = pos
-                val currentSec = pos / 4000L
+                val currentSec = pos / 15000L
                 if (currentSec != lastSavedSec) {
                     lastSavedSec = currentSec
                     userPreferences.updateLastPlaybackPosition(pos)
                 }
-                delay(250)
+                delay(500)
             }
         }
     }

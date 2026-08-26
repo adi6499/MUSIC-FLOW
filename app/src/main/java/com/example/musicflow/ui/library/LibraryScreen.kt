@@ -39,6 +39,10 @@ fun LibraryScreen(
     val allSongs by viewModel.allSongs.collectAsState()
     val history by viewModel.history.collectAsState()
     val downloads by viewModel.downloads.collectAsState()
+
+    val uniqueSongs = remember(allSongs) { allSongs.distinctBy { it.id } }
+    val uniqueHistory = remember(history) { history.distinctBy { it.id } }
+    val uniqueDownloads = remember(downloads) { downloads.distinctBy { it.id } }
     
     var selectedSongForMenu by remember { mutableStateOf<Song?>(null) }
     var selectedTab by remember { mutableStateOf(0) }
@@ -187,8 +191,7 @@ fun LibraryScreen(
                                 icon = Icons.Filled.MusicNote
                             )
                         }
-                    } else {
-                        items(allSongs.distinctBy { it.id }, key = { "song_${it.id}" }) { song ->
+                        items(uniqueSongs, key = { "song_${it.id}" }) { song ->
                             MFListRow(
                                 title = song.name,
                                 subtitle = song.artists,
@@ -221,8 +224,7 @@ fun LibraryScreen(
                                 icon = Icons.Filled.History
                             )
                         }
-                    } else {
-                        items(history.distinctBy { it.id }, key = { "hist_${it.id}" }) { song ->
+                        items(uniqueHistory, key = { "hist_${it.id}" }) { song ->
                             MFListRow(
                                 title = song.name,
                                 subtitle = song.artists,
@@ -241,8 +243,7 @@ fun LibraryScreen(
                                 icon = Icons.Filled.Download
                             )
                         }
-                    } else {
-                        items(downloads.distinctBy { it.id }, key = { "down_${it.id}" }) { song ->
+                        items(uniqueDownloads, key = { "down_${it.id}" }) { song ->
                             MFListRow(
                                 title = song.name,
                                 subtitle = song.artists,

@@ -55,6 +55,7 @@ fun PlayerScreen(
     val playbackSpeed by viewModel.playbackSpeed.collectAsState()
     val playlists by viewModel.playlists.collectAsState()
     val audioQuality by viewModel.audioQuality.collectAsState()
+    val motionArtworkEnabled by viewModel.motionArtworkEnabled.collectAsState()
 
     var showQueueSheet by remember { mutableStateOf(false) }
     var showLyrics by remember { mutableStateOf(false) }
@@ -69,6 +70,20 @@ fun PlayerScreen(
 
     val palette = rememberMusicPalette(currentSong?.image)
     val animatedDominant by animateColorAsState(targetValue = palette.dominant, label = "dominant_color")
+
+    // Handle back button inside PlayerScreen
+    androidx.activity.compose.BackHandler(enabled = showLyrics) {
+        showLyrics = false
+    }
+    androidx.activity.compose.BackHandler(enabled = !showLyrics && showQueueSheet) {
+        showQueueSheet = false
+    }
+    androidx.activity.compose.BackHandler(enabled = !showLyrics && !showQueueSheet && showSongMenu) {
+        showSongMenu = false
+    }
+    androidx.activity.compose.BackHandler(enabled = !showLyrics && !showQueueSheet && !showSongMenu && !showQualityDialog && !showPlaylistDialog && !showSleepTimerDialog && !showSpeedDialog && !showStoryShareDialog) {
+        onCollapse()
+    }
 
     currentSong?.let { song ->
         Box(
@@ -143,62 +158,19 @@ fun PlayerScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
 
-                    // Large Album Artwork
-                    AsyncImage(
-                        model = song.image,
-                        contentDescription = "Album Artwork",
+                    // Apple Music-grade Dynamic Motion Artwork Centerpiece
+                    MotionArtwork(
+                        imageUrl = song.image,
+                        isPlaying = isPlaying,
+                        enabled = motionArtworkEnabled,
+                        dominantColor = palette.dominant,
+                        secondaryColor = palette.vibrant,
                         modifier = Modifier
                             .fillMaxWidth(0.88f)
                             .aspectRatio(1f)
-                            .clip(RoundedCornerShape(Dimens.RadiusExtraLarge)),
-                        contentScale = ContentScale.Crop
                     )
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // Live Reactive Glass Waveform Visualizer
-                    val waveform by com.example.musicflow.player.AudioEffectsManager.waveformState.collectAsState()
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(0.88f)
-                            .height(42.dp)
-                            .clip(RoundedCornerShape(21.dp))
-                            .background(Color.White.copy(alpha = 0.06f))
-                            .padding(horizontal = 16.dp, vertical = 6.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxSize(),
-                            horizontalArrangement = Arrangement.SpaceEvenly,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            waveform.forEachIndexed { i, factor ->
-                                val targetH = if (isPlaying) factor.coerceIn(0.18f, 1f) else 0.20f
-                                val animatedHeight by androidx.compose.animation.core.animateFloatAsState(
-                                    targetValue = targetH,
-                                    animationSpec = androidx.compose.animation.core.spring(dampingRatio = 0.60f, stiffness = 450f),
-                                    label = "wave_bar_$i"
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .width(3.5.dp)
-                                        .fillMaxHeight(animatedHeight)
-                                        .clip(RoundedCornerShape(2.dp))
-                                        .background(
-                                            brush = Brush.verticalGradient(
-                                                listOf(
-                                                    Color(0xFF00F2FE),
-                                                    com.example.musicflow.ui.theme.MusicAccent,
-                                                    Color.White
-                                                )
-                                            )
-                                        )
-                                )
-                            }
-                        }
-                    }
 
                     Spacer(modifier = Modifier.weight(1f))
 

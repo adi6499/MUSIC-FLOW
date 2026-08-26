@@ -1,5 +1,6 @@
 package com.example.musicflow.ui.album
 
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -16,6 +17,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -171,15 +174,29 @@ fun AlbumHeroHeader(
     onPlayAll: () -> Unit,
     onShuffle: () -> Unit
 ) {
+    val infiniteTransition = rememberInfiniteTransition(label = "album_motion")
+    val heroScale by infiniteTransition.animateFloat(
+        initialValue = 1.0f,
+        targetValue = 1.06f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 10000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "hero_scale"
+    )
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(340.dp)
+            .clipToBounds()
     ) {
         AsyncImage(
             model = album.image,
             contentDescription = null,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .scale(heroScale),
             contentScale = ContentScale.Crop
         )
         Box(

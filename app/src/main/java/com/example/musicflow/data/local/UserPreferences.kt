@@ -32,6 +32,8 @@ class UserPreferences(private val context: Context) {
         val CROSSFADE_SECONDS = intPreferencesKey("crossfade_seconds")
         val LOUDNESS_NORMALIZATION = booleanPreferencesKey("loudness_normalization")
         val VISUALIZER_ENABLED = booleanPreferencesKey("visualizer_enabled")
+        val MOTION_ARTWORK_ENABLED = booleanPreferencesKey("motion_artwork_enabled")
+        val MOTION_ARTWORK = booleanPreferencesKey("motion_artwork")
     }
 
     val volume: Flow<Float> = context.dataStore.data.map { it[VOLUME] ?: 0.8f }
@@ -43,6 +45,7 @@ class UserPreferences(private val context: Context) {
     val crossfadeSeconds: Flow<Int> = context.dataStore.data.map { it[CROSSFADE_SECONDS] ?: 3 }
     val loudnessNormalization: Flow<Boolean> = context.dataStore.data.map { it[LOUDNESS_NORMALIZATION] ?: true }
     val visualizerEnabled: Flow<Boolean> = context.dataStore.data.map { it[VISUALIZER_ENABLED] ?: true }
+    val motionArtworkEnabled: Flow<Boolean> = context.dataStore.data.map { it[MOTION_ARTWORK] ?: it[MOTION_ARTWORK_ENABLED] ?: true }
     val languages: Flow<Set<String>> = context.dataStore.data.map { it[LANGUAGES] ?: setOf("hindi", "english") }
     val userName: Flow<String?> = context.dataStore.data.map { it[USER_NAME] }
     val recentSearches: Flow<List<String>> = context.dataStore.data.map { 
@@ -145,5 +148,16 @@ class UserPreferences(private val context: Context) {
 
     suspend fun updateVisualizerEnabled(enabled: Boolean) {
         context.dataStore.edit { it[VISUALIZER_ENABLED] = enabled }
+    }
+
+    suspend fun updateMotionArtworkEnabled(enabled: Boolean) {
+        context.dataStore.edit { 
+            it[MOTION_ARTWORK] = enabled
+            it[MOTION_ARTWORK_ENABLED] = enabled 
+        }
+    }
+
+    suspend fun setMotionArtworkEnabled(enabled: Boolean) {
+        updateMotionArtworkEnabled(enabled)
     }
 }

@@ -39,10 +39,10 @@ fun NavGraph(
         navController = navController,
         startDestination = "home",
         modifier = modifier,
-        enterTransition = { fadeIn(tween(220)) + scaleIn(initialScale = 0.96f, animationSpec = tween(220)) },
-        exitTransition = { fadeOut(tween(180)) },
-        popEnterTransition = { fadeIn(tween(220)) + scaleIn(initialScale = 0.96f, animationSpec = tween(220)) },
-        popExitTransition = { fadeOut(tween(180)) }
+        enterTransition = { fadeIn(tween(200)) },
+        exitTransition = { fadeOut(tween(150)) },
+        popEnterTransition = { fadeIn(tween(200)) },
+        popExitTransition = { fadeOut(tween(150)) }
     ) {
         composable("home") {
             HomeScreen(
@@ -117,12 +117,14 @@ fun NavGraph(
                 viewModel = profileViewModel,
                 onBack = { navController.popBackStack() },
                 onEqualizerClick = { navController.navigate("equalizer") },
-                onRestartOnboarding = onLogout
+                onRestartOnboarding = onLogout,
+                bottomPadding = bottomPadding
             )
         }
         composable("equalizer") {
             com.example.musicflow.ui.equalizer.EqualizerScreen(
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                bottomPadding = bottomPadding
             )
         }
         composable("playlist/{playlistId}") { backStackEntry ->

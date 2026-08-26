@@ -34,7 +34,8 @@ import com.example.musicflow.ui.theme.Secondary
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EqualizerScreen(
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    bottomPadding: androidx.compose.ui.unit.Dp = 180.dp
 ) {
     val state by AudioEffectsManager.state.collectAsState()
     val scrollState = rememberScrollState()
@@ -323,14 +324,24 @@ fun EqualizerScreen(
                                 )
                             }
                         }
-                        Switch(
-                            checked = state.spatialAudioEnabled && state.isEnabled,
-                            onCheckedChange = { AudioEffectsManager.toggleSpatialAudio(it) },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = Color.White,
-                                checkedTrackColor = MusicRed
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (state.spatialAudioEnabled) {
+                                Text(
+                                    text = "${(state.virtualizerStrength / 10)}%",
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = MusicRed,
+                                    modifier = Modifier.padding(end = 8.dp)
+                                )
+                            }
+                            Switch(
+                                checked = state.spatialAudioEnabled && state.isEnabled,
+                                onCheckedChange = { AudioEffectsManager.toggleSpatialAudio(it) },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color.White,
+                                    checkedTrackColor = MusicRed
+                                )
                             )
-                        )
+                        }
                     }
 
                     if (state.spatialAudioEnabled) {
@@ -352,7 +363,7 @@ fun EqualizerScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(bottomPadding + 48.dp))
         }
     }
 }

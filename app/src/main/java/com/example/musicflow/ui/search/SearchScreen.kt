@@ -67,6 +67,12 @@ fun SearchScreen(
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
     var newPlaylistName by remember { mutableStateOf("") }
 
+    val displayRecent = remember(history) { history.distinctBy { it.id }.take(6) }
+    val uniqueArtists = remember(artistResults) { artistResults.distinctBy { it.id } }
+    val uniqueSongs = remember(searchResults) { searchResults.distinctBy { it.id } }
+    val uniqueAlbums = remember(albumResults) { albumResults.distinctBy { it.id } }
+    val uniquePlaylists = remember(playlistResults) { playlistResults.distinctBy { it.id } }
+
     val categories = listOf("All", "Songs", "Artists", "Albums", "Playlists")
 
     val popularQueries = remember {
@@ -188,7 +194,6 @@ fun SearchScreen(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = bottomPadding + 32.dp)
             ) {
-                val displayRecent = history.distinctBy { it.id }.take(6)
                 if (displayRecent.isNotEmpty()) {
                     // Section 1: "Recently played"
                     item {
@@ -304,7 +309,7 @@ fun SearchScreen(
                                 horizontalArrangement = Arrangement.spacedBy(14.dp),
                                 modifier = Modifier.padding(bottom = 12.dp)
                             ) {
-                                itemsIndexed(artistResults.distinctBy { it.id }, key = { index, artist -> "art_${artist.id}_$index" }) { _, artist ->
+                                itemsIndexed(uniqueArtists, key = { index, artist -> "art_${artist.id}_$index" }) { _, artist ->
                                     SearchArtistCard(
                                         artist = artist,
                                         onClick = { onArtistClick(artist.id) }
@@ -326,7 +331,7 @@ fun SearchScreen(
                                 )
                             }
 
-                            itemsIndexed(searchResults.distinctBy { it.id }, key = { index, song -> "song_${song.id}_$index" }) { _, song ->
+                            itemsIndexed(uniqueSongs, key = { index, song -> "song_${song.id}_$index" }) { _, song ->
                                 SearchSongRow(
                                     song = song,
                                     onClick = { onSongClick(song) },
@@ -353,7 +358,7 @@ fun SearchScreen(
                                 horizontalArrangement = Arrangement.spacedBy(14.dp),
                                 modifier = Modifier.padding(bottom = 12.dp)
                             ) {
-                                itemsIndexed(albumResults.distinctBy { it.id }, key = { index, album -> "alb_${album.id}_$index" }) { _, album ->
+                                itemsIndexed(uniqueAlbums, key = { index, album -> "alb_${album.id}_$index" }) { _, album ->
                                     SearchAlbumCard(
                                         album = album,
                                         onClick = { onAlbumClick(album.id) }
@@ -379,7 +384,7 @@ fun SearchScreen(
                                 contentPadding = PaddingValues(horizontal = 20.dp),
                                 horizontalArrangement = Arrangement.spacedBy(14.dp)
                             ) {
-                                itemsIndexed(playlistResults.distinctBy { it.id }, key = { index, playlist -> "play_${playlist.id}_$index" }) { _, playlist ->
+                                itemsIndexed(uniquePlaylists, key = { index, playlist -> "play_${playlist.id}_$index" }) { _, playlist ->
                                     RecommendedPlaylistCard(
                                         playlist = playlist,
                                         onClick = { /* play playlist */ }

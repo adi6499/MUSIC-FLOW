@@ -4,10 +4,13 @@
   "description": "MusicFlow - Lossless Music Player for Android & iOS",
   "private": true,
   "scripts": {
-    "cap:sync": "npx cap sync",
-    "cap:build:ios": "npx cap sync ios"
+    "sync": "powershell -Command \"Copy-Item -Path 'web-app\\*' -Destination 'app\\src\\main\\assets\\public' -Recurse -Force\" && npx.cmd cap sync",
+    "cap:sync": "npx.cmd cap sync",
+    "cap:sync:android": "npx.cmd cap sync android",
+    "cap:sync:ios": "npx.cmd cap sync ios"
   },
   "dependencies": {
+    "@capacitor/android": "^6.1.2",
     "@capacitor/cli": "^6.1.2",
     "@capacitor/core": "^6.1.2",
     "@capacitor/ios": "^6.1.2"

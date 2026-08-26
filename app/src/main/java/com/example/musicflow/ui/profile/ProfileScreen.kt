@@ -49,6 +49,8 @@ fun ProfileScreen(
     val favorites by viewModel.favorites.collectAsState()
     val followedArtists by viewModel.followedArtists.collectAsState()
 
+    val topFavorites = remember(favorites) { favorites.distinctBy { it.id }.take(10) }
+
     var selectedSongForMenu by remember { mutableStateOf<Song?>(null) }
     var selectedSongForPlaylist by remember { mutableStateOf<Song?>(null) }
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
@@ -313,7 +315,7 @@ fun ProfileScreen(
                     }
                 }
             } else {
-                itemsIndexed(favorites.distinctBy { it.id }.take(10), key = { index, song -> "liked_${song.id}_$index" }) { _, song ->
+                itemsIndexed(topFavorites, key = { index, song -> "liked_${song.id}_$index" }) { _, song ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()

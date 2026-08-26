@@ -28,12 +28,14 @@ fun SettingsScreen(
     viewModel: ProfileViewModel,
     onBack: () -> Unit,
     onEqualizerClick: () -> Unit = {},
-    onRestartOnboarding: () -> Unit = {}
+    onRestartOnboarding: () -> Unit = {},
+    bottomPadding: androidx.compose.ui.unit.Dp = 0.dp
 ) {
     val userName by viewModel.userName.collectAsState()
     val audioQuality by viewModel.audioQuality.collectAsState()
     val themeMode by viewModel.themeMode.collectAsState()
     val glassEffects by viewModel.glassEffects.collectAsState()
+    val motionArtworkEnabled by viewModel.motionArtworkEnabled.collectAsState()
     val languages by viewModel.languages.collectAsState()
 
     var showQualityDialog by remember { mutableStateOf(false) }
@@ -184,6 +186,51 @@ fun SettingsScreen(
                     }
                 }
 
+                // 5. Album Motion Artwork Switch
+                item {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(18.dp),
+                        color = SurfaceDark,
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.06f))
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp, vertical = 14.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Motion Artwork",
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        fontWeight = FontWeight.Medium,
+                                        fontSize = 15.sp
+                                    ),
+                                    color = Color.White
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = if (motionArtworkEnabled) "Animate album art on the Now Playing screen" else "Disabled (Static artwork)",
+                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                                    color = Secondary
+                                )
+                            }
+                            Switch(
+                                checked = motionArtworkEnabled,
+                                onCheckedChange = { viewModel.setMotionArtworkEnabled(it) },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = Color.White,
+                                    checkedTrackColor = MusicAccent,
+                                    uncheckedThumbColor = Color.White.copy(alpha = 0.6f),
+                                    uncheckedTrackColor = Color.White.copy(alpha = 0.1f)
+                                )
+                            )
+                        }
+                    }
+                }
+
                 item {
                     Spacer(modifier = Modifier.height(8.dp))
                     // Account Card
@@ -232,7 +279,7 @@ fun SettingsScreen(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 32.dp),
+                    .padding(bottom = bottomPadding + 16.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(

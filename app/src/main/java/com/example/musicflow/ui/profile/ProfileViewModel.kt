@@ -38,6 +38,9 @@ class ProfileViewModel(
     val glassEffects: StateFlow<Boolean> = userPreferences.glassEffects
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
+    val motionArtworkEnabled: StateFlow<Boolean> = userPreferences.motionArtworkEnabled
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), true)
+
     val languages: StateFlow<Set<String>> = userPreferences.languages
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), setOf("hindi", "english"))
 
@@ -68,6 +71,18 @@ class ProfileViewModel(
     fun updateGlassEffects(enabled: Boolean) {
         viewModelScope.launch {
             userPreferences.updateGlassEffects(enabled)
+        }
+    }
+
+    fun updateMotionArtworkEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            userPreferences.updateMotionArtworkEnabled(enabled)
+        }
+    }
+
+    fun setMotionArtworkEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            userPreferences.setMotionArtworkEnabled(enabled)
         }
     }
 

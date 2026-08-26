@@ -64,6 +64,22 @@ fun HomeScreen(
 
     val displayName = userName?.takeIf { it.isNotBlank() } ?: "Music Lover"
 
+    val displayQuickPicks = remember(quickPicks, trendingSongs) {
+        if (quickPicks.isNotEmpty()) quickPicks else trendingSongs
+    }
+    val quickPickChunks = remember(displayQuickPicks) { displayQuickPicks.take(16).chunked(4) }
+    val uniqueRecent = remember(recentlyPlayed) { recentlyPlayed.distinctBy { it.id } }
+    val displayRecommendations = remember(recommendations, trendingSongs) {
+        if (recommendations.isNotEmpty()) recommendations else trendingSongs
+    }
+    val uniqueRecs = remember(displayRecommendations) { displayRecommendations.distinctBy { it.id }.take(12) }
+    val displayNewSongs = remember(newReleases, trendingSongs) {
+        if (newReleases.isNotEmpty()) newReleases else trendingSongs
+    }
+    val uniqueNewSongs = remember(displayNewSongs) { displayNewSongs.distinctBy { it.id }.take(6) }
+    val uniqueCharts = remember(topCharts) { topCharts.distinctBy { it.id }.take(8) }
+    val uniqueAlbums = remember(trendingAlbums) { trendingAlbums.distinctBy { it.id }.take(8) }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -149,7 +165,6 @@ fun HomeScreen(
                 }
 
                 // 3. YouTube Music Signature "Quick Picks" (4-Row Multi-Column Horizontal Carousel)
-                val displayQuickPicks = if (quickPicks.isNotEmpty()) quickPicks else trendingSongs
                 if (displayQuickPicks.isNotEmpty()) {
                     item {
                         Row(
@@ -205,12 +220,11 @@ fun HomeScreen(
                     }
 
                     item {
-                        val chunks = displayQuickPicks.take(16).chunked(4)
                         LazyRow(
                             contentPadding = PaddingValues(horizontal = 20.dp),
                             horizontalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            items(chunks) { chunk ->
+                            items(quickPickChunks) { chunk ->
                                 Column(
                                     modifier = Modifier.width(320.dp),
                                     verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -284,7 +298,7 @@ fun HomeScreen(
                 }
 
                 // 5. "Listen Again" / Recent History Shelf (if history exists)
-                if (recentlyPlayed.isNotEmpty()) {
+                if (uniqueRecent.isNotEmpty()) {
                     item {
                         SectionHeaderWithAction(
                             label = "LISTEN AGAIN",
@@ -298,7 +312,7 @@ fun HomeScreen(
                             contentPadding = PaddingValues(horizontal = 20.dp),
                             horizontalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
-                            itemsIndexed(recentlyPlayed.distinctBy { it.id }, key = { index, song -> "recent_${song.id}_$index" }) { _, song ->
+                            itemsIndexed(uniqueRecent, key = { index, song -> "recent_${song.id}_$index" }) { _, song ->
                                 Column(
                                     modifier = Modifier
                                         .width(130.dp)
@@ -335,8 +349,7 @@ fun HomeScreen(
                 }
 
                 // 6. "Recommend" Section (Glass Overlay Cards)
-                val displayRecommendations = if (recommendations.isNotEmpty()) recommendations else trendingSongs
-                if (displayRecommendations.isNotEmpty()) {
+                if (uniqueRecs.isNotEmpty()) {
                     item {
                         SectionHeaderWithAction(
                             label = "DISCOVER",
@@ -350,7 +363,7 @@ fun HomeScreen(
                             contentPadding = PaddingValues(horizontal = 20.dp),
                             horizontalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
-                            itemsIndexed(displayRecommendations.distinctBy { it.id }.take(12), key = { index, song -> "rec_${song.id}_$index" }) { _, song ->
+                            itemsIndexed(uniqueRecs, key = { index, song -> "rec_${song.id}_$index" }) { _, song ->
                                 RecommendGlassCard(
                                     song = song,
                                     onClick = { onSongClick(song) },
@@ -362,8 +375,7 @@ fun HomeScreen(
                 }
 
                 // 7. "New Releases" Section
-                val displayNewSongs = if (newReleases.isNotEmpty()) newReleases else trendingSongs
-                if (displayNewSongs.isNotEmpty()) {
+                if (uniqueNewSongs.isNotEmpty()) {
                     item {
                         SectionHeaderWithAction(
                             label = "FRESH MUSIC",
@@ -372,7 +384,7 @@ fun HomeScreen(
                         )
                     }
 
-                    itemsIndexed(displayNewSongs.distinctBy { it.id }.take(6), key = { index, song -> "new_song_${song.id}_$index" }) { _, song ->
+                    itemsIndexed(uniqueNewSongs, key = { index, song -> "new_song_${song.id}_$index" }) { _, song ->
                         NewSongVerticalRow(
                             song = song,
                             onClick = { onSongClick(song) },
@@ -382,7 +394,7 @@ fun HomeScreen(
                 }
 
                 // 8. "Top Charts & Playlists" Section
-                if (topCharts.isNotEmpty()) {
+                if (uniqueCharts.isNotEmpty()) {
                     item {
                         SectionHeaderWithAction(
                             label = "EXPLORE",
@@ -396,7 +408,7 @@ fun HomeScreen(
                             contentPadding = PaddingValues(horizontal = 20.dp),
                             horizontalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            itemsIndexed(topCharts.distinctBy { it.id }.take(8), key = { index, playlist -> "playlist_${playlist.id}_$index" }) { _, playlist ->
+                            itemsIndexed(uniqueCharts, key = { index, playlist -> "playlist_${playlist.id}_$index" }) { _, playlist ->
                                 RecommendedPlaylistCard(
                                     playlist = playlist,
                                     onClick = {
@@ -411,7 +423,7 @@ fun HomeScreen(
                 }
 
                 // 9. "Popular Albums" Section
-                if (trendingAlbums.isNotEmpty()) {
+                if (uniqueAlbums.isNotEmpty()) {
                     item {
                         SectionHeaderWithAction(
                             label = "DISCOGRAPHY",
@@ -425,7 +437,7 @@ fun HomeScreen(
                             contentPadding = PaddingValues(horizontal = 20.dp),
                             horizontalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
-                            itemsIndexed(trendingAlbums.distinctBy { it.id }.take(8), key = { index, album -> "alb_${album.id}_$index" }) { _, album ->
+                            itemsIndexed(uniqueAlbums, key = { index, album -> "alb_${album.id}_$index" }) { _, album ->
                                 Column(
                                     modifier = Modifier
                                         .width(140.dp)

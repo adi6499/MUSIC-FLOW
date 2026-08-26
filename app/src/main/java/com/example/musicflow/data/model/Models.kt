@@ -38,7 +38,10 @@ data class Artist(
     val image: String,
     val role: String = "Artist",
     val topSongs: List<Song> = emptyList(),
-    val topAlbums: List<Album> = emptyList()
+    val topAlbums: List<Album> = emptyList(),
+    val similarArtists: List<Artist> = emptyList(),
+    val genres: List<String> = emptyList(),
+    val monthlyListeners: String = ""
 )
 
 @Immutable

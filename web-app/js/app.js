@@ -515,6 +515,20 @@ const App = (() => {
     if (!artistName || artistName === 'undefined') artistName = 'Top 50 Hits';
 
     showRadioToast(`📻 Starting ${artistName} Radio...`);
+
+    // If currentArtistSongs are already loaded on the page, start playback immediately!
+    if (currentArtistSongs && currentArtistSongs.length > 0 && 
+       (activeArtistData?.name === artistName || document.getElementById('artist-main-name')?.textContent === artistName)) {
+      const contextTag = document.getElementById('player-context-tag');
+      const contextTitle = document.getElementById('player-context-title');
+      if (contextTag) contextTag.textContent = 'ARTIST RADIO';
+      if (contextTitle) contextTitle.textContent = `${artistName} Radio`;
+
+      Player.setQueue(currentArtistSongs, 0);
+      expandFullPlayer();
+      return;
+    }
+
     showLoader(true);
 
     try {
@@ -526,7 +540,10 @@ const App = (() => {
         .filter((song, index, self) => index === self.findIndex(s => s.id === song.id));
 
       if (allRadio.length === 0) {
-        allRadio = await API.searchSongs('Top Pop Hits 2024', 1, 25);
+        allRadio = await API.searchSongs(`${artistName}`, 1, 25);
+      }
+      if (allRadio.length === 0) {
+        allRadio = await API.searchSongs('Top Bollywood Hits 2024', 1, 25);
       }
 
       if (allRadio.length > 0) {

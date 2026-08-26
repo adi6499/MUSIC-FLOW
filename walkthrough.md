@@ -1,15 +1,14 @@
-# MusicFlow — Artist Radio Playback Feedback Walkthrough
+# MusicFlow — Undefined Radio Query Bug Fix Walkthrough
 
-### 1. Artist Radio Toast Banner & Instant Playback
-- **Floating Toast Banner**: Tapping the **Radio** button (`#btn-artist-radio`) on any artist page (e.g. *Katy Perry*, *Arijit Singh*, etc.) now triggers a floating dark glassmorphic banner at the top with a pulsing radio icon:
-  > **📻 Starting Katy Perry Radio...**
-- **Smart Radio Mix Generation**: Fetches a curated 35-song continuous mix of the artist's biggest hits combined with similar peer artists.
-- **Player Context Tag**: Automatically tags the player header with:
-  > **PLAYING FROM:** `ARTIST RADIO • Katy Perry Radio`
-- **Instant Playback**: Automatically sets the queue, starts continuous playback, and smoothly opens the full player.
+### 1. Root Cause & Solution
+- **The Issue**: When launching the radio without an active context, `name` evaluated to `"undefined"`. The API then literally queried for the song title `"Undefined"` (returning tracks named *Undefined* by Ben Claw, *Numeric Specifications Undefined*, etc.).
+- **The Fix**:
+  - Implemented multi-tier artist name resolution in `startArtistRadio()` and `startRadio()`: checks `activeArtistData.name` -> `#artist-main-name` -> `#artist-top-nav-title` -> current playing artist -> fallback `"Top 50 Hits"`.
+  - Added strict filtering against any tracks titled `"undefined"` or `"trending"`.
+  - Added fallback guards in `UI.renderQueueSheet` to ensure no row ever renders the text `undefined`.
 
 ### 2. Dual Platform Synchronization & GitHub Pushed
 - Synced to [`app/src/main/assets/public/`](file:///c:/Users/PC/AndroidStudioProjects/MUSICFLOW/app/src/main/assets/public).
 - Synced to [`android/app/src/main/assets/public/`](file:///c:/Users/PC/AndroidStudioProjects/MUSICFLOW/android/app/src/main/assets/public).
 - Synced to [`ios/App/App/public/`](file:///c:/Users/PC/AndroidStudioProjects/MUSICFLOW/ios/App/App/public).
-- Pushed to GitHub ([commit `e4f16dc`](https://github.com/adi6499/MUSIC-FLOW/commit/e4f16dc)).
+- Pushed to GitHub ([commit `d9c77fa`](https://github.com/adi6499/MUSIC-FLOW/commit/d9c77fa)).

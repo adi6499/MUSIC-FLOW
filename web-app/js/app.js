@@ -472,11 +472,71 @@ const App = (() => {
     showLoader(false);
   }
 
+  function showRadioToast(message) {
+    const toast = document.getElementById('radio-toast');
+    const toastText = document.getElementById('radio-toast-text');
+    if (!toast) return;
+    if (toastText) toastText.textContent = message;
+
+    toast.style.display = 'flex';
+    requestAnimationFrame(() => {
+      toast.classList.add('show');
+    });
+
+    setTimeout(() => {
+      toast.classList.remove('show');
+      setTimeout(() => {
+        toast.style.display = 'none';
+      }, 350);
+    }, 2800);
+  }
+
+  async function startRadio(songOrArtist) {
+    let artistName = '';
+    if (typeof songOrArtist === 'string') {
+      artistName = songOrArtist;
+    } else if (songOrArtist && songOrArtist.primaryArtist) {
+      artistName = songOrArtist.primaryArtist;
+    } else if (songOrArtist && songOrArtist.artists) {
+      artistName = songOrArtist.artists.split(',')[0].trim();
+    } else if (songOrArtist && songOrArtist.name) {
+      artistName = songOrArtist.name;
+    } else {
+      artistName = 'Top Hits';
+    }
+
+    showRadioToast(`📻 Starting ${artistName} Radio...`);
+    showLoader(true);
+
+    try {
+      let radioSongs = await API.getArtistSongs(artistName, 1, 20);
+      let peerSongs = await API.searchSongs(`${artistName} Hits Mix`, 1, 15);
+      
+      const allRadio = [...radioSongs, ...peerSongs].filter(
+        (song, index, self) => index === self.findIndex(s => s.id === song.id)
+      );
+
+      if (allRadio.length > 0) {
+        const contextTag = document.getElementById('player-context-tag');
+        const contextTitle = document.getElementById('player-context-title');
+        if (contextTag) contextTag.textContent = 'ARTIST RADIO';
+        if (contextTitle) contextTitle.textContent = `${artistName} Radio`;
+
+        Player.setQueue(allRadio, 0);
+        expandFullPlayer();
+      } else {
+        alert(`Could not start radio for ${artistName}.`);
+      }
+    } catch (e) {
+      console.error('[Radio] startRadio error:', e);
+    }
+    showLoader(false);
+  }
+
   function startArtistRadio() {
     const artist = activeArtistData;
     const name = artist?.name || document.getElementById('artist-main-name')?.textContent || 'Artist';
-    const topSong = (currentArtistSongs && currentArtistSongs.length > 0) ? currentArtistSongs[0] : { name: `${name} Radio`, primaryArtist: name };
-    startRadio(topSong);
+    startRadio(name);
   }
 
   function toggleFollowArtist() {

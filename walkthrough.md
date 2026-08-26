@@ -1,19 +1,21 @@
-# MusicFlow — Native Android & iOS Launcher Icons Walkthrough
+# MusicFlow — iOS IPA Build in Progress (macOS Runner) 🍏
 
-### 1. Updated Native Android & iOS App Launcher Icons
-- **iOS App Icon**:
-  - Updated universal 1024x1024 [`ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png`](file:///c:/Users/PC/AndroidStudioProjects/MUSICFLOW/ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png) with the crimson red gradient background & pure white music flow emblem.
-- **Android Launcher Icons**:
-  - Updated standard (`ic_launcher.png`), adaptive foreground (`ic_launcher_foreground.png`), and round icons (`ic_launcher_round.png`) across all screen densities:
-    - `mdpi` (48x48)
-    - `hdpi` (72x72)
-    - `xhdpi` (96x96)
-    - `xxhdpi` (144x144)
-    - `xxxhdpi` (192x192)
-  - Updated in both [`app/src/main/res/`](file:///c:/Users/PC/AndroidStudioProjects/MUSICFLOW/app/src/main/res) and [`android/app/src/main/res/`](file:///c:/Users/PC/AndroidStudioProjects/MUSICFLOW/android/app/src/main/res).
+### 1. Live iOS IPA Build Status
+- **Build Run URL**: [https://github.com/adi6499/MUSIC-FLOW/actions/runs/32997271297](https://github.com/adi6499/MUSIC-FLOW/actions/runs/32997271297)
+- **Status**: **IN PROGRESS** 🚀
+- **Runner**: Apple Silicon `macos-14` (Xcode 15 / xcodebuild)
+- **Included Features**:
+  - Full lossless audio engine with 5-band equalizer & 3D spatializer.
+  - Live synchronized lyrics with LRC time parser and active line highlight.
+  - Artist radio with floating toast notification and continuous catalog queue.
+  - Infinite search with "See all songs" pagination.
+  - Updated crimson red background with white music flow emblem app icon.
+  - Background audio playback mode enabled in `Info.plist`.
 
-### 2. Dual Platform Synchronization & GitHub Pushed
-- Synced to [`app/src/main/assets/public/`](file:///c:/Users/PC/AndroidStudioProjects/MUSICFLOW/app/src/main/assets/public).
-- Synced to [`android/app/src/main/assets/public/`](file:///c:/Users/PC/AndroidStudioProjects/MUSICFLOW/android/app/src/main/assets/public).
-- Synced to [`ios/App/App/public/`](file:///c:/Users/PC/AndroidStudioProjects/MUSICFLOW/ios/App/App/public).
-- Pushed to GitHub ([commit `2dfd24f`](https://github.com/adi6499/MUSIC-FLOW/commit/2dfd24f)).
+---
+
+### 2. How to Download the IPA File
+1. Open the live build run: [https://github.com/adi6499/MUSIC-FLOW/actions/runs/32997271297](https://github.com/adi6499/MUSIC-FLOW/actions/runs/32997271297)
+2. Watch the workflow finish (approx. 2–3 minutes).
+3. Once completed with a green checkmark, scroll to the bottom **Artifacts** section.
+4. Click **`MusicFlow-iOS-IPA`** to download your **`MusicFlow.ipa`** file!

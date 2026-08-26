@@ -240,23 +240,17 @@ const Player = (() => {
             updatePositionState();
           }
         }],
-        ['seekbackward', (details) => {
-          if (audio) {
-            audio.currentTime = Math.max(0, audio.currentTime - (details.seekOffset || 10));
-            updatePositionState();
-          }
-        }],
-        ['seekforward', (details) => {
-          if (audio) {
-            audio.currentTime = Math.min(audio.duration || 0, audio.currentTime + (details.seekOffset || 10));
-            updatePositionState();
-          }
-        }],
         ['stop', () => {
           pause();
           if (audio) audio.currentTime = 0;
         }]
       ];
+
+      // Explicitly disable seek backward/forward handlers so iOS/Android displays Next Track / Previous Track buttons!
+      try {
+        navigator.mediaSession.setActionHandler('seekbackward', null);
+        navigator.mediaSession.setActionHandler('seekforward', null);
+      } catch (_) {}
 
       actions.forEach(([action, handler]) => {
         try {

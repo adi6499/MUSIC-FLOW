@@ -1,30 +1,14 @@
-# MusicFlow — iPhone Back Buttons & Navigation Walkthrough
+# MusicFlow — iOS Lock Screen Controls Walkthrough
 
-### 1. Added Prominent Back & Close Buttons on iPhone
-- **Settings Sheet (`#sheet-settings`)**:
-  - Added a dedicated top navigation bar with:
-    - **`<` Back button** (`arrow_back`)
-    - **`X` Close button** (`close`)
-    - Clean title header (`Settings`)
-  - Ensures iPhone users can instantly dismiss Settings or navigate back without requiring hardware back buttons.
-- **Now Playing Queue Sheet (`#sheet-queue`)**:
-  - Added dedicated `<` back button next to the track count and Clear Queue action.
-- **All Modal Dialogs**:
-  - Added quick-dismiss `X` close buttons to:
-    - Audio Quality Dialog (`#dialog-quality`)
-    - Sleep Timer Dialog (`#dialog-sleep-timer`)
-    - Music Languages Dialog (`#dialog-language-picker`)
-    - Playlist Selection Dialog (`#dialog-playlist-picker`)
+### 1. iOS Lock Screen Controls & Artwork Fix
+- **Why Controls Weren't Showing**:
+  - iOS WebKit `MPNowPlayingInfoCenter` requires fully qualified absolute `https://` URLs for artwork images. Relative paths (`assets/logo.png`) or `http://` URLs caused the lock screen info publisher to fail silently.
+- **The Fix**:
+  - Added `getAbsoluteImageUrl(url)` in [`web-app/js/player.js`](file:///c:/Users/PC/AndroidStudioProjects/MUSICFLOW/web-app/js/player.js) to resolve all artwork paths to absolute `https://` URLs across all CDN resolutions.
+  - Linked active position tracking (`updatePositionState()`) on playback events and periodic time updates to render the lock screen scrubber and Dynamic Island widget.
+  - Registered full remote command handlers (`play`, `pause`, `next`, `previous`, `seekto`, `seekforward`, `seekbackward`, `stop`).
 
 ---
 
-### 2. Dual Platform Synchronization & GitHub Pushed
-- Synced to [`app/src/main/assets/public/`](file:///c:/Users/PC/AndroidStudioProjects/MUSICFLOW/app/src/main/assets/public).
-- Synced to [`android/app/src/main/assets/public/`](file:///c:/Users/PC/AndroidStudioProjects/MUSICFLOW/android/app/src/main/assets/public).
-- Synced to [`ios/App/App/public/`](file:///c:/Users/PC/AndroidStudioProjects/MUSICFLOW/ios/App/App/public).
-- Pushed to GitHub ([commit `a25d6e1`](https://github.com/adi6499/MUSIC-FLOW/commit/a25d6e1)).
-
----
-
-### 3. Live GitHub Actions Build Link
-👉 **[View Live iOS Build Run (Run #32998639890)](https://github.com/adi6499/MUSIC-FLOW/actions/runs/32998639890)**
+### 2. Live GitHub Actions Build Link
+👉 **[View Live iOS Build Run (Run #32998751608)](https://github.com/adi6499/MUSIC-FLOW/actions/runs/32998751608)**

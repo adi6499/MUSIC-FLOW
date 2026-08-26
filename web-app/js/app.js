@@ -493,28 +493,41 @@ const App = (() => {
 
   async function startRadio(songOrArtist) {
     let artistName = '';
-    if (typeof songOrArtist === 'string') {
-      artistName = songOrArtist;
-    } else if (songOrArtist && songOrArtist.primaryArtist) {
-      artistName = songOrArtist.primaryArtist;
-    } else if (songOrArtist && songOrArtist.artists) {
-      artistName = songOrArtist.artists.split(',')[0].trim();
-    } else if (songOrArtist && songOrArtist.name) {
-      artistName = songOrArtist.name;
-    } else {
-      artistName = 'Top Hits';
+    if (typeof songOrArtist === 'string' && songOrArtist !== 'undefined' && songOrArtist.trim()) {
+      artistName = songOrArtist.trim();
+    } else if (songOrArtist && typeof songOrArtist === 'object') {
+      artistName = songOrArtist.primaryArtist || songOrArtist.name || (typeof songOrArtist.artists === 'string' ? songOrArtist.artists.split(',')[0].trim() : '') || '';
     }
+
+    if (!artistName || artistName === 'undefined' || artistName === 'Artist' || artistName === 'Track') {
+      const mainNameEl = document.getElementById('artist-main-name');
+      const topTitleEl = document.getElementById('artist-top-nav-title');
+      if (mainNameEl && mainNameEl.textContent && mainNameEl.textContent !== 'Artist Name' && mainNameEl.textContent !== 'undefined') {
+        artistName = mainNameEl.textContent.trim();
+      } else if (topTitleEl && topTitleEl.textContent && topTitleEl.textContent !== 'Artist' && topTitleEl.textContent !== 'undefined') {
+        artistName = topTitleEl.textContent.trim();
+      } else {
+        artistName = Player.getCurrentTrack()?.primaryArtist || 'Top 50 Hits';
+      }
+    }
+
+    artistName = API.decodeHtml(String(artistName)).split(';')[0].split(',')[0].trim();
+    if (!artistName || artistName === 'undefined') artistName = 'Top 50 Hits';
 
     showRadioToast(`📻 Starting ${artistName} Radio...`);
     showLoader(true);
 
     try {
       let radioSongs = await API.getArtistSongs(artistName, 1, 20);
-      let peerSongs = await API.searchSongs(`${artistName} Hits Mix`, 1, 15);
+      let peerSongs = await API.searchSongs(`${artistName} Hits`, 1, 15);
       
-      const allRadio = [...radioSongs, ...peerSongs].filter(
-        (song, index, self) => index === self.findIndex(s => s.id === song.id)
-      );
+      let allRadio = [...radioSongs, ...peerSongs]
+        .filter(s => s && s.name && s.name.toLowerCase() !== 'undefined' && s.name.toLowerCase() !== 'trending')
+        .filter((song, index, self) => index === self.findIndex(s => s.id === song.id));
+
+      if (allRadio.length === 0) {
+        allRadio = await API.searchSongs('Top Pop Hits 2024', 1, 25);
+      }
 
       if (allRadio.length > 0) {
         const contextTag = document.getElementById('player-context-tag');
@@ -534,8 +547,16 @@ const App = (() => {
   }
 
   function startArtistRadio() {
-    const artist = activeArtistData;
-    const name = artist?.name || document.getElementById('artist-main-name')?.textContent || 'Artist';
+    let name = activeArtistData?.name || activeArtistData?.title || '';
+    if (!name || name === 'undefined' || name === 'Artist') {
+      const mainNameEl = document.getElementById('artist-main-name');
+      const topTitleEl = document.getElementById('artist-top-nav-title');
+      name = (mainNameEl && mainNameEl.textContent !== 'Artist Name' ? mainNameEl.textContent.trim() : '') || 
+             (topTitleEl && topTitleEl.textContent !== 'Artist' ? topTitleEl.textContent.trim() : '') || '';
+    }
+    if (!name || name === 'undefined') {
+      name = Player.getCurrentTrack()?.primaryArtist || 'Top 50 Hits';
+    }
     startRadio(name);
   }
 

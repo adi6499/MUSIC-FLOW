@@ -667,12 +667,14 @@ const UI = (() => {
 
       container.innerHTML = queue.map((song, idx) => {
         const isCurrent = idx === currentIndex;
+        const songTitle = (song.name && song.name !== 'undefined') ? song.name : (song.title || 'Track');
+        const songArtist = (song.artists && song.artists !== 'undefined') ? song.artists : (song.artist || 'MusicFlow');
         return `
           <div class="queue-track-row ${isCurrent ? 'active' : ''}" onclick="Player.playTrackAtIndex ? Player.playTrackAtIndex(${idx}, true) : App.playSongWithQueue('${song.id}')">
-            <img class="vertical-track-img" src="${song.image || 'assets/logo.png'}" onerror="this.src='assets/logo.png'" alt="${song.name}">
+            <img class="vertical-track-img" src="${song.image || 'assets/logo.png'}" onerror="this.src='assets/logo.png'" alt="${songTitle}">
             <div class="vertical-track-info">
-              <div class="vertical-track-title" style="${isCurrent ? 'color:#FF2A4D; font-weight:800;' : ''}">${song.name}</div>
-              <div class="vertical-track-artist">${song.artists}</div>
+              <div class="vertical-track-title" style="${isCurrent ? 'color:#FF2A4D; font-weight:800;' : ''}">${songTitle}</div>
+              <div class="vertical-track-artist">${songArtist}</div>
             </div>
             ${isCurrent ? '<span class="material-symbols-outlined" style="color:#FF2A4D; font-size:22px;">graphic_eq</span>' : ''}
             <button class="queue-delete-btn" onclick="event.stopPropagation(); App.removeTrackFromQueue(${idx});" aria-label="Remove">

@@ -1,21 +1,26 @@
-# MusicFlow — iOS IPA Build in Progress (macOS Runner) 🍏
+# MusicFlow — iOS IPA & Android APK Website Downloads Walkthrough
 
-### 1. Live iOS IPA Build Status
-- **Build Run URL**: [https://github.com/adi6499/MUSIC-FLOW/actions/runs/32997271297](https://github.com/adi6499/MUSIC-FLOW/actions/runs/32997271297)
-- **Status**: **IN PROGRESS** 🚀
-- **Runner**: Apple Silicon `macos-14` (Xcode 15 / xcodebuild)
-- **Included Features**:
-  - Full lossless audio engine with 5-band equalizer & 3D spatializer.
-  - Live synchronized lyrics with LRC time parser and active line highlight.
-  - Artist radio with floating toast notification and continuous catalog queue.
-  - Infinite search with "See all songs" pagination.
-  - Updated crimson red background with white music flow emblem app icon.
-  - Background audio playback mode enabled in `Info.plist`.
+### 1. New iOS IPA Uploaded to Website
+- **File**: `website/downloads/MusicFlow.ipa` (3.8 MB)
+- **Source**: Extracted from latest GitHub Actions release build (`C:\Users\PC\Downloads\MusicFlow-iOS-IPA (6)`).
+- **Features Included**:
+  - Full lossless audio streaming & 320kbps resolution.
+  - 5-band studio equalizer & 3D virtualizer.
+  - Live synchronized lyrics engine.
+  - Artist radio mix & infinite search pagination.
+  - Crimson red & white app icon.
+  - Enabled iOS background audio capabilities in `Info.plist`.
 
 ---
 
-### 2. How to Download the IPA File
-1. Open the live build run: [https://github.com/adi6499/MUSIC-FLOW/actions/runs/32997271297](https://github.com/adi6499/MUSIC-FLOW/actions/runs/32997271297)
-2. Watch the workflow finish (approx. 2–3 minutes).
-3. Once completed with a green checkmark, scroll to the bottom **Artifacts** section.
-4. Click **`MusicFlow-iOS-IPA`** to download your **`MusicFlow.ipa`** file!
+### 2. Website Download Portal Updated
+- **Direct 1-Click Downloads**:
+  - **iOS Package (.IPA)**: `downloads/MusicFlow.ipa` (3.8 MB) — Sideload with AltStore / Sideloadly / Scarlet / TrollStore.
+  - **Android Package (.APK)**: `downloads/MusicFlow.apk` (25.2 MB) — Direct install on Android 8.0+.
+- **Version Banner**: Updated to **v2.5.0 PRO**.
+
+---
+
+### 3. Pushed to GitHub
+- Pushed to Website repo: [https://github.com/adi6499/MUSICFLOW](https://github.com/adi6499/MUSICFLOW) ([commit `31c72cf`](https://github.com/adi6499/MUSICFLOW/commit/31c72cf)).
+- Pushed to Main repo: [https://github.com/adi6499/MUSIC-FLOW](https://github.com/adi6499/MUSIC-FLOW) ([commit `b236f7d`](https://github.com/adi6499/MUSIC-FLOW/commit/b236f7d)).

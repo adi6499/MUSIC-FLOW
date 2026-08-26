@@ -3,17 +3,18 @@
   "appName": "MusicFlow",
   "webDir": "web-app",
   "android": {
-    "backgroundColor": "#08080A",
+    "backgroundColor": "#050505",
     "allowMixedContent": true,
     "captureInput": true,
     "webContentsDebuggingEnabled": true
   },
   "ios": {
-    "contentInset": "always",
+    "contentInset": "never",
     "allowsLinkPreview": false,
-    "scrollEnabled": true,
-    "backgroundColor": "#08080A",
-    "handleApplicationURL": true
+    "scrollEnabled": false,
+    "backgroundColor": "#050505",
+    "handleApplicationURL": true,
+    "preferredContentMode": "mobile"
   },
   "server": {
     "androidScheme": "https",

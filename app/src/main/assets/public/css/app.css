@@ -47,12 +47,18 @@
 html, body {
   width: 100%;
   height: 100%;
+  min-height: 100vh;
+  min-height: 100dvh;
+  min-height: -webkit-fill-available;
   background: var(--bg-app);
   color: var(--text-primary);
   font-family: var(--font-main);
   overflow: hidden;
+  position: fixed;
+  inset: 0;
   user-select: none;
   -webkit-user-select: none;
+  -webkit-touch-callout: none;
 }
 
 /* Material Symbols */
@@ -97,7 +103,7 @@ html, body {
   top: 0;
   left: 0;
   right: 0;
-  height: 480px;
+  height: 520px;
   background: radial-gradient(circle at 50% -20%, var(--dynamic-color) 0%, transparent 75%);
   pointer-events: none;
   z-index: 0;
@@ -107,21 +113,27 @@ html, body {
 
 /* App Container */
 .app-container {
-  position: relative;
-  width: 100%;
+  position: fixed;
+  inset: 0;
+  width: 100vw;
   height: 100%;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
+  background: var(--bg-app);
+  overflow: hidden;
   z-index: 1;
 }
 
 /* Main Scroll Area */
 .main-content {
   flex: 1;
+  width: 100%;
+  height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
-  padding-bottom: calc(148px + env(safe-area-inset-bottom, 16px));
+  padding-bottom: calc(140px + env(safe-area-inset-bottom, 24px));
 }
 
 .main-content::-webkit-scrollbar {
@@ -1376,7 +1388,7 @@ html, body {
 
 .mini-player-dock {
   position: fixed;
-  bottom: calc(76px + env(safe-area-inset-bottom, 8px));
+  bottom: calc(82px + env(safe-area-inset-bottom, 10px));
   left: 14px;
   right: 14px;
   height: 60px;
@@ -1455,7 +1467,7 @@ html, body {
 /* Floating Bottom Navigation Bar (FloatingNavBar in MainActivity.kt) */
 .floating-bottom-nav {
   position: fixed;
-  bottom: calc(8px + env(safe-area-inset-bottom, 4px));
+  bottom: calc(12px + env(safe-area-inset-bottom, 10px));
   left: 14px;
   right: 14px;
   height: 64px;

@@ -49,15 +49,20 @@ const Player = (() => {
 
     audio.addEventListener('play', () => {
       isPlaying = true;
-      initWebAudio();
       notify('stateChange', { isPlaying: true });
       updateMediaSessionPlaybackState('playing');
+      updatePositionState();
+
+      if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume().catch(console.warn);
+      }
     });
 
     audio.addEventListener('pause', () => {
       isPlaying = false;
       notify('stateChange', { isPlaying: false });
       updateMediaSessionPlaybackState('paused');
+      updatePositionState();
     });
 
     audio.addEventListener('timeupdate', () => {
@@ -65,6 +70,9 @@ const Player = (() => {
         currentTime: audio.currentTime,
         duration: audio.duration || (getCurrentTrack()?.duration) || 0
       });
+      if (Math.floor(audio.currentTime) % 2 === 0) {
+        updatePositionState();
+      }
     });
 
     audio.addEventListener('ended', () => {
@@ -80,6 +88,20 @@ const Player = (() => {
       console.warn('[Player] Audio playback error:', e);
       if (queue.length > 1) {
         setTimeout(next, 1000);
+      }
+    });
+
+    // Auto-resume listener on screen unlock or background return
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && isPlaying && audio) {
+        if (audio.paused) audio.play().catch(console.warn);
+        if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(console.warn);
+      }
+    });
+
+    window.addEventListener('pageshow', () => {
+      if (isPlaying && audio && audio.paused) {
+        audio.play().catch(console.warn);
       }
     });
 
@@ -207,30 +229,78 @@ const Player = (() => {
 
   function setupMediaSession() {
     if ('mediaSession' in navigator) {
-      navigator.mediaSession.setActionHandler('play', () => play());
-      navigator.mediaSession.setActionHandler('pause', () => pause());
-      navigator.mediaSession.setActionHandler('previoustrack', () => previous());
-      navigator.mediaSession.setActionHandler('nexttrack', () => next());
-      navigator.mediaSession.setActionHandler('seekto', (details) => {
-        if (details.seekTime && audio) audio.currentTime = details.seekTime;
+      const actions = [
+        ['play', () => play()],
+        ['pause', () => pause()],
+        ['previoustrack', () => previous()],
+        ['nexttrack', () => next()],
+        ['seekto', (details) => {
+          if (details.seekTime !== undefined && audio && !isNaN(details.seekTime)) {
+            audio.currentTime = details.seekTime;
+            updatePositionState();
+          }
+        }],
+        ['seekbackward', (details) => {
+          if (audio) {
+            audio.currentTime = Math.max(0, audio.currentTime - (details.seekOffset || 10));
+            updatePositionState();
+          }
+        }],
+        ['seekforward', (details) => {
+          if (audio) {
+            audio.currentTime = Math.min(audio.duration || 0, audio.currentTime + (details.seekOffset || 10));
+            updatePositionState();
+          }
+        }],
+        ['stop', () => {
+          pause();
+          if (audio) audio.currentTime = 0;
+        }]
+      ];
+
+      actions.forEach(([action, handler]) => {
+        try {
+          navigator.mediaSession.setActionHandler(action, handler);
+        } catch (e) {
+          console.warn(`[MediaSession] Action ${action} not supported:`, e);
+        }
       });
+    }
+  }
+
+  function updatePositionState() {
+    if ('mediaSession' in navigator && 'setPositionState' in navigator.mediaSession && audio && audio.duration && !isNaN(audio.duration) && audio.duration > 0) {
+      try {
+        navigator.mediaSession.setPositionState({
+          duration: Math.max(0, audio.duration),
+          playbackRate: audio.playbackRate || 1.0,
+          position: Math.max(0, Math.min(audio.currentTime, audio.duration))
+        });
+      } catch (e) {}
     }
   }
 
   function updateMediaSession(song) {
     if (!('mediaSession' in navigator) || !song) return;
 
+    let artUrl = song.image || 'assets/logo.png';
+    if (artUrl.startsWith('http://')) {
+      artUrl = artUrl.replace('http://', 'https://');
+    }
+
     navigator.mediaSession.metadata = new MediaMetadata({
-      title: song.name || 'Unknown Song',
-      artist: song.artists || 'MusicFlow',
-      album: song.album || 'MusicFlow',
+      title: song.name || 'Unknown Track',
+      artist: song.artists || song.primaryArtist || 'MusicFlow',
+      album: song.album || 'MusicFlow Lossless',
       artwork: [
-        { src: song.image, sizes: '96x96', type: 'image/png' },
-        { src: song.image, sizes: '128x128', type: 'image/png' },
-        { src: song.image, sizes: '256x256', type: 'image/png' },
-        { src: song.image, sizes: '512x512', type: 'image/png' }
+        { src: artUrl, sizes: '96x96', type: 'image/png' },
+        { src: artUrl, sizes: '128x128', type: 'image/png' },
+        { src: artUrl, sizes: '256x256', type: 'image/png' },
+        { src: artUrl, sizes: '512x512', type: 'image/png' }
       ]
     });
+
+    updatePositionState();
   }
 
   function updateMediaSessionPlaybackState(state) {

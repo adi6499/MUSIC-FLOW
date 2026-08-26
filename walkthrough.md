@@ -1,14 +1,16 @@
-# MusicFlow — Instant Radio Playback Fix Walkthrough
+# MusicFlow — Red & White App Logo Walkthrough
 
-### 1. Instant Artist Radio Playback
-- **Zero-Latency Playback**: When clicking the **Radio** button (`#btn-artist-radio`) on any artist page (*G.V. Prakash Kumar*, *Katy Perry*, *Arijit Singh*):
-  - Automatically loads the artist's full track catalog into the active continuous queue.
-  - Sets the player context to **`ARTIST RADIO • G.V. Prakash Kumar Radio`**.
-  - Starts playing the first track **instantly** and opens the Full Player.
-  - Displays the floating top notification banner (**📻 Starting G.V. Prakash Kumar Radio...**).
+### 1. New Crimson Red & White App Logo
+- **Design**: Vibrant rich crimson red gradient background (`#FF2A4D`) with a crisp, elegant pure white musical note and flowing sound wave symbol in the center.
+- **Updated Assets**:
+  - `web-app/assets/logo.png`
+  - `web-app/assets/logo.jpg`
+  - `web-app/assets/icon-512.png` & `web-app/assets/icon-192.png`
+  - `web-app/assets/apple-touch-icon.png`
+  - `web-app/assets/icons/icon-512.png` & `web-app/assets/icons/icon-192.png`
 
-### 2. Synced & Pushed
+### 2. Dual Platform Synchronization & GitHub Pushed
 - Synced to [`app/src/main/assets/public/`](file:///c:/Users/PC/AndroidStudioProjects/MUSICFLOW/app/src/main/assets/public).
 - Synced to [`android/app/src/main/assets/public/`](file:///c:/Users/PC/AndroidStudioProjects/MUSICFLOW/android/app/src/main/assets/public).
 - Synced to [`ios/App/App/public/`](file:///c:/Users/PC/AndroidStudioProjects/MUSICFLOW/ios/App/App/public).
-- Pushed to GitHub ([commit `6bc9509`](https://github.com/adi6499/MUSIC-FLOW/commit/6bc9509)).
+- Pushed to GitHub ([commit `d065ad0`](https://github.com/adi6499/MUSIC-FLOW/commit/d065ad0)).

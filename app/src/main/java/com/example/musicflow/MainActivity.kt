@@ -74,44 +74,14 @@ fun WebMusicFlowScreen(
     onWebViewCreated: (WebView) -> Unit
 ) {
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
+    val context = androidx.compose.ui.platform.LocalContext.current
 
-    // Smart Back Button Handler: Closes Full Player -> Lyrics -> Sheets -> History in order
+    // Authoritative Smart Back Button Handler:
+    // Follows strict priority (Keyboard -> Dialog -> Sheet -> Lyrics -> Full Player -> History Stack -> Home -> Minimize)
     BackHandler {
-        webViewInstance?.evaluateJavascript(
-            """
-            (function() {
-                if (document.getElementById('sheet-player')?.classList.contains('active')) {
-                    App.collapseFullPlayer();
-                    return true;
-                }
-                if (document.getElementById('sheet-lyrics')?.classList.contains('active')) {
-                    App.toggleLyricsView();
-                    return true;
-                }
-                if (document.getElementById('sheet-equalizer')?.classList.contains('active')) {
-                    App.closeEqualizer();
-                    return true;
-                }
-                var openSheet = document.querySelector('.bottom-sheet.active');
-                if (openSheet) {
-                    App.closeBottomSheet(openSheet.id);
-                    return true;
-                }
-                var openDialog = document.querySelector('.dialog-modal.active');
-                if (openDialog) {
-                    App.closeDialog(openDialog.id);
-                    return true;
-                }
-                if (window.history.length > 1) {
-                    window.history.back();
-                    return true;
-                }
-                return false;
-            })()
-            """.trimIndent()
-        ) { result ->
+        webViewInstance?.evaluateJavascript("App && typeof App.handleBack === 'function' ? App.handleBack() : false") { result ->
             if (result == "false" || result == "null") {
-                // If nothing was open in web app, let Android handle back (exit)
+                (context as? android.app.Activity)?.moveTaskToBack(true)
             }
         }
     }

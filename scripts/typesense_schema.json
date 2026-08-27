@@ -1,0 +1,55 @@
+{
+  "collections": [
+    {
+      "name": "songs",
+      "fields": [
+        { "name": "id", "type": "string" },
+        { "name": "title", "type": "string" },
+        { "name": "artist", "type": "string", "facet": true },
+        { "name": "artist_id", "type": "string", "optional": true },
+        { "name": "album", "type": "string", "facet": true, "optional": true },
+        { "name": "album_id", "type": "string", "optional": true },
+        { "name": "genre", "type": "string", "facet": true, "optional": true },
+        { "name": "language", "type": "string", "facet": true, "optional": true },
+        { "name": "release_date", "type": "string", "optional": true },
+        { "name": "year", "type": "int32", "facet": true, "optional": true },
+        { "name": "duration", "type": "int32", "optional": true },
+        { "name": "popularity", "type": "int32", "facet": true, "optional": true },
+        { "name": "cover_art", "type": "string", "optional": true },
+        { "name": "audio_url", "type": "string", "optional": true },
+        { "name": "stream_url", "type": "string", "optional": true },
+        { "name": "has_lyrics", "type": "bool", "facet": true, "optional": true },
+        { "name": "provider", "type": "string", "optional": true },
+        { "name": "provider_track_id", "type": "string", "optional": true },
+        { "name": "normalized_title", "type": "string", "optional": true },
+        { "name": "normalized_artist", "type": "string", "optional": true },
+        { "name": "normalized_album", "type": "string", "optional": true }
+      ],
+      "default_sorting_field": "popularity"
+    },
+    {
+      "name": "artists",
+      "fields": [
+        { "name": "id", "type": "string" },
+        { "name": "name", "type": "string" },
+        { "name": "normalized_name", "type": "string", "optional": true },
+        { "name": "image", "type": "string", "optional": true },
+        { "name": "role", "type": "string", "optional": true },
+        { "name": "popularity", "type": "int32", "optional": true }
+      ],
+      "default_sorting_field": "popularity"
+    },
+    {
+      "name": "albums",
+      "fields": [
+        { "name": "id", "type": "string" },
+        { "name": "title", "type": "string" },
+        { "name": "artist", "type": "string", "optional": true },
+        { "name": "image", "type": "string", "optional": true },
+        { "name": "year", "type": "int32", "optional": true },
+        { "name": "popularity", "type": "int32", "optional": true }
+      ],
+      "default_sorting_field": "popularity"
+    }
+  ]
+}

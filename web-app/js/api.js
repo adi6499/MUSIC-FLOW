@@ -148,7 +148,7 @@ const API = (() => {
     getDownloadUrl,
     normalizeSong,
 
-    // Home feed recommendations & charts (curated high quality queries)
+    // Home feed recommendations & charts (curated high quality queries + personalization)
     async getHomeFeed(languages = ['hindi', 'english', 'punjabi']) {
       try {
         const primaryLang = (languages && languages[0]) ? (languages[0].charAt(0).toUpperCase() + languages[0].slice(1)) : 'Hindi';
@@ -165,11 +165,23 @@ const API = (() => {
         const albums = albumsRes.status === 'fulfilled' ? (albumsRes.value?.data?.results || []) : [];
         const charts = playlistsRes.status === 'fulfilled' ? (playlistsRes.value?.data?.results || []) : [];
 
-        const filteredFresh = (freshReleases.length > 0 ? freshReleases : quickPicks).filter(s => s.name.toLowerCase() !== 'trending');
+        const candidatePool = [...quickPicks, ...freshReleases].filter(s => s && s.name && s.name.toLowerCase() !== 'trending');
+
+        // Apply Hybrid Recommendation Personalization & Diversity if RecommendationEngine is available
+        let personalizedPicks = candidatePool;
+        let diverseTrending = candidatePool;
+        if (typeof RecommendationEngine !== 'undefined') {
+          const userHistory = (typeof Storage !== 'undefined') ? Storage.getHistory() : [];
+          const userFavs = (typeof Storage !== 'undefined') ? Storage.getFavorites() : [];
+          const rawPicks = RecommendationEngine.getPersonalizedRecommendations(userHistory, userFavs, candidatePool, { limit: 16 });
+          personalizedPicks = rawPicks.map(r => r.song || r);
+          const rawTrending = RecommendationEngine.getPersonalizedRecommendations([], [], freshReleases.length > 0 ? freshReleases : candidatePool, { limit: 20 });
+          diverseTrending = rawTrending.map(r => r.song || r);
+        }
 
         return {
-          quickPicks: quickPicks.filter(s => s.name.toLowerCase() !== 'trending'),
-          trending: { songs: filteredFresh.length > 0 ? filteredFresh : quickPicks },
+          quickPicks: personalizedPicks.length > 0 ? personalizedPicks : quickPicks.slice(0, 16),
+          trending: { songs: diverseTrending.length > 0 ? diverseTrending : quickPicks.slice(0, 20) },
           charts,
           albums
         };
@@ -180,50 +192,209 @@ const API = (() => {
       }
     },
 
-    // Search unified (with full 30-song deep fetch for rich results)
+    // Search unified (with Typesense Search Layer as primary + resilient fallback)
     async searchAll(query) {
       try {
-        const [searchRes, songsRes, artistsRes, albumsRes, playlistsRes] = await Promise.allSettled([
-          fetchWithFallback('/search', { query }),
-          this.searchSongs(query, 1, 30),
-          fetchWithFallback('/search/artists', { query, limit: 10 }),
-          fetchWithFallback('/search/albums', { query, limit: 10 }),
-          fetchWithFallback('/search/playlists', { query, limit: 10 })
-        ]);
+        const QN = (typeof QueryNormalizer !== 'undefined') ? QueryNormalizer : (typeof require !== 'undefined' ? require('./queryNormalizer.js') : null);
+        const SE = (typeof SearchEngine !== 'undefined') ? SearchEngine : (typeof require !== 'undefined' ? require('./searchEngine.js') : null);
+        const TD = (typeof TrackDeduplicator !== 'undefined') ? TrackDeduplicator : (typeof require !== 'undefined' ? require('./trackDeduplicator.js') : null);
+
+        const parsed = QN
+          ? QN.parseCompoundQuery(query)
+          : { normalizedQuery: query.trim(), isCompoundQuery: false, rawQuery: query };
+
+        // 1. Primary Indexed Search via Typesense
+        if (typeof TypesenseClient !== 'undefined') {
+          const tsResult = await TypesenseClient.searchAll(query);
+          if (tsResult && tsResult.candidateSongs && tsResult.candidateSongs.length > 0) {
+            let rankedSongs = tsResult.candidateSongs;
+            let rankedArtists = tsResult.candidateArtists || [];
+            let rankedAlbums = tsResult.candidateAlbums || [];
+
+            if (SE) {
+              rankedSongs = SE.rankSongs(tsResult.candidateSongs, parsed);
+              rankedArtists = SE.rankArtists(rankedArtists, parsed);
+              rankedAlbums = SE.rankAlbums(rankedAlbums, parsed);
+            }
+            if (TD) {
+              rankedSongs = TD.deduplicate(rankedSongs, query);
+            }
+
+            const didYouMean = SE ? SE.detectDidYouMean(query) : null;
+
+            return {
+              query,
+              normalizedQuery: parsed.normalizedQuery,
+              songs: { results: rankedSongs },
+              artists: { results: rankedArtists },
+              albums: { results: rankedAlbums },
+              playlists: { results: [] },
+              didYouMean,
+              suggestions: [],
+              provider: 'typesense'
+            };
+          }
+        }
+
+        // 2. Resilient Multi-Cluster Fallback: Query decomposition + Smart Ranking
+        const targetArtist = parsed.candidateArtist || (QN && QN.isLikelyArtist(parsed.normalizedQuery) ? parsed.normalizedQuery : null);
+
+        const promises = [
+          fetchWithFallback('/search', { query: parsed.normalizedQuery }),
+          this.searchSongs(parsed.normalizedQuery, 1, 30),
+          fetchWithFallback('/search/artists', { query: targetArtist || parsed.normalizedQuery, limit: 10 }),
+          fetchWithFallback('/search/albums', { query: parsed.candidateSongTitle || parsed.normalizedQuery, limit: 10 }),
+          fetchWithFallback('/search/playlists', { query: parsed.candidateSongTitle || parsed.normalizedQuery, limit: 10 })
+        ];
+
+        if (parsed.isCompoundQuery && parsed.candidateSongTitle) {
+          promises.push(this.searchSongs(parsed.candidateSongTitle, 1, 30));
+        }
+
+        if (targetArtist && targetArtist !== parsed.normalizedQuery) {
+          promises.push(this.searchSongs(targetArtist, 1, 30));
+        }
+
+        const results = await Promise.allSettled(promises);
+
+        const searchRes = results[0];
+        const songsRes = results[1];
+        const artistsRes = results[2];
+        const albumsRes = results[3];
+        const playlistsRes = results[4];
+        const subSongRes = results[5];
+        const artistSongsRes = results[6];
 
         const federated = searchRes.status === 'fulfilled' ? (searchRes.value?.data || searchRes.value) : {};
         const deepSongs = songsRes.status === 'fulfilled' ? songsRes.value : [];
+        const subSongs = (subSongRes && subSongRes.status === 'fulfilled') ? subSongRes.value : [];
+        const artistSongs = (artistSongsRes && artistSongsRes.status === 'fulfilled') ? artistSongsRes.value : [];
 
         const federatedSongs = (federated?.songs?.results || []).map(normalizeSong);
-        const finalSongs = deepSongs.length > 0 ? deepSongs : federatedSongs;
+        const allCandidateSongs = [...deepSongs, ...subSongs, ...artistSongs, ...federatedSongs];
 
-        const artists = artistsRes.status === 'fulfilled' ? (artistsRes.value?.data?.results || []) : (federated?.artists?.results || []);
-        const albums = albumsRes.status === 'fulfilled' ? (albumsRes.value?.data?.results || []) : (federated?.albums?.results || []);
-        const playlists = playlistsRes.status === 'fulfilled' ? (playlistsRes.value?.data?.results || []) : (federated?.playlists?.results || []);
+        const rawArtists = artistsRes.status === 'fulfilled' ? (artistsRes.value?.data?.results || []) : (federated?.artists?.results || []);
+        const rawAlbums = albumsRes.status === 'fulfilled' ? (albumsRes.value?.data?.results || []) : (federated?.albums?.results || []);
+        const rawPlaylists = playlistsRes.status === 'fulfilled' ? (playlistsRes.value?.data?.results || []) : (federated?.playlists?.results || []);
+
+        // Apply Multi-Signal Ranking
+        let rankedSongs = allCandidateSongs;
+        let rankedArtists = rawArtists;
+        let rankedAlbums = rawAlbums;
+        let didYouMean = null;
+        let suggestions = [];
+
+        if (SE) {
+          rankedSongs = SE.rankSongs(allCandidateSongs, parsed);
+          rankedArtists = SE.rankArtists(rawArtists, parsed);
+          rankedAlbums = SE.rankAlbums(rawAlbums, parsed);
+          didYouMean = SE.detectDidYouMean(query);
+          const recents = (typeof Storage !== 'undefined') ? Storage.getSearchHistory() : [];
+          suggestions = SE.getAutocompleteSuggestions(query, recents);
+        } else if (TD) {
+          rankedSongs = TD.deduplicate(allCandidateSongs, query);
+        }
+
+        // Asynchronously sync discovered tracks into Typesense in background
+        if (typeof TypesenseClient !== 'undefined' && rankedSongs.length > 0) {
+          rankedSongs.slice(0, 8).forEach(s => TypesenseClient.syncTrack(s));
+        }
 
         return {
-          songs: { results: finalSongs },
-          artists: { results: artists },
-          albums: { results: albums },
-          playlists: { results: playlists }
+          query,
+          normalizedQuery: parsed.normalizedQuery,
+          songs: { results: rankedSongs },
+          artists: { results: rankedArtists },
+          albums: { results: rankedAlbums },
+          playlists: { results: rawPlaylists },
+          didYouMean,
+          suggestions,
+          provider: 'live_fallback'
         };
       } catch (e) {
+        console.error('[API] searchAll error:', e);
         const fallbackSongs = await this.searchSongs(query, 1, 30);
         return {
+          query,
           songs: { results: fallbackSongs },
           artists: { results: [] },
           albums: { results: [] },
-          playlists: { results: [] }
+          playlists: { results: [] },
+          didYouMean: null,
+          suggestions: []
         };
       }
     },
 
-    // Search songs specifically (limit up to 30)
+    // Search songs specifically (with multi-page deep aggregation & smart ranking)
     async searchSongs(query, page = 1, limit = 30) {
       try {
-        const res = await fetchWithFallback('/search/songs', { query, page, limit });
-        const items = res?.data?.results || res?.results || [];
-        return items.map(normalizeSong);
+        const QN = (typeof QueryNormalizer !== 'undefined') ? QueryNormalizer : (typeof require !== 'undefined' ? require('./queryNormalizer.js') : null);
+        const SE = (typeof SearchEngine !== 'undefined') ? SearchEngine : (typeof require !== 'undefined' ? require('./searchEngine.js') : null);
+        const TD = (typeof TrackDeduplicator !== 'undefined') ? TrackDeduplicator : (typeof require !== 'undefined' ? require('./trackDeduplicator.js') : null);
+
+        const parsed = QN
+          ? QN.parseCompoundQuery(query)
+          : { normalizedQuery: query.trim(), isCompoundQuery: false, rawQuery: query };
+
+        const targetArtist = parsed.candidateArtist || (QN && QN.isLikelyArtist(parsed.normalizedQuery) ? parsed.normalizedQuery : null);
+
+        // Fetch multiple pages in parallel to gather 30+ distinct, unique tracks after deduplication
+        const pagesToFetch = page === 1 ? [1, 2, 3, 4, 5, 6, 7] : [page, page + 1, page + 2];
+        const promises = [];
+
+        for (const p of pagesToFetch) {
+          promises.push(fetchWithFallback('/search/songs', { query: parsed.normalizedQuery, page: p, limit: 30 }));
+          if (targetArtist && targetArtist !== parsed.normalizedQuery) {
+            promises.push(fetchWithFallback('/search/songs', { query: targetArtist, page: p, limit: 30 }));
+          }
+          if (parsed.isCompoundQuery && parsed.candidateSongTitle) {
+            promises.push(fetchWithFallback('/search/songs', { query: parsed.candidateSongTitle, page: p, limit: 30 }));
+          }
+        }
+
+        // For page 1, also fetch top albums and their songs to enrich discography with iconic hits
+        if (page === 1) {
+          promises.push(
+            fetchWithFallback('/search/albums', { query: targetArtist || parsed.normalizedQuery, limit: 8 })
+              .then(async albRes => {
+                const albList = albRes?.data?.results || albRes?.results || [];
+                const topAlbs = albList.slice(0, 5);
+                const albSongPromises = topAlbs.map(a =>
+                  fetchWithFallback('/albums', { id: a.id })
+                    .then(det => det?.data?.songs || det?.songs || [])
+                    .catch(() => [])
+                );
+                const allAlbSongs = await Promise.all(albSongPromises);
+                return allAlbSongs.flat();
+              })
+              .catch(() => [])
+          );
+        }
+
+        const responses = await Promise.allSettled(promises);
+        let items = [];
+        for (const r of responses) {
+          if (r.status === 'fulfilled' && r.value) {
+            if (Array.isArray(r.value)) {
+              items.push(...r.value);
+            } else {
+              const list = r.value?.data?.results || r.value?.results || [];
+              items.push(...list);
+            }
+          }
+        }
+
+        const normalized = items.map(normalizeSong);
+
+        let ranked = normalized;
+        if (SE) {
+          ranked = SE.rankSongs(normalized, parsed);
+        } else if (TD) {
+          ranked = TD.deduplicate(normalized, query);
+        }
+
+        return ranked;
       } catch (e) {
         console.error('[API] searchSongs error:', e);
         return [];
@@ -233,9 +404,37 @@ const API = (() => {
     // Search artists
     async searchArtists(query, page = 1, limit = 10) {
       try {
-        const res = await fetchWithFallback('/search/artists', { query, page, limit });
-        return res?.data?.results || res?.results || [];
+        const parsed = (typeof QueryNormalizer !== 'undefined')
+          ? QueryNormalizer.parseCompoundQuery(query)
+          : { normalizedQuery: query.trim(), rawQuery: query };
+
+        const target = parsed.candidateArtist || parsed.normalizedQuery;
+        const res = await fetchWithFallback('/search/artists', { query: target, page, limit });
+        const items = res?.data?.results || res?.results || [];
+
+        if (typeof SearchEngine !== 'undefined') {
+          return SearchEngine.rankArtists(items, parsed);
+        }
+        return items;
       } catch (e) {
+        console.error('[API] searchArtists error:', e);
+        return [];
+      }
+    },
+
+    // Search albums
+    async searchAlbums(query, page = 1, limit = 10) {
+      try {
+        const parsed = (typeof QueryNormalizer !== 'undefined')
+          ? QueryNormalizer.parseCompoundQuery(query)
+          : { normalizedQuery: query.trim(), rawQuery: query };
+
+        const target = (parsed.isCompoundQuery && parsed.candidateSongTitle) ? parsed.candidateSongTitle : parsed.normalizedQuery;
+        const res = await fetchWithFallback('/search/albums', { query: target, page, limit });
+        const items = res?.data?.results || res?.results || [];
+        return items;
+      } catch (e) {
+        console.error('[API] searchAlbums error:', e);
         return [];
       }
     },
@@ -374,6 +573,86 @@ const API = (() => {
       } catch (_) {}
 
       return null;
+    },
+
+    // --- Embeat Recommendation Engine APIs ---
+    async getSimilarSongs(trackId, limit = 20) {
+      if (!trackId) return [];
+      try {
+        const res = await fetch(`/api/recommendations/track/${trackId}`);
+        if (res.ok) {
+          const data = await res.json();
+          const recs = data?.recommendations?.map(r => r.song) || [];
+          if (recs.length >= 5) return recs;
+        }
+      } catch (_) {}
+
+      // Fallback: multi-channel client-side recommendation engine
+      try {
+        const current = (typeof Player !== 'undefined') ? Player.getCurrentTrack() : null;
+        if (current) {
+          const primaryArtist = API.decodeHtml(current.primaryArtist || current.artists || '').split(/[,;&/]/)[0].trim();
+          let candidatePool = [];
+          
+          if (primaryArtist && primaryArtist !== 'undefined') {
+            const [artistSongs, searchSongs] = await Promise.allSettled([
+              API.getArtistSongs(primaryArtist, 1, limit),
+              API.searchSongs(`${primaryArtist} Hits`, 1, limit)
+            ]);
+            if (artistSongs.status === 'fulfilled' && Array.isArray(artistSongs.value)) {
+              candidatePool.push(...artistSongs.value);
+            }
+            if (searchSongs.status === 'fulfilled' && Array.isArray(searchSongs.value)) {
+              candidatePool.push(...searchSongs.value);
+            }
+          }
+
+          if (typeof Storage !== 'undefined') {
+            const favs = Storage.getFavorites() || [];
+            const history = Storage.getHistory() || [];
+            candidatePool.push(...favs, ...history);
+          }
+
+          if (typeof RecommendationEngine !== 'undefined' && candidatePool.length > 0) {
+            const similar = RecommendationEngine.getSimilarTracks(current, candidatePool, limit);
+            if (similar.length > 0) return similar.map(r => r.song);
+          }
+          if (candidatePool.length > 0) {
+            const dedup = candidatePool.filter((s, idx, arr) => s && s.id && String(s.id) !== String(current.id) && arr.findIndex(x => String(x.id) === String(s.id)) === idx);
+            return dedup.slice(0, limit);
+          }
+        }
+      } catch (_) {}
+      return [];
+    },
+
+    async getPersonalizedRecommendations(candidatePool = [], limit = 20) {
+      try {
+        const history = (typeof Storage !== 'undefined') ? Storage.getHistory() : [];
+        const favorites = (typeof Storage !== 'undefined') ? Storage.getFavorites() : [];
+        
+        const res = await fetch('/api/recommendations/personalized', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ history, favorites, candidatePool, limit })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          return data?.recommendations || [];
+        }
+      } catch (_) {}
+
+      // Fallback: client-side recommendation engine
+      if (typeof RecommendationEngine !== 'undefined') {
+        const history = (typeof Storage !== 'undefined') ? Storage.getHistory() : [];
+        const favorites = (typeof Storage !== 'undefined') ? Storage.getFavorites() : [];
+        return RecommendationEngine.getPersonalizedRecommendations(history, favorites, candidatePool, { limit });
+      }
+      return [];
     }
   };
 })();
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = API;
+}

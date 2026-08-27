@@ -181,7 +181,10 @@ class HomeViewModel(
                     _trendingAlbums.value = albums
                     _topCharts.value = charts
                     _quickPicks.value = trending.take(16)
-                    _recommendations.value = trending.shuffled().take(12)
+                    
+                    // Generate Personalized Hybrid Recommendations from User History & Favorites
+                    val candidatePool = (trending + newRel).distinctBy { it.id }
+                    _recommendations.value = repository.getPersonalizedRecommendations(candidatePool, limit = 16)
                 }
 
                 if (_trendingSongs.value.isEmpty()) {
@@ -209,7 +212,7 @@ class HomeViewModel(
                 _trendingAlbums.value = albumSearch.await()
                 _topCharts.value = chartsSearch.await()
                 _quickPicks.value = _trendingSongs.value.take(16)
-                _recommendations.value = _trendingSongs.value.shuffled().take(10)
+                _recommendations.value = repository.getPersonalizedRecommendations(_trendingSongs.value + _newReleases.value, limit = 12)
             }
         } catch (e: Exception) {
             _error.value = "Unable to load music. Please check your connection."
@@ -288,10 +291,8 @@ class HomeViewModel(
     fun startRadio(song: Song) {
         viewModelScope.launch {
             try {
-                val artistQuery = song.artists.split(",", "&", "feat.", "ft.").firstOrNull()?.trim() ?: song.artists
-                val related = repository.searchComprehensiveSongs(artistQuery)
-                val fullList = listOf(song) + related.filter { it.id != song.id }
-                musicController.playQueue(fullList, 0)
+                val radioQueue = repository.getTrackRadio(song, 25)
+                musicController.playQueue(radioQueue, 0)
             } catch (e: Exception) {
                 musicController.playSong(song)
             }

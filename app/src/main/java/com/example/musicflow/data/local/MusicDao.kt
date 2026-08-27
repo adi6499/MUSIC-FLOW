@@ -29,6 +29,22 @@ interface MusicDao {
     @Query("DELETE FROM history")
     suspend fun clearHistory()
 
+    @Query("DELETE FROM history WHERE id = :songId")
+    suspend fun deleteHistorySong(songId: String)
+
+    // --- Saved Albums ---
+    @Query("SELECT * FROM saved_albums ORDER BY savedAt DESC")
+    fun getSavedAlbums(): Flow<List<SavedAlbumEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSavedAlbum(album: SavedAlbumEntity)
+
+    @Query("DELETE FROM saved_albums WHERE id = :albumId")
+    suspend fun deleteSavedAlbum(albumId: String)
+
+    @Query("SELECT EXISTS(SELECT 1 FROM saved_albums WHERE id = :albumId)")
+    suspend fun isAlbumSaved(albumId: String): Boolean
+
     // --- Playlists ---
     @Query("SELECT * FROM playlists ORDER BY createdAt DESC")
     fun getPlaylists(): Flow<List<PlaylistEntity>>
@@ -102,4 +118,33 @@ interface MusicDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertLyricsCache(lyrics: LyricsCacheEntity)
+
+    // --- Local Tracks ---
+    @Query("SELECT * FROM local_tracks ORDER BY addedAt DESC")
+    fun getLocalTracks(): Flow<List<LocalTrackEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertLocalTracks(tracks: List<LocalTrackEntity>)
+
+    @Query("DELETE FROM local_tracks WHERE id = :id")
+    suspend fun deleteLocalTrack(id: String)
+
+    @Query("DELETE FROM local_tracks")
+    suspend fun clearLocalTracks()
+
+    @Query("SELECT * FROM local_tracks WHERE title LIKE '%' || :query || '%' OR artist LIKE '%' || :query || '%' OR album LIKE '%' || :query || '%'")
+    suspend fun searchLocalTracks(query: String): List<LocalTrackEntity>
+
+    // --- Download Tasks ---
+    @Query("SELECT * FROM download_tasks ORDER BY updatedAt DESC")
+    fun getDownloadTasks(): Flow<List<DownloadTaskEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertDownloadTask(task: DownloadTaskEntity)
+
+    @Query("UPDATE download_tasks SET status = :status, progress = :progress, updatedAt = :timestamp WHERE id = :id")
+    suspend fun updateDownloadProgress(id: String, status: String, progress: Int, timestamp: Long = System.currentTimeMillis())
+
+    @Query("DELETE FROM download_tasks WHERE id = :id")
+    suspend fun deleteDownloadTask(id: String)
 }

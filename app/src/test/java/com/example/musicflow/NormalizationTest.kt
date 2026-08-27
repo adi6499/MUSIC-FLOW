@@ -52,10 +52,10 @@ class NormalizationTest {
         )
 
         val song = dto.toDomain()
-        assertEquals("http://example.com/500x500/cover.jpg", song.image)
+        assertEquals("https://example.com/500x500/cover.jpg", song.image)
         
         val dto2 = dto.copy(image = "http://example.com/150x150/cover.jpg")
-        assertEquals("http://example.com/500x500/cover.jpg", dto2.toDomain().image)
+        assertEquals("https://example.com/500x500/cover.jpg", dto2.toDomain().image)
     }
 
     @Test

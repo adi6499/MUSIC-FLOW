@@ -14,7 +14,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -54,6 +54,8 @@ fun SearchScreen(
     val albumResults by viewModel.albumResults.collectAsState()
     val artistResults by viewModel.artistResults.collectAsState()
     val playlistResults by viewModel.playlistResults.collectAsState()
+    val didYouMean by viewModel.didYouMean.collectAsState()
+    val autocompleteSuggestions by viewModel.autocompleteSuggestions.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val error by viewModel.error.collectAsState()
     val recentSearches by viewModel.recentSearches.collectAsState()
@@ -161,7 +163,7 @@ fun SearchScreen(
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 20.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(bottom = 10.dp)
+                modifier = Modifier.padding(bottom = 6.dp)
             ) {
                 items(categories) { category ->
                     val isSelected = selectedCategory == category
@@ -182,6 +184,85 @@ fun SearchScreen(
                             color = Color.White,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                         )
+                    }
+                }
+            }
+
+            // Did You Mean Banner
+            if (!didYouMean.isNullOrBlank()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 6.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MusicRed.copy(alpha = 0.12f))
+                        .clickable {
+                            viewModel.updateQuery(didYouMean!!)
+                            viewModel.search(didYouMean!!)
+                        }
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AutoAwesome,
+                        contentDescription = "Correction",
+                        tint = MusicRed,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Did you mean: ",
+                        style = MaterialTheme.typography.bodySmall.copy(color = Secondary)
+                    )
+                    Text(
+                        text = didYouMean!!,
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = MusicRed
+                        )
+                    )
+                }
+            }
+
+            // Autocomplete suggestions chips (if typing and suggestions available)
+            if (autocompleteSuggestions.isNotEmpty() && autocompleteSuggestions.any { it.lowercase() != searchQuery.lowercase() }) {
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 20.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.padding(bottom = 6.dp)
+                ) {
+                    items(autocompleteSuggestions) { sug ->
+                        Surface(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    viewModel.updateQuery(sug)
+                                    viewModel.search(sug)
+                                },
+                            shape = RoundedCornerShape(8.dp),
+                            color = SurfaceDark.copy(alpha = 0.6f),
+                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.05f))
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.TrendingUp,
+                                    contentDescription = null,
+                                    tint = Secondary,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = sug,
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                                    )
+                                )
+                            }
+                        }
                     }
                 }
             }

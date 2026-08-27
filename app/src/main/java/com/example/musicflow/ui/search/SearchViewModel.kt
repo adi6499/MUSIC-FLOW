@@ -52,6 +52,12 @@ class SearchViewModel(
     private val _playlistResults = MutableStateFlow<List<Playlist>>(emptyList())
     val playlistResults: StateFlow<List<Playlist>> = _playlistResults.asStateFlow()
 
+    private val _didYouMean = MutableStateFlow<String?>(null)
+    val didYouMean: StateFlow<String?> = _didYouMean.asStateFlow()
+
+    private val _autocompleteSuggestions = MutableStateFlow<List<String>>(emptyList())
+    val autocompleteSuggestions: StateFlow<List<String>> = _autocompleteSuggestions.asStateFlow()
+
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
@@ -95,17 +101,21 @@ class SearchViewModel(
 
     private fun observeQuery() {
         _query
-            .debounce(250)
+            .debounce(200)
             .distinctUntilChanged()
-            .onEach { 
-                if (it.isNotBlank()) {
-                    search(it, saveToRecent = false)
+            .onEach { q ->
+                if (q.isNotBlank()) {
+                    _autocompleteSuggestions.value = com.example.musicflow.data.search.SearchEngine
+                        .getAutocompleteSuggestions(q, recentSearches.value)
+                    search(q, saveToRecent = false)
                 } else {
                     searchJob?.cancel()
                     _searchResults.value = emptyList()
                     _albumResults.value = emptyList()
                     _artistResults.value = emptyList()
                     _playlistResults.value = emptyList()
+                    _didYouMean.value = null
+                    _autocompleteSuggestions.value = emptyList()
                     _isLoading.value = false
                     _error.value = null
                 }
@@ -115,6 +125,12 @@ class SearchViewModel(
 
     fun updateQuery(newQuery: String) {
         savedStateHandle["query"] = newQuery
+        if (newQuery.isNotBlank()) {
+            _autocompleteSuggestions.value = com.example.musicflow.data.search.SearchEngine
+                .getAutocompleteSuggestions(newQuery, recentSearches.value)
+        } else {
+            _autocompleteSuggestions.value = emptyList()
+        }
     }
 
     fun selectCategory(category: String) {
@@ -132,38 +148,26 @@ class SearchViewModel(
             }
             _isLoading.value = true
             _error.value = null
+            _didYouMean.value = null
             try {
-                val songsDef = async { repository.searchComprehensiveSongs(cleanQuery) }
-                val albumsDef = async { repository.searchAlbums(cleanQuery, limit = 20) }
-                val artistsDef = async { repository.searchArtists(cleanQuery, limit = 20) }
-                val playlistsDef = async { repository.searchPlaylists(cleanQuery, limit = 20) }
+                val enhanced = repository.searchAllCategories(cleanQuery)
                 
-                val songs = songsDef.await()
-                val albums = albumsDef.await()
-                val artists = artistsDef.await()
-                val playlists = playlistsDef.await()
-                
-                _searchResults.value = songs
-                _albumResults.value = albums
-                _artistResults.value = artists
-                _playlistResults.value = playlists
+                _searchResults.value = enhanced.songs
+                _albumResults.value = enhanced.albums
+                _artistResults.value = enhanced.artists
+                _playlistResults.value = enhanced.playlists
+                _didYouMean.value = enhanced.didYouMean
 
                 try {
-                    savedStateHandle["songs_res"] = gson.toJson(songs)
-                    savedStateHandle["albums_res"] = gson.toJson(albums)
-                    savedStateHandle["artists_res"] = gson.toJson(artists)
+                    savedStateHandle["songs_res"] = gson.toJson(enhanced.songs)
+                    savedStateHandle["albums_res"] = gson.toJson(enhanced.albums)
+                    savedStateHandle["artists_res"] = gson.toJson(enhanced.artists)
                 } catch (e: Exception) {
                     // Ignore caching error
                 }
                 
-                if (songs.isEmpty() && albums.isEmpty() && artists.isEmpty() && playlists.isEmpty()) {
-                    // Fallback to searching with broad keywords
-                    val fallbackSongs = repository.searchSongs(cleanQuery.split(" ").firstOrNull() ?: cleanQuery, limit = 20)
-                    if (fallbackSongs.isNotEmpty()) {
-                        _searchResults.value = fallbackSongs
-                    } else {
-                        _error.value = "No results found for \"$cleanQuery\""
-                    }
+                if (enhanced.songs.isEmpty() && enhanced.albums.isEmpty() && enhanced.artists.isEmpty() && enhanced.playlists.isEmpty()) {
+                    _error.value = "No results found for \"$cleanQuery\""
                 }
             } catch (e: Exception) {
                 _error.value = "Search failed: ${e.localizedMessage ?: "Network error"}"
@@ -177,20 +181,13 @@ class SearchViewModel(
         viewModelScope.launch {
             try {
                 val fullSong = if (song.streamUrl.isNotBlank()) song else repository.getSongDetails(song.id) ?: song
-                val artistQuery = fullSong.artists.split(",", "&", "feat.", "ft.").firstOrNull()?.trim()?.takeIf { it.isNotBlank() && it != "Unknown Artist" }
-                val related = if (!artistQuery.isNullOrBlank()) {
-                    repository.searchComprehensiveSongs(artistQuery)
-                } else {
-                    repository.searchComprehensiveSongs(fullSong.name)
-                }
-                val validRelated = related.filter { it.id != fullSong.id && it.streamUrl.isNotBlank() }
-                val queue = (listOf(fullSong) + validRelated).distinctBy { it.id }
+                val radioQueue = repository.getTrackRadio(fullSong, 25)
 
                 val isCurrent = musicController.currentSong.value?.id == fullSong.id
                 if (isCurrent && musicController.isPlaying.value) {
-                    musicController.setRadioQueueKeepPlaying(queue)
+                    musicController.setRadioQueueKeepPlaying(radioQueue)
                 } else {
-                    musicController.playQueue(queue, 0)
+                    musicController.playQueue(radioQueue, 0)
                 }
             } catch (e: Exception) {
                 val fullSong = if (song.streamUrl.isNotBlank()) song else repository.getSongDetails(song.id) ?: song

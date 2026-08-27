@@ -24,19 +24,52 @@ class DownloadWorker(
         val duration = inputData.getInt("duration", 0)
 
         return try {
+            val database = MusicDatabase.getDatabase(applicationContext)
+            val dao = database.musicDao()
+
+            // Update task status to DOWNLOADING
+            dao.insertDownloadTask(
+                com.example.musicflow.data.local.DownloadTaskEntity(
+                    id = songId,
+                    songName = songName,
+                    artists = artists,
+                    imageUrl = imageUrl,
+                    status = "DOWNLOADING",
+                    progress = 10
+                )
+            )
+
             val downloadsDir = File(applicationContext.filesDir, "downloads")
             if (!downloadsDir.exists()) downloadsDir.mkdirs()
             
             val destinationFile = File(downloadsDir, "$songId.mp3")
             
-            URL(downloadUrl).openStream().use { input ->
-                destinationFile.outputStream().use { output ->
-                    input.copyTo(output)
+            // Deduplication: if valid file already exists, reuse it
+            if (!destinationFile.exists() || destinationFile.length() < 100000) {
+                URL(downloadUrl).openStream().use { input ->
+                    destinationFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
                 }
             }
 
-            val database = MusicDatabase.getDatabase(applicationContext)
-            database.musicDao().insertDownload(
+            // File integrity validation
+            if (!destinationFile.exists() || destinationFile.length() < 100000) {
+                dao.insertDownloadTask(
+                    com.example.musicflow.data.local.DownloadTaskEntity(
+                        id = songId,
+                        songName = songName,
+                        artists = artists,
+                        imageUrl = imageUrl,
+                        status = "FAILED",
+                        progress = 0,
+                        error = "File corrupted or incomplete"
+                    )
+                )
+                return Result.failure()
+            }
+
+            dao.insertDownload(
                 DownloadedSongEntity(
                     id = songId,
                     name = songName,
@@ -48,9 +81,36 @@ class DownloadWorker(
                 )
             )
 
+            dao.insertDownloadTask(
+                com.example.musicflow.data.local.DownloadTaskEntity(
+                    id = songId,
+                    songName = songName,
+                    artists = artists,
+                    imageUrl = imageUrl,
+                    status = "DOWNLOADED",
+                    progress = 100,
+                    fileSize = destinationFile.length(),
+                    localPath = destinationFile.absolutePath
+                )
+            )
+
             Result.success()
         } catch (e: Exception) {
-            e.printStackTrace()
+            android.util.Log.e("DownloadWorker", "Download failed for $songId: ${e.message}", e)
+            try {
+                val database = MusicDatabase.getDatabase(applicationContext)
+                database.musicDao().insertDownloadTask(
+                    com.example.musicflow.data.local.DownloadTaskEntity(
+                        id = songId,
+                        songName = songName,
+                        artists = artists,
+                        imageUrl = imageUrl,
+                        status = "FAILED",
+                        progress = 0,
+                        error = e.message
+                    )
+                )
+            } catch (_: Exception) {}
             Result.failure()
         }
     }

@@ -14,9 +14,12 @@ import androidx.room.RoomDatabase
         DownloadedSongEntity::class,
         SongMetadataEntity::class,
         FollowedArtistEntity::class,
-        LyricsCacheEntity::class
+        SavedAlbumEntity::class,
+        LyricsCacheEntity::class,
+        LocalTrackEntity::class,
+        DownloadTaskEntity::class
     ],
-    version = 5,
+    version = 7,
     exportSchema = false
 )
 abstract class MusicDatabase : RoomDatabase() {

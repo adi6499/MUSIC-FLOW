@@ -5,6 +5,12 @@ import com.google.gson.annotations.SerializedName
 
 // --- Domain Models ---
 
+enum class TrackSource {
+    ONLINE,
+    DOWNLOADED,
+    LOCAL
+}
+
 @Immutable
 data class Song(
     val id: String,
@@ -17,7 +23,14 @@ data class Song(
     val downloadUrls: List<DownloadUrl> = emptyList(),
     val year: String = "",
     val language: String = "",
-    val hasLyrics: Boolean = false
+    val hasLyrics: Boolean = false,
+    val source: String = "ONLINE", // "ONLINE", "DOWNLOADED", "LOCAL"
+    val localPath: String? = null,
+    val onlineId: String? = null,
+    val folderName: String? = null,
+    val albumArtist: String? = null,
+    val trackNumber: Int? = null,
+    val genre: String? = null
 )
 
 @Immutable

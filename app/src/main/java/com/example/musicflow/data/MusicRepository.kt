@@ -3,10 +3,13 @@ package com.example.musicflow.data
 import com.example.musicflow.data.api.MusicApiService
 import com.example.musicflow.data.local.*
 import com.example.musicflow.data.model.*
+import com.example.musicflow.data.search.*
+import com.example.musicflow.data.recommendation.*
 import androidx.work.*
 import com.example.musicflow.worker.DownloadWorker
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -16,7 +19,8 @@ class MusicRepository(
     private val lrcApi: com.example.musicflow.data.api.LrcLibApiService,
     private val dao: MusicDao,
     private val workManager: WorkManager,
-    private val userPreferences: UserPreferences
+    private val userPreferences: UserPreferences,
+    private val context: android.content.Context? = null
 ) {
     
     suspend fun getPreferredQuality(): String {
@@ -28,7 +32,7 @@ class MusicRepository(
 
         fun cleanSearchQuery(query: String): String {
             var q = query.trim().replace(Regex("""\s+"""), " ")
-            val prefixes = listOf("ok ", "okay ", "hey ", "play ", "song ", "songs ", "track ", "tracks ", "listen to ", "artist ", "artists ")
+            val prefixes = listOf("play me the song ", "play the song ", "stream the song ", "listen to the song ", "play audio of ", "play video of ")
             for (p in prefixes) {
                 if (q.startsWith(p, ignoreCase = true)) {
                     val candidate = q.substring(p.length).trim()
@@ -54,14 +58,40 @@ class MusicRepository(
         }
     }
 
-    // --- API Calls ---
+    // --- Upgraded Search & Recommendation Engine (Typesense Primary + Multi-Signal Fallback) ---
 
     suspend fun searchSongs(query: String, limit: Int = 50, page: Int = 1): List<Song> {
         val quality = getPreferredQuality()
-        val clean = cleanSearchQuery(query)
+        val parsed = QueryNormalizer.parseCompoundQuery(query)
+        if (parsed.normalizedQuery.isBlank()) return emptyList()
+
+        // 1. Try Typesense Search Engine first
+        val tsSongs = com.example.musicflow.data.typesense.TypesenseSearchEngine.searchSongs(query)
+        if (!tsSongs.isNullOrEmpty()) {
+            return tsSongs
+        }
+
+        // 2. Fallback to upstream live search + Multi-Signal ranking
         return try {
-            val response = api.searchSongs(clean, limit, page)
-            response.body()?.data?.results?.map { it.toDomain(quality) } ?: emptyList()
+            val queriesToTry = if (parsed.isCompoundQuery && !parsed.candidateSongTitle.isNullOrBlank()) {
+                listOf(parsed.candidateSongTitle, parsed.normalizedQuery)
+            } else if (parsed.candidateArtist != null) {
+                listOf(parsed.normalizedQuery, parsed.candidateArtist)
+            } else {
+                listOf(parsed.normalizedQuery)
+            }
+            val results = mutableListOf<Song>()
+            val pagesToTry = if (page == 1) listOf(1, 2, 3, 4, 5) else listOf(page, page + 1)
+            for (q in queriesToTry) {
+                for (p in pagesToTry) {
+                    try {
+                        val resp = api.searchSongs(q, limit, p)
+                        val list = resp.body()?.data?.results?.map { it.toDomain(quality) } ?: emptyList()
+                        results.addAll(list)
+                    } catch (_: Exception) {}
+                }
+            }
+            SearchEngine.rankSongs(results, parsed)
         } catch (e: Exception) {
             android.util.Log.e("MusicRepository", "searchSongs failed: ${e.message}", e)
             emptyList()
@@ -70,47 +100,86 @@ class MusicRepository(
 
     suspend fun searchComprehensiveSongs(query: String): List<Song> {
         val quality = getPreferredQuality()
-        val clean = cleanSearchQuery(query)
+        val parsed = QueryNormalizer.parseCompoundQuery(query)
+        if (parsed.normalizedQuery.isBlank()) return emptyList()
+
+        // 1. Try Typesense Search Engine first
+        val tsSongs = com.example.musicflow.data.typesense.TypesenseSearchEngine.searchSongs(query)
+        if (!tsSongs.isNullOrEmpty()) {
+            val ranked = SearchEngine.rankSongs(tsSongs, parsed)
+            return com.example.musicflow.data.search.TrackDeduplicator.deduplicate(ranked, query)
+        }
+
+        // 2. Fallback to multi-candidate live federated search with supervisorScope
         return try {
-            coroutineScope {
-                val directSongsDef = async {
-                    try {
-                        api.searchSongs(clean, limit = 50, page = 1).body()?.data?.results?.map { it.toDomain(quality) } ?: emptyList()
-                    } catch (e: Exception) {
-                        emptyList()
+            supervisorScope {
+                // A. Primary Direct Songs Search across multiple pages
+                val directSongsDeferred = (1..5).map { p ->
+                    async {
+                        try {
+                            api.searchSongs(parsed.normalizedQuery, limit = 50, page = p)
+                                .body()?.data?.results?.map { it.toDomain(quality) } ?: emptyList()
+                        } catch (e: Exception) {
+                            emptyList()
+                        }
                     }
                 }
+
+                // B. Sub-query for Compound Intent (e.g. Song Title only if user typed "Artist Song")
+                val subQuerySongsDef = if (parsed.isCompoundQuery && !parsed.candidateSongTitle.isNullOrBlank()) {
+                    async {
+                        try {
+                            api.searchSongs(parsed.candidateSongTitle, limit = 30, page = 1)
+                                .body()?.data?.results?.map { it.toDomain(quality) } ?: emptyList()
+                        } catch (e: Exception) {
+                            emptyList()
+                        }
+                    }
+                } else null
+
+                // C. Artist Search & Artist Songs
+                val artistTarget = parsed.candidateArtist ?: parsed.normalizedQuery
                 val artistSearchDef = async {
                     try {
-                        api.searchArtists(clean, limit = 3, page = 1).body()?.data?.results?.firstOrNull()?.id
+                        api.searchArtists(artistTarget, limit = 3, page = 1)
+                            .body()?.data?.results?.firstOrNull()?.id
                     } catch (e: Exception) {
                         null
                     }
                 }
+
+                // D. Playlists & Albums Search
                 val playlistsDef = async {
                     try {
-                        api.searchPlaylists(clean, limit = 4, page = 1).body()?.data?.results ?: emptyList()
-                    } catch (e: Exception) {
-                        emptyList()
-                    }
-                }
-                val albumsDef = async {
-                    try {
-                        api.searchAlbums(clean, limit = 4, page = 1).body()?.data?.results ?: emptyList()
+                        api.searchPlaylists(parsed.normalizedQuery, limit = 4, page = 1)
+                            .body()?.data?.results ?: emptyList()
                     } catch (e: Exception) {
                         emptyList()
                     }
                 }
 
-                val directSongs = directSongsDef.await()
-                val topArtistId = artistSearchDef.await()
-                val playlistDtos = playlistsDef.await()
-                val albumDtos = albumsDef.await()
+                val albumsDef = async {
+                    try {
+                        api.searchAlbums(parsed.normalizedQuery, limit = 4, page = 1)
+                            .body()?.data?.results ?: emptyList()
+                    } catch (e: Exception) {
+                        emptyList()
+                    }
+                }
+
+                val directSongs = directSongsDeferred.flatMap {
+                    try { it.await() } catch (e: Exception) { emptyList() }
+                }
+                val subSongs = try { subQuerySongsDef?.await() ?: emptyList() } catch (e: Exception) { emptyList() }
+                val topArtistId = try { artistSearchDef.await() } catch (e: Exception) { null }
+                val playlistDtos = try { playlistsDef.await() } catch (e: Exception) { emptyList() }
+                val albumDtos = try { albumsDef.await() } catch (e: Exception) { emptyList() }
 
                 val artistTopSongsDef = if (!topArtistId.isNullOrBlank()) {
                     async {
                         try {
-                            api.getArtistSongs(topArtistId).body()?.data?.songs?.map { it.toDomain(quality) } ?: emptyList()
+                            api.getArtistSongs(topArtistId)
+                                .body()?.data?.songs?.map { it.toDomain(quality) } ?: emptyList()
                         } catch (e: Exception) {
                             emptyList()
                         }
@@ -121,7 +190,8 @@ class MusicRepository(
                     async {
                         try {
                             val pid = playlistDto.id ?: return@async emptyList<Song>()
-                            api.getPlaylistDetails(pid).body()?.data?.songs?.map { it.toDomain(quality) } ?: emptyList()
+                            api.getPlaylistDetails(pid)
+                                .body()?.data?.songs?.map { it.toDomain(quality) } ?: emptyList()
                         } catch (e: Exception) {
                             emptyList()
                         }
@@ -132,42 +202,73 @@ class MusicRepository(
                     async {
                         try {
                             val aid = albumDto.id ?: return@async emptyList<Song>()
-                            api.getAlbumDetails(aid).body()?.data?.songs?.map { it.toDomain(quality) } ?: emptyList()
+                            api.getAlbumDetails(aid)
+                                .body()?.data?.songs?.map { it.toDomain(quality) } ?: emptyList()
                         } catch (e: Exception) {
                             emptyList()
                         }
                     }
                 }
 
-                val artistTopSongs = artistTopSongsDef?.await() ?: emptyList()
-                val playlistSongs = playlistSongsDeferred.flatMap { it.await() }
-                val albumSongs = albumSongsDeferred.flatMap { it.await() }
-
-                val combined: List<Song> = artistTopSongs + directSongs + playlistSongs + albumSongs
-                val seenNames = mutableSetOf<String>()
-                val uniqueSongs = mutableListOf<Song>()
-
-                for (song in combined) {
-                    val normalizedKey = song.name.lowercase().trim().replace(Regex("[^a-z0-9]"), "")
-                    if (normalizedKey.isNotBlank() && seenNames.add(normalizedKey)) {
-                        uniqueSongs.add(song)
-                    }
+                val artistTopSongs = try { artistTopSongsDef?.await() ?: emptyList() } catch (e: Exception) { emptyList() }
+                val playlistSongs = mutableListOf<Song>()
+                for (def in playlistSongsDeferred) {
+                    try { playlistSongs.addAll(def.await()) } catch (e: Exception) {}
+                }
+                val albumSongs = mutableListOf<Song>()
+                for (def in albumSongsDeferred) {
+                    try { albumSongs.addAll(def.await()) } catch (e: Exception) {}
                 }
 
-                if (uniqueSongs.isNotEmpty()) uniqueSongs else directSongs
+                // Combine all candidate streams
+                val allCandidates: List<Song> = directSongs + subSongs + artistTopSongs + playlistSongs + albumSongs
+
+                // Rank using Multi-Signal SearchEngine
+                SearchEngine.rankSongs(allCandidates, parsed)
             }
         } catch (e: Exception) {
             android.util.Log.e("MusicRepository", "searchComprehensiveSongs failed: ${e.message}", e)
-            searchSongs(clean)
+            searchSongs(query)
+        }
+    }
+
+    suspend fun searchAllCategories(query: String): EnhancedSearchResult {
+        val quality = getPreferredQuality()
+        val parsed = QueryNormalizer.parseCompoundQuery(query)
+        val didYouMean = SearchEngine.detectDidYouMean(query)
+
+        return supervisorScope {
+            val songsDef = async { searchComprehensiveSongs(query) }
+            val albumsDef = async { searchAlbums(query, limit = 20) }
+            val artistsDef = async { searchArtists(query, limit = 20) }
+            val playlistsDef = async { searchPlaylists(query, limit = 20) }
+
+            val rawSongs = try { songsDef.await() } catch (e: Exception) { emptyList() }
+            val rawAlbums = try { albumsDef.await() } catch (e: Exception) { emptyList() }
+            val rawArtists = try { artistsDef.await() } catch (e: Exception) { emptyList() }
+            val rawPlaylists = try { playlistsDef.await() } catch (e: Exception) { emptyList() }
+
+            EnhancedSearchResult(
+                query = query,
+                normalizedQuery = parsed.normalizedQuery,
+                songs = rawSongs,
+                artists = SearchEngine.rankArtists(rawArtists, parsed),
+                albums = SearchEngine.rankAlbums(rawAlbums, parsed),
+                playlists = rawPlaylists.distinctBy { it.id },
+                didYouMean = didYouMean,
+                suggestions = SearchEngine.getAutocompleteSuggestions(query)
+            )
         }
     }
 
     suspend fun searchAlbums(query: String, limit: Int = 20, page: Int = 1): List<Album> {
         val quality = getPreferredQuality()
-        val clean = cleanSearchQuery(query)
+        val parsed = QueryNormalizer.parseCompoundQuery(query)
+        val target = if (parsed.isCompoundQuery && !parsed.candidateSongTitle.isNullOrBlank()) parsed.candidateSongTitle else parsed.normalizedQuery
         return try {
-            val response = api.searchAlbums(clean, limit, page)
-            response.body()?.data?.results?.map { it.toDomain(quality) } ?: emptyList()
+            val response = api.searchAlbums(target, limit, page)
+            val results = response.body()?.data?.results?.map { it.toDomain(quality) } ?: emptyList()
+            SearchEngine.rankAlbums(results, parsed)
         } catch (e: Exception) {
             android.util.Log.e("MusicRepository", "searchAlbums failed: ${e.message}", e)
             emptyList()
@@ -175,14 +276,16 @@ class MusicRepository(
     }
 
     suspend fun searchArtists(query: String, limit: Int = 20, page: Int = 1): List<Artist> {
-        val clean = cleanSearchQuery(query)
+        val parsed = QueryNormalizer.parseCompoundQuery(query)
+        val target = parsed.candidateArtist ?: parsed.normalizedQuery
         return try {
-            val response = api.searchArtists(clean, limit, page)
+            val response = api.searchArtists(target, limit, page)
             val results = response.body()?.data?.results?.map { it.toDomain() } ?: emptyList()
             if (results.isNotEmpty()) {
-                results
-            } else if (clean != query) {
-                api.searchArtists(query, limit, page).body()?.data?.results?.map { it.toDomain() } ?: emptyList()
+                SearchEngine.rankArtists(results, parsed)
+            } else if (parsed.normalizedQuery != target) {
+                val fallback = api.searchArtists(parsed.normalizedQuery, limit, page).body()?.data?.results?.map { it.toDomain() } ?: emptyList()
+                SearchEngine.rankArtists(fallback, parsed)
             } else {
                 emptyList()
             }
@@ -194,9 +297,9 @@ class MusicRepository(
 
     suspend fun searchPlaylists(query: String, limit: Int = 20, page: Int = 1): List<Playlist> {
         val quality = getPreferredQuality()
-        val clean = cleanSearchQuery(query)
+        val parsed = QueryNormalizer.parseCompoundQuery(query)
         return try {
-            val response = api.searchPlaylists(clean, limit, page)
+            val response = api.searchPlaylists(parsed.normalizedQuery, limit, page)
             response.body()?.data?.results?.map { it.toDomain(quality) } ?: emptyList()
         } catch (e: Exception) {
             android.util.Log.e("MusicRepository", "searchPlaylists failed: ${e.message}", e)
@@ -430,6 +533,35 @@ class MusicRepository(
         }
     }
 
+    suspend fun getPersonalizedRecommendations(candidatePool: List<Song>, limit: Int = 20): List<Song> {
+        return try {
+            val history = dao.getHistory().first().map { it.toDomain() }
+            val favorites = dao.getFavorites().first().map { it.toDomain() }
+            RecommendationEngine.getPersonalizedRecommendations(
+                userHistory = history,
+                userFavorites = favorites,
+                candidatePool = candidatePool,
+                limit = limit
+            )
+        } catch (e: Exception) {
+            candidatePool.take(limit)
+        }
+    }
+
+    suspend fun getTrackRadio(seedSong: Song, limit: Int = 25): List<Song> {
+        return try {
+            val seedArtist = TrackDeduplicator.cleanArtistName(seedSong.artists)
+            val candidatePool = if (seedArtist.isNotBlank()) {
+                searchComprehensiveSongs(seedArtist)
+            } else {
+                searchComprehensiveSongs(seedSong.name)
+            }
+            RecommendationEngine.getTrackRadio(seedSong, candidatePool, limit)
+        } catch (e: Exception) {
+            listOf(seedSong)
+        }
+    }
+
     // --- Local Storage (Favorites) ---
 
     fun getFavorites(): Flow<List<Song>> = dao.getFavorites().map { entities ->
@@ -468,6 +600,35 @@ class MusicRepository(
 
     suspend fun clearHistory() {
         dao.clearHistory()
+    }
+
+    suspend fun removeFromHistory(songId: String) {
+        dao.deleteHistorySong(songId)
+    }
+
+    // --- Saved Albums ---
+
+    fun getSavedAlbums(): Flow<List<Album>> = dao.getSavedAlbums().map { entities ->
+        entities.map { Album(it.id, it.name, it.artist, it.image, it.year, it.songCount) }
+    }
+
+    suspend fun isAlbumSaved(albumId: String): Boolean = dao.isAlbumSaved(albumId)
+
+    suspend fun toggleSaveAlbum(album: Album) {
+        if (isAlbumSaved(album.id)) {
+            dao.deleteSavedAlbum(album.id)
+        } else {
+            dao.insertSavedAlbum(
+                SavedAlbumEntity(
+                    id = album.id,
+                    name = album.name,
+                    artist = album.artist,
+                    year = album.year,
+                    image = album.image,
+                    songCount = album.songCount
+                )
+            )
+        }
     }
 
     // --- Playlists ---
@@ -559,6 +720,44 @@ class MusicRepository(
             dao.deleteFollowedArtist(artist.id)
         } else {
             dao.insertFollowedArtist(FollowedArtistEntity(artist.id, artist.name, artist.image))
+        }
+    }
+
+    // --- Local Device Audio Scanner & Management ---
+
+    suspend fun scanLocalAudio(ctx: android.content.Context? = null) {
+        val targetContext = ctx ?: context ?: return
+        com.example.musicflow.data.local.MediaStoreAudioScanner.scanDeviceAudio(targetContext, dao)
+    }
+
+    fun getLocalTracks(): Flow<List<Song>> = dao.getLocalTracks().map { entities ->
+        entities.map { it.toDomain() }
+    }
+
+    suspend fun deleteLocalTrack(id: String) {
+        dao.deleteLocalTrack(id)
+    }
+
+    suspend fun searchOfflineTracks(query: String): List<Song> {
+        val localMatches = dao.searchLocalTracks(query).map { it.toDomain() }
+        val downloads = dao.getDownloads().first().map { it.toDomain() }
+            .filter { it.name.contains(query, ignoreCase = true) || it.artists.contains(query, ignoreCase = true) }
+        return (downloads + localMatches).distinctBy { it.id }
+    }
+
+    fun batchDownloadSongs(songs: List<Song>) {
+        songs.forEach { downloadSong(it) }
+    }
+
+    // --- Embeat Recommendations & Radio ---
+
+    suspend fun getSimilarSongs(song: Song, limit: Int = 20): List<Song> {
+        return try {
+            val query = "${song.artists} ${song.album}".trim()
+            val results = searchSongs(query, 1, limit)
+            results.filter { it.id != song.id }
+        } catch (e: Exception) {
+            emptyList()
         }
     }
 }

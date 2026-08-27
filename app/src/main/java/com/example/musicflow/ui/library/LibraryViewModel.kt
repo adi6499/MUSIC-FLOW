@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import com.example.musicflow.data.MusicRepository
 import com.example.musicflow.data.local.PlaylistEntity
 import com.example.musicflow.data.model.Song
+import com.example.musicflow.data.model.Album
+import com.example.musicflow.data.model.Artist
 import com.example.musicflow.player.MusicController
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -28,6 +30,61 @@ class LibraryViewModel(
 
     val downloads: StateFlow<List<Song>> = repository.getDownloads()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val savedAlbums: StateFlow<List<Album>> = repository.getSavedAlbums()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val followedArtists: StateFlow<List<Artist>> = repository.getFollowedArtists()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val localTracks: StateFlow<List<Song>> = repository.getLocalTracks()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun scanLocalDeviceMusic(context: android.content.Context? = null) {
+        viewModelScope.launch {
+            repository.scanLocalAudio(context)
+        }
+    }
+
+    fun deleteLocalTrack(id: String) {
+        viewModelScope.launch {
+            repository.deleteLocalTrack(id)
+        }
+    }
+
+    fun batchDownloadPlaylist(songs: List<Song>) {
+        repository.batchDownloadSongs(songs)
+    }
+
+    fun removeFromHistory(songId: String) {
+        viewModelScope.launch {
+            repository.removeFromHistory(songId)
+        }
+    }
+
+    fun deleteDownload(songId: String) {
+        viewModelScope.launch {
+            repository.deleteDownload(songId)
+        }
+    }
+
+    fun toggleFollowArtist(artist: Artist) {
+        viewModelScope.launch {
+            repository.toggleFollowArtist(artist)
+        }
+    }
+
+    fun toggleSaveAlbum(album: Album) {
+        viewModelScope.launch {
+            repository.toggleSaveAlbum(album)
+        }
+    }
+
+    fun shufflePlaylist(songs: List<Song>) {
+        if (songs.isNotEmpty()) {
+            musicController.playQueue(songs.shuffled(), 0)
+        }
+    }
 
     fun toggleFavorite(song: Song) {
         viewModelScope.launch {

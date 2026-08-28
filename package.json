@@ -1,13 +1,15 @@
 {
   "name": "musicflow",
-  "version": "2.5.1",
+  "version": "2.6.0",
   "description": "MusicFlow - Lossless Music Player for Android & iOS",
   "private": true,
   "scripts": {
     "sync": "powershell -Command \"Copy-Item -Path 'web-app\\*' -Destination 'app\\src\\main\\assets\\public' -Recurse -Force\" && npx.cmd cap sync",
     "cap:sync": "npx.cmd cap sync",
     "cap:sync:android": "npx.cmd cap sync android",
-    "cap:sync:ios": "npx.cmd cap sync ios"
+    "cap:sync:ios": "npx.cmd cap sync ios",
+    "build:ipa": "node scripts/build_ipa.js",
+    "package:ipa": "node scripts/build_ipa.js"
   },
   "dependencies": {
     "@capacitor/android": "^6.1.2",

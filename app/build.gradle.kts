@@ -11,9 +11,9 @@ android {
     defaultConfig {
         applicationId = "com.example.musicflow"
         minSdk = 24
-        targetSdk = 35
-        versionCode = 27
-        versionName = "2.7.0"
+        targetSdk = 34
+        versionCode = 28
+        versionName = "2.7.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

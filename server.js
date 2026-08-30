@@ -461,7 +461,8 @@ const server = http.createServer((req, res) => {
       res.end(JSON.stringify({
         updateAvailable: false,
         updateRequired: false,
-        latestVersion: '2.7.0',
+        latestVersion: '2.7.1',
+        versionCode: 28,
         minimumVersion: '1.0.0'
       }));
       return;

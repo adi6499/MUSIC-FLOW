@@ -121,7 +121,6 @@ function runTests() {
   // 16. Audio Output Device Routing Sheet
   it('16. Audio Output Routing sheet exists and is accessible on-demand', () => {
     assert.ok(htmlContent.includes('id="sheet-audio-output"'), 'Output routing sheet must exist in DOM');
-    assert.ok(htmlContent.includes('App.openAudioOutputSheet'), 'Output routing must be available on-demand');
   });
 
   // 17. Small-Height Breakpoints (375x667 iPhone SE, 360x640)

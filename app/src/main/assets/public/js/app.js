@@ -10,6 +10,8 @@ const App = (() => {
   let currentArtistSongs = [];
   let currentDetailSongs = [];
   let searchDebounceTimer = null;
+  let searchRequestId = 0;
+  let searchAbortController = null;
   let audioContext = null;
   let activeSoundscapeNode = null;
   let currentSoundscape = null;
@@ -368,25 +370,34 @@ const App = (() => {
     document.getElementById('card-mix-phonk')?.addEventListener('click', () => playMix('Phonk Drift Workout'));
     document.getElementById('card-mix-lofi')?.addEventListener('click', () => playMix('Lo-Fi Chill Beats'));
 
-    // 5. Search Bar Input & Autocomplete
+    // 5. Search Bar Input & Autocomplete (Instant Native Responsiveness)
     const searchInput = document.getElementById('search-input');
     const searchClear = document.getElementById('btn-search-clear');
 
     if (searchInput) {
       searchInput.addEventListener('input', () => {
-        const q = searchInput.value.trim();
-        if (searchClear) searchClear.style.display = q.length > 0 ? 'flex' : 'none';
+        const rawVal = searchInput.value;
+        const q = rawVal.trim();
+        if (searchClear) searchClear.style.display = rawVal.length > 0 ? 'flex' : 'none';
 
         if (!q) {
-          document.getElementById('search-discovery-hub').style.display = 'block';
-          document.getElementById('search-results-container').style.display = 'none';
+          clearTimeout(searchDebounceTimer);
+          searchRequestId++; // Invalidate any pending search request
+          if (searchAbortController) {
+            try { searchAbortController.abort(); } catch (_) {}
+            searchAbortController = null;
+          }
+          const hub = document.getElementById('search-discovery-hub');
+          const results = document.getElementById('search-results-container');
+          if (hub) hub.style.display = 'block';
+          if (results) results.style.display = 'none';
           return;
         }
 
         clearTimeout(searchDebounceTimer);
         searchDebounceTimer = setTimeout(() => {
           performSearch(q, searchCurrentCategory, false);
-        }, 300);
+        }, 250);
       });
 
       searchInput.addEventListener('keydown', (e) => {
@@ -400,13 +411,21 @@ const App = (() => {
 
     if (searchClear) {
       searchClear.addEventListener('click', () => {
+        clearTimeout(searchDebounceTimer);
+        searchRequestId++;
+        if (searchAbortController) {
+          try { searchAbortController.abort(); } catch (_) {}
+          searchAbortController = null;
+        }
         if (searchInput) {
           searchInput.value = '';
           searchInput.focus();
         }
         searchClear.style.display = 'none';
-        document.getElementById('search-discovery-hub').style.display = 'block';
-        document.getElementById('search-results-container').style.display = 'none';
+        const hub = document.getElementById('search-discovery-hub');
+        const results = document.getElementById('search-results-container');
+        if (hub) hub.style.display = 'block';
+        if (results) results.style.display = 'none';
       });
     }
 
@@ -1774,18 +1793,26 @@ const App = (() => {
   let searchCurrentCategory = 'All';
 
   // ==========================================================================
-  // SEARCH DISPATCHER
+  // SEARCH DISPATCHER (Fluid Non-Blocking & Stale-Protected)
   // ==========================================================================
   async function performSearch(query, category = 'All', saveToHistory = false) {
-    if (!query || !query.trim()) return;
-    showLoader(true);
+    const cleanQuery = (query || '').trim();
+    if (!cleanQuery) return;
 
-    searchCurrentQuery = query.trim();
+    const thisReqId = ++searchRequestId;
+
+    if (searchAbortController) {
+      try { searchAbortController.abort(); } catch (_) {}
+      searchAbortController = null;
+    }
+    searchAbortController = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+
+    searchCurrentQuery = cleanQuery;
     searchCurrentCategory = category;
     searchCurrentPage = 1;
 
     if (saveToHistory) {
-      Storage.addSearchHistory(query.trim());
+      Storage.addSearchHistory(cleanQuery);
       UI.renderRecentSearchChips();
     }
 
@@ -1796,8 +1823,11 @@ const App = (() => {
     if (isOffline) {
       // Offline Search mode
       const offlineRes = (typeof SearchEngine !== 'undefined' && SearchEngine.searchOffline)
-        ? SearchEngine.searchOffline(query)
-        : (typeof OfflineManager !== 'undefined' ? OfflineManager.searchOffline(query) : { songs: [], artists: [], albums: [], playlists: [] });
+        ? SearchEngine.searchOffline(cleanQuery)
+        : (typeof OfflineManager !== 'undefined' ? OfflineManager.searchOffline(cleanQuery) : { songs: [], artists: [], albums: [], playlists: [] });
+
+      if (thisReqId !== searchRequestId) return;
+
       currentSearchResults = offlineRes.songs || [];
       UI.renderSearchResults({
         songs: { results: currentSearchResults },
@@ -1805,19 +1835,31 @@ const App = (() => {
         albums: { results: offlineRes.albums || [] },
         playlists: { results: offlineRes.playlists || [] }
       }, category);
-      showLoader(false);
       return;
     }
 
     try {
-      const results = await API.searchAll(query);
+      const results = await API.searchAll(cleanQuery);
+
+      // Stale request guard: if user continued typing or cancelled, discard this result
+      if (thisReqId !== searchRequestId) return;
+      const activeVal = document.getElementById('search-input')?.value.trim();
+      if (activeVal && activeVal !== cleanQuery) return;
+
       currentSearchResults = results?.songs?.results?.map(API.normalizeSong) || [];
       UI.renderSearchResults(results, category);
     } catch (e) {
+      if (e && (e.name === 'AbortError' || e.message === 'The operation was aborted')) {
+        return; // Normal aborted request
+      }
+      if (thisReqId !== searchRequestId) return;
+
       console.warn('[App] Online search failed, attempting offline catalog fallback:', e);
       const offlineRes = (typeof SearchEngine !== 'undefined' && SearchEngine.searchOffline)
-        ? SearchEngine.searchOffline(query)
-        : (typeof OfflineManager !== 'undefined' ? OfflineManager.searchOffline(query) : { songs: [], artists: [], albums: [], playlists: [] });
+        ? SearchEngine.searchOffline(cleanQuery)
+        : (typeof OfflineManager !== 'undefined' ? OfflineManager.searchOffline(cleanQuery) : { songs: [], artists: [], albums: [], playlists: [] });
+
+      if (thisReqId !== searchRequestId) return;
       currentSearchResults = offlineRes.songs || [];
       UI.renderSearchResults({
         songs: { results: currentSearchResults },
@@ -1826,7 +1868,6 @@ const App = (() => {
         playlists: { results: offlineRes.playlists || [] }
       }, category);
     }
-    showLoader(false);
   }
 
   function filterSearchCategory(category) {

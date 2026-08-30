@@ -2649,6 +2649,7 @@ html, body {
   flex-direction: column;
   align-items: center;
   text-align: center;
+  flex: 1;
   min-width: 0;
 }
 
@@ -2668,13 +2669,15 @@ html, body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 180px;
+  max-width: 220px;
 }
 
-.player-top-right-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+.player-top-bar-balancer {
+  width: 40px;
+  height: 40px;
+  visibility: hidden;
+  pointer-events: none;
+  flex-shrink: 0;
 }
 
 .player-drag-handle {

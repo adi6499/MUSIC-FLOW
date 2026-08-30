@@ -293,14 +293,14 @@ async function handleUpdateRequest(req, res) {
       mandatory: isBelowMinimum,
       android: releaseData.android || {
         available: true,
-        version: '2.7.0',
+        version: '2.7.1',
         downloadUrl: 'https://adi6499.github.io/MUSICFLOW/downloads/MusicFlow.apk',
         fileName: 'MusicFlow.apk',
         size: 34296622
       },
       ios: releaseData.ios || {
         available: true,
-        version: '2.7.0',
+        version: '2.7.1',
         downloadUrl: 'https://adi6499.github.io/MUSICFLOW/downloads/MusicFlow.ipa',
         fileName: 'MusicFlow.ipa',
         size: 3994324
@@ -312,7 +312,7 @@ async function handleUpdateRequest(req, res) {
   } catch (err) {
     console.warn('[UpdateAPI] Release lookup fallback:', err.message);
     const targetPlatform = (platform === 'ios') ? 'ios' : 'android';
-    const latestVer = '2.7.0';
+    const latestVer = '2.7.1';
     const isOlder = compareSemVer(latestVer, currentVersion) > 0;
     res.writeHead(200, headers);
     res.end(JSON.stringify({
@@ -320,14 +320,15 @@ async function handleUpdateRequest(req, res) {
       updateRequired: false,
       currentVersion: currentVersion,
       latestVersion: latestVer,
-      versionCode: 27,
+      versionCode: 28,
       minimumVersion: '1.0.0',
       platform: targetPlatform,
       title: `MusicFlow v${latestVer}`,
       message: 'MusicFlow is up to date',
       releaseNotes: [
+        'Instant zero-lag search input responsiveness',
+        'Clean Full Player top bar layout with enhanced centering',
         'YouTube Music single-song and playlist import',
-        'Playlist search continuous multi-character filtering',
         'Radio playback instant start and stream skip recovery',
         'Non-blocking startup and Stale-While-Revalidate caching',
         'Lock-screen media controls and background playback'

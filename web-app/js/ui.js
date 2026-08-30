@@ -586,7 +586,7 @@ const UI = (() => {
           html += `
             <div class="best-match-card" onclick="App.openArtist('${(art.name || art.title || '').replace(/'/g, "\\'")}')">
               <div class="best-match-art-wrap artist-circle">
-                <img src="${API.getImageUrl(art)}" onerror="this.src='assets/logo.png'" alt="${art.title || art.name}">
+                <img src="${API.getImageUrl(art)}" loading="lazy" decoding="async" onerror="this.src='assets/logo.png'" alt="${art.title || art.name}">
               </div>
               <div class="best-match-info">
                 <span class="best-match-badge">BEST MATCH • ARTIST</span>
@@ -606,7 +606,7 @@ const UI = (() => {
           html += `
             <div class="best-match-card" onclick="App.playSongFromSearch(${sIdx})">
               <div class="best-match-art-wrap">
-                <img src="${song.image}" onerror="this.src='assets/logo.png'" alt="${song.name}">
+                <img src="${song.image}" loading="lazy" decoding="async" onerror="this.src='assets/logo.png'" alt="${song.name}">
               </div>
               <div class="best-match-info">
                 <span class="best-match-badge">BEST MATCH • SONG</span>
@@ -627,7 +627,7 @@ const UI = (() => {
           html += `
             <div class="best-match-card" onclick="App.openAlbum('${alb.id}', '${albTitle}', '${albArt}')">
               <div class="best-match-art-wrap">
-                <img src="${API.getImageUrl(alb)}" onerror="this.src='assets/logo.png'" alt="${alb.title || alb.name}">
+                <img src="${API.getImageUrl(alb)}" loading="lazy" decoding="async" onerror="this.src='assets/logo.png'" alt="${alb.title || alb.name}">
               </div>
               <div class="best-match-info">
                 <span class="best-match-badge">BEST MATCH • ALBUM</span>
@@ -652,7 +652,7 @@ const UI = (() => {
             <div class="similar-artists-shelf">
               ${artists.map(art => `
                 <div class="similar-artist-item" onclick="App.openArtist('${escapeAttr(art.name || art.title || art.id)}')">
-                  <img class="similar-artist-avatar" src="${API.getImageUrl(art)}" onerror="this.src='assets/logo.png'" alt="${art.title || art.name}">
+                  <img class="similar-artist-avatar" src="${API.getImageUrl(art)}" loading="lazy" decoding="async" onerror="this.src='assets/logo.png'" alt="${art.title || art.name}">
                   <span class="similar-artist-name">${escapeHtml(art.title || art.name)}</span>
                 </div>
               `).join('')}
@@ -672,7 +672,7 @@ const UI = (() => {
             <div class="vertical-tracks-shelf" id="search-songs-list" style="padding:0;">
               ${songs.map((song, idx) => `
                 <div class="vertical-track-row" onclick="App.playSongFromSearch(${idx})">
-                  <img class="vertical-track-img" src="${song.image}" onerror="this.src='assets/logo.png'" alt="${song.name}">
+                  <img class="vertical-track-img" src="${song.image}" loading="lazy" decoding="async" onerror="this.src='assets/logo.png'" alt="${song.name}">
                   <div class="vertical-track-info">
                     <div class="vertical-track-title">${escapeHtml(song.name)}</div>
                     <div class="vertical-track-artist">${escapeHtml(formatArtists(song.artists || song.primaryArtist))}</div>
@@ -702,7 +702,7 @@ const UI = (() => {
               ${albums.map(alb => `
                 <div class="music-square-card" onclick="App.openAlbum('${alb.id}', '${escapeAttr(alb.title || alb.name || 'Album')}', '${escapeAttr(alb.artists || alb.artist || alb.subtitle || '')}')">
                   <div class="square-card-art-wrap">
-                    <img src="${API.getImageUrl(alb)}" onerror="this.src='assets/logo.png'" alt="${alb.title || alb.name}">
+                    <img src="${API.getImageUrl(alb)}" loading="lazy" decoding="async" onerror="this.src='assets/logo.png'" alt="${alb.title || alb.name}">
                     <div class="square-card-play-overlay"><span class="material-symbols-outlined fill-icon" style="font-size:20px;">play_arrow</span></div>
                   </div>
                   <div class="square-card-title">${escapeHtml(alb.title || alb.name)}</div>
@@ -723,7 +723,7 @@ const UI = (() => {
               ${playlists.map(pl => `
                 <div class="music-square-card" onclick="App.openAlbumOrPlaylist('${pl.id}', 'playlist')">
                   <div class="square-card-art-wrap">
-                    <img src="${API.getImageUrl(pl)}" onerror="this.src='assets/logo.png'" alt="${pl.title || pl.name}">
+                    <img src="${API.getImageUrl(pl)}" loading="lazy" decoding="async" onerror="this.src='assets/logo.png'" alt="${pl.title || pl.name}">
                     <div class="square-card-play-overlay"><span class="material-symbols-outlined fill-icon" style="font-size:20px;">play_arrow</span></div>
                   </div>
                   <div class="square-card-title">${escapeHtml(pl.title || pl.name)}</div>
@@ -2760,7 +2760,7 @@ const UI = (() => {
       const updateNowBtn = document.getElementById('btn-update-now');
       const updateNowText = document.getElementById('btn-update-now-text');
 
-      const currVer = (typeof UpdateManager !== 'undefined') ? UpdateManager.VERSION : '2.7.0';
+      const currVer = (typeof UpdateManager !== 'undefined') ? UpdateManager.VERSION : '2.7.1';
       const latestVer = updateData.latestVersion || currVer;
 
       if (titleEl) titleEl.textContent = updateData.title || `MusicFlow ${latestVer}`;
@@ -2846,7 +2846,7 @@ const UI = (() => {
       const spinIcon = document.getElementById('icon-update-spin');
       const btnText = document.getElementById('text-update-btn');
 
-      const appVer = (typeof UpdateManager !== 'undefined') ? UpdateManager.VERSION : '2.7.0';
+      const appVer = (typeof UpdateManager !== 'undefined') ? UpdateManager.VERSION : '2.7.1';
       if (versionVal) versionVal.textContent = `v${appVer}`;
 
       if (state && state.isChecking) {

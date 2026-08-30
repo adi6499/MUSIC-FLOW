@@ -781,14 +781,7 @@
         <span class="player-context-tag" id="player-context-tag">PLAYING FROM</span>
         <span class="player-context-title" id="player-context-title">Top Hits</span>
       </div>
-      <div class="player-top-right-actions">
-        <button class="icon-btn-glass" id="btn-player-cast" onclick="App.openAudioOutputSheet()" aria-label="Audio Output & Devices" title="Audio Output & Devices">
-          <span class="material-symbols-outlined">cast</span>
-        </button>
-        <button class="icon-btn-glass" id="btn-player-right-action" onclick="App.openQueueSheet()" aria-label="Queue" title="Queue">
-          <span class="material-symbols-outlined" id="player-right-icon">queue_music</span>
-        </button>
-      </div>
+      <div class="player-top-bar-balancer" aria-hidden="true" style="width: 40px; height: 40px; pointer-events: none; flex-shrink: 0;"></div>
     </header>
 
     <!-- Top Subtle Drag Handle -->
@@ -1555,7 +1548,7 @@
             <span class="settings-label">MusicFlow Version</span>
             <span class="settings-sub" id="settings-platform-sub">Sideloaded Build (Lossless Audio Engine)</span>
           </div>
-          <span class="settings-value-pill" id="settings-version-val">v2.7.0</span>
+          <span class="settings-value-pill" id="settings-version-val">v2.7.1</span>
         </div>
         <div class="settings-row" style="cursor:default;">
           <div class="settings-row-col">
@@ -1723,12 +1716,12 @@
       <div class="update-version-row">
         <div class="version-stat-box">
           <span class="version-stat-label">Current</span>
-          <span class="version-stat-num" id="update-curr-version">v2.7.0</span>
+          <span class="version-stat-num" id="update-curr-version">v2.7.1</span>
         </div>
         <span class="material-symbols-outlined" style="color:var(--text-secondary); font-size:18px;">arrow_forward</span>
         <div class="version-stat-box highlight">
           <span class="version-stat-label">Latest</span>
-          <span class="version-stat-num" id="update-new-version">v2.7.0</span>
+          <span class="version-stat-num" id="update-new-version">v2.7.1</span>
         </div>
       </div>
 

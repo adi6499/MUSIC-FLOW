@@ -5,8 +5,8 @@
 
 const UpdateManager = (() => {
   // Single Source of Truth for Client Version (synchronized with Gradle/Xcode build)
-  const APP_VERSION = '2.7.0';
-  const BUILD_NUMBER = 27;
+  const APP_VERSION = '2.7.1';
+  const BUILD_NUMBER = 28;
 
   // Throttling & Auto-Check Configuration
   const AUTO_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000; // 12 hours between auto checks

@@ -14,6 +14,7 @@ const DownloadManager = (() => {
     COMPLETED: 'COMPLETED',
     FAILED: 'FAILED',
     CANCELLED: 'CANCELLED',
+    RETRYING: 'RETRYING',
     MISSING: 'MISSING'
   };
 
@@ -217,9 +218,20 @@ const DownloadManager = (() => {
         throw { code: ERROR_CODES.SOURCE_UNAVAILABLE, message: 'Audio stream URL is unavailable' };
       }
 
-      // 2. Fetch Audio Stream with Progress Tracking
+      // 2. Fetch Audio Stream with Progress Tracking & Proxy Fallback
       const signal = task.abortController ? task.abortController.signal : undefined;
-      const response = await fetch(downloadUrl, { mode: 'cors', signal });
+      let response = null;
+      try {
+        response = await fetch(downloadUrl, { mode: 'cors', signal });
+      } catch (fetchErr) {
+        // Fallback to local server proxy if CORS or network blocked
+        if (typeof window !== 'undefined' && window.location) {
+          const proxyUrl = `/api/download/proxy?url=${encodeURIComponent(downloadUrl)}`;
+          response = await fetch(proxyUrl, { signal });
+        } else {
+          throw fetchErr;
+        }
+      }
 
       if (!response.ok) {
         throw { code: ERROR_CODES.HTTP_ERROR, message: `HTTP status ${response.status} from server` };
@@ -319,13 +331,21 @@ const DownloadManager = (() => {
       task.abortController = null;
       task.updatedAt = Date.now();
 
-      // Bounded Retry Logic
-      if (task.retryCount < MAX_RETRIES && errCode !== ERROR_CODES.CANCELLED && errCode !== ERROR_CODES.SOURCE_UNAVAILABLE) {
+      // Bounded Exponential Backoff Retry Logic (transient network drops)
+      const isTransient = (errCode === ERROR_CODES.NETWORK_ERROR);
+      if (isTransient && task.retryCount < MAX_RETRIES && errCode !== ERROR_CODES.CANCELLED) {
         task.retryCount++;
-        task.status = STATUS.QUEUED;
-        emit('statusChange', { id: task.id, status: STATUS.QUEUED, retryCount: task.retryCount });
-        console.warn(`[DownloadManager] Retrying task ${task.id} (${task.retryCount}/${MAX_RETRIES})...`);
-        setTimeout(() => _processQueue(), RETRY_BACKOFF_MS * task.retryCount);
+        task.status = STATUS.RETRYING;
+        const delayMs = RETRY_BACKOFF_MS * Math.pow(2, task.retryCount - 1);
+        emit('statusChange', { id: task.id, status: STATUS.RETRYING, retryCount: task.retryCount, nextRetryInMs: delayMs });
+        console.warn(`[DownloadManager] Retrying task ${task.id} (${task.retryCount}/${MAX_RETRIES}) in ${delayMs}ms...`);
+        setTimeout(() => {
+          if (task.status === STATUS.RETRYING) {
+            task.status = STATUS.QUEUED;
+            emit('statusChange', { id: task.id, status: STATUS.QUEUED });
+            _processQueue();
+          }
+        }, delayMs);
       } else {
         task.status = STATUS.FAILED;
         emit('statusChange', { id: task.id, status: STATUS.FAILED, error: task.error });
@@ -408,25 +428,33 @@ const DownloadManager = (() => {
     const task = tasks.get(String(trackId));
     if (!task) return false;
 
-    if (task.status === STATUS.DOWNLOADING && task.abortController) {
-      task.abortController.abort();
-      activeCount = Math.max(0, activeCount - 1);
+    task.cancelRequested = true;
+    const wasDownloading = task.status === STATUS.DOWNLOADING;
+    task.status = STATUS.CANCELLED;
+
+    if (wasDownloading && task.abortController) {
+      try { task.abortController.abort(); } catch (_) {}
+      task.abortController = null;
+      // activeCount will be decremented in _startDownloadWorker's finally block
     }
 
-    task.status = STATUS.CANCELLED;
-    task.abortController = null;
     tasks.delete(String(trackId));
 
     emit('statusChange', { id: String(trackId), status: STATUS.CANCELLED });
     emit('queueUpdated', getTasks());
-    _processQueue();
+
+    if (!wasDownloading) {
+      _processQueue();
+    }
     return true;
   }
 
   function cancelAll() {
     tasks.forEach(task => {
+      task.cancelRequested = true;
       if (task.status === STATUS.DOWNLOADING && task.abortController) {
-        task.abortController.abort();
+        try { task.abortController.abort(); } catch (_) {}
+        task.abortController = null;
       }
       if (task.status !== STATUS.COMPLETED) {
         tasks.delete(task.id);

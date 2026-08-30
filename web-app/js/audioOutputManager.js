@@ -224,11 +224,11 @@ const AudioOutputManager = (() => {
     }
     if (statusEl) {
       statusEl.textContent = (activeDeviceType === 'bluetooth') ? 'Connected' : 'Active Output';
-      statusEl.style.color = (activeDeviceType === 'bluetooth') ? '#FF2A4D' : 'rgba(255, 255, 255, 0.7)';
+      statusEl.style.color = (activeDeviceType === 'bluetooth') ? 'var(--accent)' : 'rgba(255, 255, 255, 0.7)';
     }
     if (iconEl) {
       iconEl.textContent = getDeviceIcon(activeDeviceType);
-      iconEl.style.color = (activeDeviceType === 'bluetooth') ? '#FF2A4D' : '#FFFFFF';
+      iconEl.style.color = (activeDeviceType === 'bluetooth') ? 'var(--accent)' : '#FFFFFF';
     }
   }
 
@@ -242,14 +242,14 @@ const AudioOutputManager = (() => {
       return `
         <div class="audio-output-item ${isSelected ? 'active' : ''}" onclick="AudioOutputManager.selectDevice('${dev.id}')" role="button" aria-label="${dev.label}">
           <div class="audio-output-left">
-            <span class="material-symbols-outlined audio-output-icon" style="color:${dev.type === 'bluetooth' ? '#FF2A4D' : '#FFFFFF'};">${icon}</span>
+            <span class="material-symbols-outlined audio-output-icon" style="color:${dev.type === 'bluetooth' ? 'var(--accent)' : '#FFFFFF'};">${icon}</span>
             <div class="audio-output-info">
               <span class="audio-output-title">${dev.label}</span>
               <span class="audio-output-sub">${dev.type.toUpperCase()}${dev.isDefault ? ' • SYSTEM DEFAULT' : ''}</span>
             </div>
           </div>
           ${isSelected ? `
-            <span class="material-symbols-outlined audio-output-check" style="color:#FF2A4D; font-size:22px;">check_circle</span>
+            <span class="material-symbols-outlined audio-output-check" style="color:var(--accent); font-size:22px;">check_circle</span>
           ` : `
             <span class="material-symbols-outlined" style="color:rgba(255,255,255,0.2); font-size:20px;">radio_button_unchecked</span>
           `}

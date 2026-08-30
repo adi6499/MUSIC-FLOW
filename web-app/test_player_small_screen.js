@@ -118,10 +118,10 @@ function runTests() {
     assert.ok(cssContent.includes('.utility-btn span:not(.material-symbols-outlined)'), 'Must style utility labels');
   });
 
-  // 16. Connected Output Device Card
-  it('16. Connected Audio Output Device Card exists and triggers device routing', () => {
-    assert.ok(htmlContent.includes('class="player-device-output-card"'), 'Output card must exist in full player');
-    assert.ok(htmlContent.includes('App.openAudioOutputSheet()'), 'Output card must open output sheet');
+  // 16. Audio Output Device Routing Sheet
+  it('16. Audio Output Routing sheet exists and is accessible on-demand', () => {
+    assert.ok(htmlContent.includes('id="sheet-audio-output"'), 'Output routing sheet must exist in DOM');
+    assert.ok(htmlContent.includes('App.openAudioOutputSheet'), 'Output routing must be available on-demand');
   });
 
   // 17. Small-Height Breakpoints (375x667 iPhone SE, 360x640)

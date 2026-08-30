@@ -1,8 +1,10 @@
 const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
+const handleUpdateRequest = require('./api/update.js');
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
 const PUBLIC_DIR = path.join(__dirname, 'web-app');
 
 // ============================================================================
@@ -58,10 +60,10 @@ async function handleTypesenseSyncTrack(req, res) {
 
       const responseData = await tsRes.json().catch(() => ({}));
       res.writeHead(tsRes.status, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ success: tsRes.ok, data: responseData }));
     } catch (e) {
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: e.message }));
+      // Return 200 with offline state to prevent console spam when local Typesense instance is not running
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: false, offline: true, message: e.message }));
     }
   });
 }
@@ -150,6 +152,7 @@ const QdrantManager = require('./qdrantManager.js');
 const RecommendationEngine = require('./web-app/js/recommendationEngine.js');
 const HomeDataLayer = require('./web-app/js/homeDataLayer.js');
 const ExploreDataLayer = require('./web-app/js/exploreDataLayer.js');
+const YouTubeMusicService = require('./youtubeMusicService.js');
 
 // In-Memory Recommendation Cache (5-minute TTL)
 const recCache = new Map();
@@ -403,6 +406,341 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // ============================================================================
+  // HYBRID MUSIC PROVIDER INTEGRATION ENDPOINTS (Phase 6)
+  // ============================================================================
+  if (urlPath === '/api/providers/health' && req.method === 'GET') {
+    (async () => {
+      try {
+        let tsStatus = 'UNAVAILABLE';
+        try {
+          const tsRes = await fetch(`${TYPESENSE_BASE_URL}/health`, {
+            headers: { 'X-TYPESENSE-API-KEY': TYPESENSE_SEARCH_ONLY_KEY },
+            signal: AbortSignal.timeout(2000)
+          });
+          if (tsRes.ok) tsStatus = 'AVAILABLE';
+        } catch (_) {}
+
+        let jioStatus = 'AVAILABLE';
+        try {
+          const jioRes = await fetch('https://spoton-trpn.vercel.app/api/search/songs?query=test&limit=1', {
+            signal: AbortSignal.timeout(3000)
+          });
+          if (!jioRes.ok) jioStatus = 'DEGRADED';
+        } catch (_) {
+          jioStatus = 'UNAVAILABLE';
+        }
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          status: 'ok',
+          providers: {
+            jiosaavn: jioStatus,
+            youtube_music: 'AVAILABLE',
+            typesense: tsStatus,
+            qdrant: QdrantManager.getStatus().storageMode
+          },
+          timestamp: Date.now()
+        }));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message }));
+      }
+    })();
+    return;
+  }
+
+  // Update Endpoint (Vercel Serverless / Node Server Handler)
+  if (urlPath === '/api/update') {
+    try {
+      const handleUpdate = require('./api/update.js');
+      handleUpdate(req, res);
+      return;
+    } catch (err) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        updateAvailable: false,
+        updateRequired: false,
+        latestVersion: '2.6.0',
+        minimumVersion: '1.0.0'
+      }));
+      return;
+    }
+  }
+
+  // YouTube Music Stream Resolution Endpoint
+  if (urlPath === '/api/providers/ytmusic/stream') {
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', async () => {
+        try {
+          const { videoId } = JSON.parse(body || '{}');
+          const streamData = await YouTubeMusicService.getStreamUrl(videoId);
+          if (streamData && streamData.url) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(streamData));
+          } else {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: 'STREAM_NOT_FOUND', message: 'No valid audio stream found for videoId' }));
+          }
+        } catch (e) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: e.message }));
+        }
+      });
+      return;
+    } else if (req.method === 'GET') {
+      const urlObj = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+      const videoId = urlObj.searchParams.get('videoId') || urlObj.searchParams.get('id');
+      (async () => {
+        try {
+          const streamData = await YouTubeMusicService.getStreamUrl(videoId);
+          if (streamData && streamData.url) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(streamData));
+          } else {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: false, error: 'STREAM_NOT_FOUND', message: 'No valid audio stream found for videoId' }));
+          }
+        } catch (e) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: e.message }));
+        }
+      })();
+      return;
+    }
+  }
+
+  if (urlPath === '/api/providers/ytmusic/search' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', async () => {
+      try {
+        const { query, limit } = JSON.parse(body || '{}');
+        const results = await YouTubeMusicService.search(query, limit || 30);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(results));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message, songs: [], artists: [], albums: [], playlists: [] }));
+      }
+    });
+    return;
+  }
+
+  if (urlPath === '/api/providers/ytmusic/radio' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', async () => {
+      try {
+        const { videoId, title, artist, limit } = JSON.parse(body || '{}');
+        const results = await YouTubeMusicService.getRadioCandidates(videoId, title, artist, limit || 25);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(results));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message, candidates: [] }));
+      }
+    });
+    return;
+  }
+
+  if (urlPath === '/api/providers/ytmusic/artist' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', async () => {
+      try {
+        const { browseId, name } = JSON.parse(body || '{}');
+        const results = await YouTubeMusicService.getArtist(browseId, name);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(results));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message, artist: null }));
+      }
+    });
+    return;
+  }
+
+  if (urlPath === '/api/providers/ytmusic/album' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', async () => {
+      try {
+        const { browseId } = JSON.parse(body || '{}');
+        const results = await YouTubeMusicService.getAlbum(browseId);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(results));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message, album: null }));
+      }
+    });
+    return;
+  }
+
+  if (urlPath === '/api/providers/ytmusic/playlist' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', async () => {
+      try {
+        const { playlistId } = JSON.parse(body || '{}');
+        const results = await YouTubeMusicService.getPlaylist(playlistId);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(results));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message, playlist: null }));
+      }
+    });
+    return;
+  }
+
+  if (urlPath === '/api/providers/ytmusic/import-track') {
+    const handleImportTrack = require('./api/providers/ytmusic/import-track.js');
+    handleImportTrack(req, res);
+    return;
+  }
+
+  if (urlPath === '/api/providers/health') {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Type', 'application/json');
+    if (req.method === 'OPTIONS') {
+      res.writeHead(200);
+      res.end();
+      return;
+    }
+
+    let saavnStatus = 'AVAILABLE';
+    try {
+      const saavnRes = await fetch('https://spoton-trpn.vercel.app/api/search/songs?query=test&limit=1', {
+        signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(4000) : undefined
+      });
+      if (!saavnRes.ok) saavnStatus = 'SAAVN_PROVIDER_UNAVAILABLE';
+    } catch (_) {
+      saavnStatus = 'SAAVN_PROVIDER_UNAVAILABLE';
+    }
+
+    let tsStatus = 'UNAVAILABLE';
+    try {
+      const tsRes = await fetch(`${TYPESENSE_BASE_URL}/health`, {
+        signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(1000) : undefined
+      });
+      if (tsRes.ok) tsStatus = 'AVAILABLE';
+    } catch (_) {}
+
+    res.writeHead(200);
+    res.end(JSON.stringify({
+      status: 'OK',
+      timestamp: Date.now(),
+      providers: {
+        jiosaavn: { status: saavnStatus },
+        youtube_music: { status: 'AVAILABLE' },
+        typesense: { status: tsStatus }
+      }
+    }));
+    return;
+  }
+
+  if (urlPath === '/api/proxy/stream' && req.method === 'GET') {
+    const targetUrl = parsedUrl.searchParams.get('url');
+    if (!targetUrl || (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://'))) {
+      res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ error: 'Valid target url parameter required' }));
+      return;
+    }
+
+    try {
+      const isHttps = targetUrl.startsWith('https://');
+      const client = isHttps ? https : http;
+      const headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': '*/*',
+        'Accept-Encoding': 'identity;q=1, *;q=0'
+      };
+
+      if (req.headers.range) {
+        headers['Range'] = req.headers.range;
+      }
+
+      const proxyReq = client.get(targetUrl, { headers }, (proxyRes) => {
+        const outHeaders = {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Headers': 'Range, Accept, Content-Type',
+          'Access-Control-Expose-Headers': 'Content-Range, Content-Length, Accept-Ranges',
+          'Accept-Ranges': 'bytes',
+          'Content-Type': proxyRes.headers['content-type'] || 'audio/mp4'
+        };
+
+        if (proxyRes.headers['content-length']) {
+          outHeaders['Content-Length'] = proxyRes.headers['content-length'];
+        }
+        if (proxyRes.headers['content-range']) {
+          outHeaders['Content-Range'] = proxyRes.headers['content-range'];
+        }
+
+        res.writeHead(proxyRes.statusCode || 200, outHeaders);
+        proxyRes.pipe(res);
+      });
+
+      proxyReq.on('error', (err) => {
+        if (!res.headersSent) {
+          res.writeHead(502, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify({ error: 'Audio stream proxy failed', details: err.message }));
+        }
+      });
+    } catch (err) {
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    }
+    return;
+  }
+
+  if (urlPath === '/api/download/proxy' && req.method === 'GET') {
+    const targetUrl = parsedUrl.searchParams.get('url');
+    if (!targetUrl || (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://'))) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Valid target url parameter required' }));
+      return;
+    }
+    try {
+      const isHttps = targetUrl.startsWith('https://');
+      const client = isHttps ? https : http;
+      const proxyReq = client.get(targetUrl, (proxyRes) => {
+        const headers = {
+          'Content-Type': proxyRes.headers['content-type'] || 'audio/mpeg',
+          'Access-Control-Allow-Origin': '*',
+          'Accept-Ranges': 'bytes'
+        };
+        if (proxyRes.headers['content-length']) {
+          headers['Content-Length'] = proxyRes.headers['content-length'];
+        }
+        res.writeHead(proxyRes.statusCode || 200, headers);
+        proxyRes.pipe(res);
+      });
+      proxyReq.on('error', (err) => {
+        if (!res.headersSent) {
+          res.writeHead(502, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Proxy request failed', details: err.message }));
+        }
+      });
+    } catch (err) {
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    }
+    return;
+  }
+
+  if (urlPath === '/api/update') {
+    handleUpdateRequest(req, res);
+    return;
+  }
+
   let reqPath = urlPath;
   if (reqPath === '/' || reqPath === '') {
     reqPath = '/index.html';
@@ -413,6 +751,13 @@ const server = http.createServer((req, res) => {
   const resolvedPublicDir = path.resolve(PUBLIC_DIR);
 
   // Path Traversal Security Hardening (P1 fix)
+  // Guard: API routes must never return HTML
+  if (urlPath.startsWith('/api/')) {
+    res.writeHead(404, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify({ success: false, error: 'API route not found', path: urlPath }));
+    return;
+  }
+
   if (!resolvedPath.startsWith(resolvedPublicDir)) {
     res.writeHead(403, { 'Content-Type': 'text/plain' });
     res.end('403 Forbidden');
@@ -428,7 +773,12 @@ const server = http.createServer((req, res) => {
           res.writeHead(404, { 'Content-Type': 'text/plain' });
           res.end('404 Not Found');
         } else {
-          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+          res.writeHead(200, {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
+          });
           res.end(content);
         }
       });
@@ -443,7 +793,12 @@ const server = http.createServer((req, res) => {
         res.writeHead(500, { 'Content-Type': 'text/plain' });
         res.end('500 Internal Server Error');
       } else {
-        res.writeHead(200, { 'Content-Type': contentType });
+        res.writeHead(200, {
+          'Content-Type': contentType,
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        });
         res.end(data);
       }
     });

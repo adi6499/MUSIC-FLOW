@@ -25,8 +25,9 @@ const TrackDeduplicator = (() => {
     const nameLower = (song.name || '').toLowerCase();
     const albumLower = (song.album || '').toLowerCase();
 
-    // 1. Bitrate / Stream URL Quality
-    if (song.audioUrl || song.streamUrl) score += 20.0;
+    // 1. Bitrate / Stream URL Quality & Playable Provider Bonus
+    if (song.playbackAvailable || song.audioUrl || song.streamUrl) score += 30.0;
+    if (song.provider === 'jiosaavn') score += 15.0; // Prefer JioSaavn canonical source
     if (Array.isArray(song.downloadUrl) && song.downloadUrl.some(u => (u.quality || '').includes('320'))) {
       score += 15.0;
     }

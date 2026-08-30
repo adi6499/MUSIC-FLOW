@@ -22,6 +22,8 @@ const SearchEngine = (() => {
     BONUS_320KBPS: 15.0,
     BONUS_HAS_LYRICS: 10.0,
     BONUS_HIGH_RES_ART: 10.0,
+    BONUS_PLAYABLE_SOURCE: 20.0,
+    BONUS_PRIMARY_PROVIDER: 10.0,
     PENALTY_KARAOKE: -250.0,
     PENALTY_COVER: -200.0,
     PENALTY_SLOWED_REVERB: -150.0
@@ -113,12 +115,40 @@ const SearchEngine = (() => {
       }
     }
 
-    // 3. Modifiers
-    if (song.audioUrl || song.streamUrl) score += 10.0;
+    // 3. User Personalization Signals (Favorites, Repeat Plays, Affinity)
+    try {
+      let favorites = [];
+      let topArtists = {};
+      let milestones = {};
+      if (typeof Storage !== 'undefined') {
+        favorites = Storage.getFavorites() || [];
+        const signals = (typeof Storage.getUserTasteSignals === 'function') ? Storage.getUserTasteSignals() : null;
+        if (signals) {
+          topArtists = signals.artistScores || {};
+          milestones = signals.milestones || {};
+        }
+      }
+      const songId = String(song.id || '');
+      if (favorites.some(f => String(f.id) === songId)) {
+        score += 60.0;
+      }
+      if (milestones[songId]) {
+        if (milestones[songId].completions > 0) score += 40.0;
+        if (milestones[songId].plays > 2) score += 30.0;
+      }
+      if (topArtists[cleanArtist]) {
+        score += Math.min(60.0, topArtists[cleanArtist] * 12.0);
+      }
+    } catch (_) {}
+
+    // 4. Modifiers
+    if (song.audioUrl || song.streamUrl || song.playbackAvailable) score += Weights.BONUS_PLAYABLE_SOURCE;
+    if (song.provider === 'jiosaavn') score += Weights.BONUS_PRIMARY_PROVIDER;
     if (Array.isArray(song.downloadUrl) && song.downloadUrl.some(u => (u.quality || '').includes('320'))) {
       score += Weights.BONUS_320KBPS;
     }
     if (song.image && song.image.includes('500x500')) score += Weights.BONUS_HIGH_RES_ART;
+    if (song.popularity) score += Math.min(30.0, Number(song.popularity) * 0.3);
 
     const nameLower = (song.name || '').toLowerCase();
     if ((nameLower.includes('karaoke') || nameLower.includes('instrumental')) && !wantsKaraoke) {
@@ -140,10 +170,52 @@ const SearchEngine = (() => {
   function rankSongs(candidates, parsed) {
     if (!Array.isArray(candidates) || candidates.length === 0) return [];
     const TD = getTD();
+    const QN = getQN();
     const scored = candidates.map(s => scoreSong(s, parsed));
     scored.sort((a, b) => b.score - a.score);
     const sortedSongs = scored.map(s => s.song);
-    return TD.deduplicate(sortedSongs, parsed.rawQuery);
+    const deduplicated = TD.deduplicate(sortedSongs, parsed.rawQuery);
+
+    const qNorm = parsed.normalizedQuery || '';
+    const isExplicitArtistQuery = (typeof QN.isLikelyArtist === 'function') && QN.isLikelyArtist(qNorm);
+
+    // If explicit artist query (e.g. "The Weeknd"), allow that artist's songs to flow naturally
+    if (isExplicitArtistQuery || parsed.isCompoundQuery) {
+      return deduplicated;
+    }
+
+    // For genre, mood, thematic or general keyword queries (e.g. "phonk", "pop", "gym", "chill"),
+    // apply strict Artist Diversity & Interleaving so the results never feel like single-artist spam
+    const diversified = [];
+    const artistCounts = {};
+    const deferred = [];
+
+    for (const song of deduplicated) {
+      const art = TD.cleanArtistName(song.artists || song.primaryArtist || '');
+      const count = artistCounts[art] || 0;
+
+      // Allow max 2 songs per artist in top results, and never 2 consecutive tracks by the same artist
+      const prevArtist = diversified.length > 0 ? TD.cleanArtistName(diversified[diversified.length - 1].artists || diversified[diversified.length - 1].primaryArtist || '') : null;
+
+      if (count < 2 && art !== prevArtist) {
+        diversified.push(song);
+        artistCounts[art] = count + 1;
+      } else {
+        deferred.push(song);
+      }
+    }
+
+    // Append remaining deferred tracks respecting spacing
+    for (const song of deferred) {
+      const art = TD.cleanArtistName(song.artists || song.primaryArtist || '');
+      const count = artistCounts[art] || 0;
+      if (count < 3) {
+        diversified.push(song);
+        artistCounts[art] = count + 1;
+      }
+    }
+
+    return diversified;
   }
 
   function rankArtists(artists, parsed) {

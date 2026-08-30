@@ -3,13 +3,15 @@
 // High-Precision Real-Time Timestamp Sync, Karaoke Scroll & Seek Alignment
 // ==========================================================================
 
-const Lyrics = (() => {
+var Lyrics = (function() {
   let parsedLines = [];
   let activeIndex = -1;
   let isPlain = false;
   let userIsScrolling = false;
   let scrollTimeout = null;
   let currentSongId = null;
+  let currentRequestId = 0;
+  const negativeLyricsCache = new Set();
 
   // Parses standard & advanced LRC formats:
   // [mm:ss.xx], [mm:ss.xxx], [mm:ss:xx], [m:ss.xx], [offset: +/-ms], multi-timestamps
@@ -60,7 +62,21 @@ const Lyrics = (() => {
     return result.sort((a, b) => a.time - b.time);
   }
 
+  function resetLyrics() {
+    parsedLines = [];
+    activeIndex = -1;
+    isPlain = false;
+    userIsScrolling = false;
+    currentSongId = null;
+    currentRequestId++;
+    if (scrollTimeout) {
+      clearTimeout(scrollTimeout);
+      scrollTimeout = null;
+    }
+  }
+
   async function loadLyricsForTrack(song) {
+    const reqId = ++currentRequestId;
     parsedLines = [];
     activeIndex = -1;
     isPlain = false;
@@ -68,46 +84,74 @@ const Lyrics = (() => {
 
     const container = document.getElementById('lyrics-scroll-container');
     if (!song) {
-      if (container) container.innerHTML = '<p class="lyrics-line">No lyrics available.</p>';
+      if (container) container.innerHTML = '<p class="lyrics-line" style="color:var(--text-secondary); padding:40px 20px; text-align:center;">No track selected.</p>';
       return;
     }
+
     if (container) {
       container.innerHTML = `
         <div class="lyrics-loading-state" style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding:40px 20px; text-align:center; color:var(--text-secondary);">
           <span class="material-symbols-outlined spinning" style="font-size:28px; color:var(--accent-red); margin-bottom:12px;">sync</span>
           <p style="font-size:14px; font-weight:600; color:#fff;">Fetching Synchronized Lyrics...</p>
-          <span style="font-size:12px; margin-top:4px; opacity:0.8;">Matching song metadata with LRCLib</span>
+          <span style="font-size:12px; margin-top:4px; opacity:0.8;">Matching vocal timing</span>
         </div>
       `;
     }
 
-    // 1. Check if song already has embedded lyrics (Local ID3 or preloaded synced lyrics)
+    // 1. Check embedded lyrics (Local ID3 tag or cached synced lyrics)
     if (song.syncedLyrics || song.lyrics) {
       const lrcContent = song.syncedLyrics || song.lyrics;
       if (typeof lrcContent === 'string' && lrcContent.includes('[')) {
         parsedLines = parseLRC(lrcContent);
         isPlain = false;
-        renderLyrics(parsedLines, false);
+        if (reqId === currentRequestId) renderLyrics(parsedLines, false);
         return;
       } else if (typeof lrcContent === 'string') {
         const plainArr = lrcContent.split('\n').filter(l => l.trim()).map(text => ({ time: 0, text }));
         parsedLines = plainArr;
         isPlain = true;
-        renderLyrics(plainArr, true);
+        if (reqId === currentRequestId) renderLyrics(plainArr, true);
         return;
       }
     }
 
-    // 2. Fetch from LRCLib API
+    // 2. Check negative cache
+    const cacheKey = `${song.id || ''}_${song.name || ''}`;
+    if (negativeLyricsCache.has(cacheKey)) {
+      if (container && reqId === currentRequestId) {
+        container.innerHTML = `
+          <div class="lyrics-empty-state" style="padding:60px 20px; text-align:center; color:var(--text-secondary);">
+            <span class="material-symbols-outlined" style="font-size:36px; opacity:0.6; margin-bottom:12px;">music_off</span>
+            <p style="font-size:14px; font-weight:600; color:#fff;">Lyrics aren't available for this track.</p>
+            <span style="font-size:12px; margin-top:4px; display:block;">Enjoy the music!</span>
+          </div>
+        `;
+      }
+      return;
+    }
+
+    // 3. Resolve recording artist for optimal LRCLIB lookup
+    const trackTitle = (typeof DataNormalizer !== 'undefined') ? DataNormalizer.getTrackTitle(song) : (song.name || song.title || '');
+    const artistName = (typeof DataNormalizer !== 'undefined')
+      ? DataNormalizer.getPrimaryRecordingArtist(song)
+      : (song.primaryArtist || song.artists || '');
+
     try {
-      const data = await API.getLyrics(song.name, song.artists || song.primaryArtist, song.duration);
+      const data = (typeof API !== 'undefined' && API.getLyrics)
+        ? await API.getLyrics(trackTitle, artistName, song.duration)
+        : null;
+
+      // Discard response if user already switched songs during network roundtrip
+      if (reqId !== currentRequestId) return;
+
       if (!data) {
+        negativeLyricsCache.add(cacheKey);
         if (container) {
           container.innerHTML = `
             <div class="lyrics-empty-state" style="padding:60px 20px; text-align:center; color:var(--text-secondary);">
               <span class="material-symbols-outlined" style="font-size:36px; opacity:0.6; margin-bottom:12px;">music_off</span>
-              <p style="font-size:14px; font-weight:600; color:#fff;">No lyrics found for this song</p>
-              <span style="font-size:12px; margin-top:4px; display:block;">Enjoy the instrumental vibes!</span>
+              <p style="font-size:14px; font-weight:600; color:#fff;">Lyrics aren't available for this track.</p>
+              <span style="font-size:12px; margin-top:4px; display:block;">Enjoy the music!</span>
             </div>
           `;
         }
@@ -124,16 +168,17 @@ const Lyrics = (() => {
         isPlain = true;
         renderLyrics(plainArr, true);
       } else {
+        negativeLyricsCache.add(cacheKey);
         if (container) {
           container.innerHTML = `
             <div class="lyrics-empty-state" style="padding:60px 20px; text-align:center; color:var(--text-secondary);">
-              <p style="font-size:14px; font-weight:600; color:#fff;">No synchronized lyrics available</p>
+              <p style="font-size:14px; font-weight:600; color:#fff;">Lyrics aren't available for this track.</p>
             </div>
           `;
         }
       }
-    } catch (e) {
-      if (container) {
+    } catch (_) {
+      if (reqId === currentRequestId && container) {
         container.innerHTML = `
           <div class="lyrics-empty-state" style="padding:60px 20px; text-align:center; color:var(--text-secondary);">
             <p style="font-size:14px; font-weight:600; color:#fff;">Lyrics unavailable offline</p>
@@ -148,7 +193,7 @@ const Lyrics = (() => {
     if (!container) return;
 
     if (!lines || lines.length === 0) {
-      container.innerHTML = '<p class="lyrics-line">No lyrics available.</p>';
+      container.innerHTML = '<p class="lyrics-line" style="color:var(--text-secondary); padding:40px 20px; text-align:center;">No lyrics available.</p>';
       return;
     }
 
@@ -158,13 +203,13 @@ const Lyrics = (() => {
       </p>
     `).join('');
 
-    // Attach scroll tracking to prevent jerky auto-scroll during manual user reading
+    // Attach scroll tracking: pause auto-scrolling for 3 seconds when user touches/scrolls manually
     container.onscroll = () => {
       userIsScrolling = true;
       if (scrollTimeout) clearTimeout(scrollTimeout);
       scrollTimeout = setTimeout(() => {
         userIsScrolling = false;
-      }, 2500);
+      }, 3000);
     };
 
     // Enable clicking any line to jump directly to that timestamp in the track
@@ -175,27 +220,28 @@ const Lyrics = (() => {
           if (!isNaN(time) && typeof Player !== 'undefined' && Player.seek) {
             Player.seek(time);
             userIsScrolling = false;
+            updateTime(time, true);
           }
         };
       });
     }
   }
 
-  function updateTime(currentTime) {
+  function updateTime(currentTime, forceScroll = false) {
     if (isPlain || !parsedLines || parsedLines.length === 0) return;
     const curTime = Number(currentTime) || 0;
 
-    // Find current active line index with 200ms lookahead for vocal cadence
+    // Find active line with 150ms anticipation for natural karaoke highlight
     let newIndex = -1;
     for (let i = 0; i < parsedLines.length; i++) {
-      if (curTime >= parsedLines[i].time - 0.20) {
+      if (curTime >= parsedLines[i].time - 0.15) {
         newIndex = i;
       } else {
         break;
       }
     }
 
-    if (newIndex !== activeIndex) {
+    if (newIndex !== activeIndex || forceScroll) {
       activeIndex = newIndex;
       const container = document.getElementById('lyrics-scroll-container');
       if (!container) return;
@@ -208,8 +254,13 @@ const Lyrics = (() => {
         line.classList.toggle('active', isCurrent);
         line.classList.toggle('past', isPast);
 
-        if (isCurrent && !userIsScrolling) {
-          line.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (isCurrent && (!userIsScrolling || forceScroll)) {
+          // Center the active line smoothly around the center/lower-middle reading area
+          const targetOffset = line.offsetTop - (container.clientHeight * 0.42);
+          container.scrollTo({
+            top: Math.max(0, targetOffset),
+            behavior: forceScroll ? 'auto' : 'smooth'
+          });
         }
       });
     }
@@ -225,6 +276,7 @@ const Lyrics = (() => {
 
   return {
     parseLRC,
+    resetLyrics,
     loadLyricsForTrack,
     renderLyrics,
     updateTime,

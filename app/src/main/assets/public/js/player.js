@@ -55,8 +55,11 @@ const Player = (() => {
   let sleepTimerTimeout = null;
   let sleepTimerInterval = null;
 
-  // Race condition token
+  // Race condition token & cancellation controllers
   let playbackGeneration = 0;
+  let playbackRequestId = 0;
+  let lastStartedRequestId = 0;
+  let activeAbortController = null;
   let retryCount = 0;
   const MAX_RETRIES = 2;
 
@@ -122,12 +125,22 @@ const Player = (() => {
 
     notify('stateChange', statePayload);
 
-    if (newState === PlaybackState.PLAYING) {
-      updateMediaSessionPlaybackState('playing');
-    } else if (newState === PlaybackState.PAUSED || newState === PlaybackState.BUFFERING) {
-      updateMediaSessionPlaybackState('paused');
-    } else if (newState === PlaybackState.IDLE || newState === PlaybackState.COMPLETED || newState === PlaybackState.ERROR) {
-      updateMediaSessionPlaybackState('none');
+    if (typeof NativeMedia !== 'undefined') {
+      const isPlaying = (newState === PlaybackState.PLAYING);
+      NativeMedia.setPlaybackState({
+        isPlaying,
+        positionSec: audio ? audio.currentTime : 0,
+        durationSec: audio ? audio.duration : 0,
+        playbackRate: audio ? audio.playbackRate : 1.0
+      });
+    } else {
+      if (newState === PlaybackState.PLAYING) {
+        updateMediaSessionPlaybackState('playing');
+      } else if (newState === PlaybackState.PAUSED || newState === PlaybackState.BUFFERING) {
+        updateMediaSessionPlaybackState('paused');
+      } else if (newState === PlaybackState.IDLE || newState === PlaybackState.COMPLETED || newState === PlaybackState.ERROR) {
+        updateMediaSessionPlaybackState('none');
+      }
     }
   }
 
@@ -141,14 +154,31 @@ const Player = (() => {
   }
 
   function init() {
-    if (typeof document === 'undefined') return;
-
     if (!audio) {
-      audio = document.getElementById('app-audio') || new Audio();
-      audio.id = 'app-audio';
-      audio.preload = 'auto';
-      audio.crossOrigin = 'anonymous';
+      if (typeof document !== 'undefined' && document.getElementById) {
+        audio = document.getElementById('app-audio') || (typeof Audio !== 'undefined' ? new Audio() : null);
+      } else if (typeof Audio !== 'undefined') {
+        audio = new Audio();
+      }
+
+      if (audio) {
+        audio.id = 'app-audio';
+        audio.preload = 'auto';
+        audio.crossOrigin = 'anonymous';
+
+        try {
+          if (typeof AudioEffectsEngine !== 'undefined' && AudioEffectsEngine.init) {
+            AudioEffectsEngine.init(audio);
+          }
+        } catch (e) {
+          console.warn('[Player] AudioEffectsEngine init:', e);
+        }
+      }
     }
+
+    if (!audio) return;
+
+    setupMediaSession();
 
     // Attach core audio lifecycle listeners
     audio.addEventListener('loadstart', () => {
@@ -171,6 +201,12 @@ const Player = (() => {
       retryCount = 0;
       transitionTo(PlaybackState.PLAYING);
       updatePositionState();
+
+      try {
+        if (typeof AudioEffectsEngine !== 'undefined' && AudioEffectsEngine.resumeAudioContext) {
+          AudioEffectsEngine.resumeAudioContext();
+        }
+      } catch (_) {}
 
       if (audioCtx && audioCtx.state === 'suspended') {
         audioCtx.resume().catch(console.warn);
@@ -237,6 +273,10 @@ const Player = (() => {
     });
 
     audio.addEventListener('ended', () => {
+      if (lastStartedRequestId !== playbackRequestId) {
+        console.log('[Player] Ignoring ended event from superseded playback request');
+        return;
+      }
       transitionTo(PlaybackState.COMPLETED);
       // End of Current Track Sleep Timer Mode
       if (sleepTimerState.active && sleepTimerState.mode === 'end_of_track') {
@@ -265,6 +305,10 @@ const Player = (() => {
     }
 
     audio.addEventListener('error', (e) => {
+      if (lastStartedRequestId !== playbackRequestId) {
+        console.log('[Player] Ignoring error event from superseded playback request');
+        return;
+      }
       const err = audio.error;
       let code = ErrorCode.UNKNOWN_ERROR;
       let msg = 'Playback failed to decode audio source.';
@@ -292,7 +336,7 @@ const Player = (() => {
         retryCount++;
         console.log(`[Player] Retrying stream playback (${retryCount}/${MAX_RETRIES})...`);
         setTimeout(() => {
-          if (audio) {
+          if (audio && lastStartedRequestId === playbackRequestId) {
             audio.load();
             audio.play().catch(console.warn);
           }
@@ -300,7 +344,9 @@ const Player = (() => {
       } else if (queue.length > 1) {
         // Auto-skip failed track after notification
         setTimeout(() => {
-          next();
+          if (lastStartedRequestId === playbackRequestId) {
+            next();
+          }
         }, 1500);
       }
     });
@@ -518,44 +564,23 @@ const Player = (() => {
   }
 
   function setupMediaSession() {
-    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
-      const actions = [
-        ['play', () => play()],
-        ['pause', () => pause()],
-        ['previoustrack', () => previous()],
-        ['nexttrack', () => next()],
-        ['seekforward', () => next()],
-        ['seekbackward', () => previous()],
-        ['seekto', (details) => {
-          if (details && details.seekTime !== undefined && audio && !isNaN(details.seekTime)) {
-            seek(details.seekTime);
-          }
-        }],
-        ['stop', () => {
-          pause();
-          if (audio) audio.currentTime = 0;
-        }]
-      ];
-
-      actions.forEach(([action, handler]) => {
-        try {
-          navigator.mediaSession.setActionHandler(action, handler);
-        } catch (e) {
-          console.warn(`[MediaSession] Action ${action} not supported:`, e);
-        }
-      });
+    if (typeof NativeMedia !== 'undefined' && NativeMedia.setupBrowserMediaActions) {
+      // NativeMedia handles cross-platform actions automatically
+      return;
     }
   }
 
   function updatePositionState() {
-    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator && 'setPositionState' in navigator.mediaSession && audio && audio.duration && !isNaN(audio.duration) && audio.duration > 0) {
-      try {
-        navigator.mediaSession.setPositionState({
-          duration: Math.max(0, audio.duration),
-          playbackRate: audio.playbackRate || 1.0,
-          position: Math.max(0, Math.min(audio.currentTime, audio.duration))
-        });
-      } catch (_) {}
+    if (typeof NativeMedia !== 'undefined') {
+      const isPlaying = (playbackState === PlaybackState.PLAYING);
+      const pos = (audio && !isNaN(audio.currentTime)) ? Math.max(0, audio.currentTime) : 0;
+      const dur = (audio && !isNaN(audio.duration) && audio.duration > 0) ? audio.duration : 0;
+      NativeMedia.setPlaybackState({
+        isPlaying,
+        positionSec: pos,
+        durationSec: dur,
+        playbackRate: (audio ? audio.playbackRate : 1.0) || 1.0
+      });
     }
   }
 
@@ -572,28 +597,19 @@ const Player = (() => {
   }
 
   function updateMediaSession(song) {
-    if (typeof navigator === 'undefined' || !('mediaSession' in navigator) || !song) return;
-
-    const artUrl = getAbsoluteImageUrl(song.image || 'assets/logo.png');
-
-    navigator.mediaSession.metadata = new MediaMetadata({
-      title: song.name || 'Unknown Track',
-      artist: song.artists || song.primaryArtist || 'MusicFlow',
-      album: song.album || 'MusicFlow Lossless',
-      artwork: [
-        { src: artUrl, sizes: '96x96', type: 'image/png' },
-        { src: artUrl, sizes: '128x128', type: 'image/png' },
-        { src: artUrl, sizes: '256x256', type: 'image/png' },
-        { src: artUrl, sizes: '512x512', type: 'image/png' }
-      ]
-    });
-
-    updatePositionState();
+    if (!song) return;
+    if (typeof NativeMedia !== 'undefined') {
+      const isPlaying = (playbackState === PlaybackState.PLAYING);
+      const pos = (audio && !isNaN(audio.currentTime)) ? audio.currentTime : 0;
+      const dur = (audio && !isNaN(audio.duration) && audio.duration > 0) ? audio.duration : (song.duration || 0);
+      NativeMedia.updateMetadata(song, isPlaying, pos, dur);
+    }
   }
 
   function updateMediaSessionPlaybackState(state) {
-    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
-      navigator.mediaSession.playbackState = state;
+    if (typeof NativeMedia !== 'undefined') {
+      const isPlaying = (state === 'playing');
+      NativeMedia.setPlaybackState({ isPlaying });
     }
   }
 
@@ -601,121 +617,64 @@ const Player = (() => {
     return (currentIndex >= 0 && currentIndex < queue.length) ? queue[currentIndex] : null;
   }
 
-  // Unified Source Resolution Pipeline with strict Priority: Downloaded > Local > Cached > Streaming
-  async function resolvePlaybackSource(song) {
+  function getPlaybackResolver() {
+    if (typeof PlaybackResolver !== 'undefined') return PlaybackResolver;
+    if (typeof require !== 'undefined') {
+      try { return require('./playbackResolver.js'); } catch (_) {}
+      try { return require('./js/playbackResolver.js'); } catch (_) {}
+    }
+    return null;
+  }
+
+  // Unified Source Resolution Pipeline delegating to PlaybackResolver
+  async function resolvePlaybackSource(song, options = {}) {
     if (!song) {
-      return { type: SourceType.UNKNOWN, uri: '', error: ErrorCode.SOURCE_UNAVAILABLE };
+      return { type: SourceType.UNKNOWN, uri: '', error: ErrorCode.SOURCE_UNAVAILABLE, message: "Couldn't play this song" };
     }
 
-    // 1. Downloaded Offline Audio Check
-    if (song.source === 'DOWNLOADED' || (typeof Storage !== 'undefined' && Storage.isDownloaded && Storage.isDownloaded(song.id))) {
-      try {
-        const offlineUrl = await Storage.getDownloadedAudioUrl(song.id);
-        if (offlineUrl) {
-          return { type: SourceType.DOWNLOADED, uri: offlineUrl, song };
-        }
-      } catch (e) {
-        console.warn('[Player] Downloaded audio resolution failed:', e);
-      }
+    const Resolver = getPlaybackResolver();
+    if (Resolver && typeof Resolver.resolvePlayableSource === 'function') {
+      return Resolver.resolvePlayableSource(song, options);
     }
 
-    // 2. Local User Audio Check (Blob URL / File / ID3)
-    if (song.source === 'LOCAL' || song.localBlobUrl || (song.streamUrl && song.streamUrl.startsWith('blob:'))) {
-      if (song.localBlobUrl) {
-        return { type: SourceType.LOCAL, uri: song.localBlobUrl, song };
-      }
-      if (song.fileBlob && typeof URL !== 'undefined') {
-        song.localBlobUrl = URL.createObjectURL(song.fileBlob);
-        return { type: SourceType.LOCAL, uri: song.localBlobUrl, song };
-      }
-      if (song.streamUrl && song.streamUrl.startsWith('blob:')) {
-        return { type: SourceType.LOCAL, uri: song.streamUrl, song };
-      }
+    const signal = options.signal;
+    if (signal?.aborted) {
+      const abortErr = new Error('Playback request aborted');
+      abortErr.name = 'AbortError';
+      throw abortErr;
     }
 
-    // 3. Cached Audio URL
-    if (song.cachedAudioUrl && typeof song.cachedAudioUrl === 'string' && song.cachedAudioUrl.startsWith('http')) {
-      return { type: SourceType.CACHED, uri: song.cachedAudioUrl, song };
-    }
-
-    // 4. Online Streaming Audio Resolution
-    const isOnline = (typeof OfflineManager !== 'undefined')
-      ? OfflineManager.isOnline()
-      : (typeof navigator === 'undefined' || navigator.onLine !== false);
-
-    const preferredQuality = (typeof Storage !== 'undefined' && Storage.getAudioQuality) ? Storage.getAudioQuality() : '320kbps';
-    let directUrl = (typeof API !== 'undefined' && API.getDownloadUrl) ? API.getDownloadUrl(song, preferredQuality) : (song.audioUrl || song.streamUrl || '');
-
-    if (directUrl && typeof directUrl === 'string' && directUrl.trim().startsWith('http')) {
-      if (!isOnline) {
-        return { type: SourceType.STREAMING, uri: '', error: ErrorCode.OFFLINE_UNAVAILABLE, message: 'This track is available offline only if downloaded.' };
-      }
-      return { type: SourceType.STREAMING, uri: directUrl.trim(), song };
-    }
-
-    if (!isOnline) {
-      return { type: SourceType.STREAMING, uri: '', error: ErrorCode.OFFLINE_UNAVAILABLE, message: 'This track is available offline only if downloaded.' };
-    }
-
-    // Attempt Resolution with Retry
-    for (let attempt = 0; attempt < 2; attempt++) {
-      // Fetch Details by ID
-      if (song.id && typeof API !== 'undefined' && API.getSongDetails) {
-        try {
-          const details = await API.getSongDetails(song.id);
-          if (details && details.length > 0) {
-            const resolved = details[0];
-            Object.assign(song, resolved);
-            const u = API.getDownloadUrl(resolved, preferredQuality);
-            if (u && typeof u === 'string' && u.trim().startsWith('http')) {
-              song.audioUrl = u.trim();
-              song.streamUrl = u.trim();
-              return { type: SourceType.STREAMING, uri: u.trim(), song };
-            }
-          }
-        } catch (e) {
-          console.warn(`[Player] Detail stream resolution attempt ${attempt + 1} failed:`, e);
-        }
-      }
-
-      // Search Fallback
-      if ((song.name || song.title) && typeof API !== 'undefined' && API.searchSongs) {
-        try {
-          const q = `${song.name || song.title} ${song.artists || song.primaryArtist || ''}`.trim();
-          const searchResults = await API.searchSongs(q, 1, 3);
-          if (searchResults && searchResults.length > 0) {
-            const matched = searchResults[0];
-            const matchedUrl = API.getDownloadUrl(matched, preferredQuality);
-            if (matchedUrl && typeof matchedUrl === 'string' && matchedUrl.trim().startsWith('http')) {
-              song.audioUrl = matchedUrl.trim();
-              song.streamUrl = matchedUrl.trim();
-              song.downloadUrl = matched.downloadUrl || [];
-              return { type: SourceType.STREAMING, uri: matchedUrl.trim(), song };
-            }
-          }
-        } catch (err) {
-          console.warn(`[Player] Search fallback stream resolution attempt ${attempt + 1} failed:`, err);
-        }
-      }
-
-      if (attempt === 0) {
-        await new Promise(r => setTimeout(r, 200));
-      }
+    // Direct stream fallback if Resolver is unavailable
+    const u = song.audioUrl || song.streamUrl || '';
+    if (u && typeof u === 'string' && u.startsWith('http')) {
+      return { type: SourceType.STREAMING, uri: u, provider: song.provider || 'direct', song };
     }
 
     return {
       type: SourceType.UNKNOWN,
       uri: '',
       error: ErrorCode.SOURCE_UNAVAILABLE,
-      message: 'No valid audio stream URL found for track'
+      message: "Couldn't play this song"
     };
   }
 
-  // Play Track at Index with Generation Protection against Race Conditions
-  async function playTrackAtIndex(index, autoPlay = true) {
+  // Play Track at Index with Generation Protection against Race Conditions ("Latest Request Wins")
+  async function requestTrackPlayback(index, options = {}) {
+    const { autoPlay = true, force = false, source = 'user' } = options;
     if (index < 0 || index >= queue.length) return;
 
+    // Abort any in-flight fetch request
+    if (activeAbortController) {
+      try {
+        activeAbortController.abort();
+      } catch (_) {}
+    }
+    activeAbortController = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+
     const currentReqGen = ++playbackGeneration;
+    playbackRequestId = currentReqGen;
+    lastStartedRequestId = currentReqGen;
+
     currentIndex = index;
     const song = queue[currentIndex];
 
@@ -730,7 +689,7 @@ const Player = (() => {
     transitionTo(PlaybackState.LOADING);
 
     try {
-      const resolved = await resolvePlaybackSource(song);
+      const resolved = await resolvePlaybackSource(song, { signal: activeAbortController?.signal });
 
       // Race condition check: ensure a newer track request has not superseded this one
       if (currentReqGen !== playbackGeneration) {
@@ -754,13 +713,21 @@ const Player = (() => {
         const playPromise = audio.play();
         if (playPromise !== undefined) {
           await playPromise.catch(err => {
+            if (err.name === 'AbortError') {
+              console.log('[Player] Play request superseded/aborted cleanly');
+              return;
+            }
             console.warn('[Player] Autoplay interrupted/prevented:', err.message);
           });
         }
       }
 
+      if (currentReqGen !== playbackGeneration) return;
+
       if (typeof Storage !== 'undefined' && Storage.saveSession) {
-        Storage.saveSession(queue, currentIndex, audio.currentTime);
+        try {
+          Storage.saveSession(queue, currentIndex, audio.currentTime);
+        } catch (_) {}
       }
 
       // Auto-populate continuous queue when near queue end
@@ -769,6 +736,10 @@ const Player = (() => {
       }
     } catch (err) {
       if (currentReqGen !== playbackGeneration) return;
+      if (err.name === 'AbortError' || err.message?.includes('aborted')) {
+        console.log('[Player] Request aborted by newer playback action');
+        return;
+      }
       lastError = { code: ErrorCode.SOURCE_UNAVAILABLE, message: err.message, track: song };
       console.warn('[Player] play error:', err.message);
       notify('error', lastError);
@@ -783,32 +754,54 @@ const Player = (() => {
     }
   }
 
+  // Canonical Alias for Backwards Compatibility
+  async function playTrackAtIndex(index, autoPlay = true) {
+    return requestTrackPlayback(index, { autoPlay });
+  }
+
   let isAutoPopulatingQueue = false;
 
   async function autoPopulateContinuousQueue(currentSong) {
     if (!currentSong || isAutoPopulatingQueue) return;
+    if (queueContext.source === 'playlist' || queueContext.source === 'album') return;
+
     isAutoPopulatingQueue = true;
     try {
       let recs = [];
-      const primaryArtist = (typeof API !== 'undefined' && API.decodeHtml) 
-        ? API.decodeHtml(currentSong.primaryArtist || currentSong.artists || '').split(/[,;&/]/)[0].trim()
+      const primaryArtist = (typeof DataNormalizer !== 'undefined')
+        ? DataNormalizer.getPrimaryArtist(currentSong)
         : String(currentSong.primaryArtist || currentSong.artists || '').split(/[,;&/]/)[0].trim();
 
       if (typeof API !== 'undefined' && API.getSimilarSongs) {
         recs = await API.getSimilarSongs(currentSong.id, 20);
       }
-      if (!recs || recs.length < 5) {
+
+      if (!recs || recs.length < 6) {
         if (primaryArtist && typeof API !== 'undefined' && API.searchSongs) {
-          const searchRecs = await API.searchSongs(`${primaryArtist} Hits`, 1, 20);
+          const searchRecs = await API.searchSongs(`${primaryArtist} Similar Tracks`, 1, 20);
           if (Array.isArray(searchRecs)) {
             recs = [...(recs || []), ...searchRecs];
           }
         }
       }
 
-      const TD = (typeof TrackDeduplicator !== 'undefined') ? TrackDeduplicator : { deduplicate: arr => arr };
+      const TD = (typeof TrackDeduplicator !== 'undefined') ? TrackDeduplicator : { deduplicate: arr => arr, cleanTrackTitle: t => t };
+      const seedCleanTitle = TD.cleanTrackTitle ? TD.cleanTrackTitle(currentSong.name || currentSong.title) : '';
+      
       const uniqueRecs = TD.deduplicate(recs || []);
-      const newItems = uniqueRecs.filter(s => s && s.id && !queue.some(q => String(q.id) === String(s.id)));
+      // Hard filter: reject exact same track, tracks already in queue, and obvious remix/slowed variants of the seed song
+      const newItems = uniqueRecs.filter(s => {
+        if (!s || !s.id) return false;
+        if (String(s.id) === String(currentSong.id)) return false;
+        if (queue.some(q => String(q.id) === String(s.id))) return false;
+        if (seedCleanTitle && TD.cleanTrackTitle) {
+          const candTitle = TD.cleanTrackTitle(s.name || s.title);
+          if (candTitle === seedCleanTitle && TD.cleanArtistName(s.artists || s.primaryArtist) === TD.cleanArtistName(currentSong.artists || currentSong.primaryArtist)) {
+            return false; // Skip duplicate version of the seed track!
+          }
+        }
+        return true;
+      });
 
       if (newItems.length > 0) {
         queue.push(...newItems);
@@ -840,8 +833,11 @@ const Player = (() => {
     }
   }
 
+  let queueContext = { source: 'default', mode: 'normal', sourceId: null, title: '' };
+
   function startRadioQueue(currentSong, relatedSongs = []) {
     if (!currentSong) return;
+    queueContext = { source: 'radio', mode: 'radio', sourceId: currentSong.id, title: `${currentSong.name} Radio` };
     const cleanRelated = relatedSongs.filter(s => s && s.id && String(s.id) !== String(currentSong.id));
     const activeTrack = getCurrentTrack();
     const isSameActiveTrack = activeTrack && (String(activeTrack.id) === String(currentSong.id));
@@ -865,11 +861,15 @@ const Player = (() => {
     playTrackAtIndex(0, true);
   }
 
-  function setQueue(newQueue, startIndex = 0, autoPlay = true) {
+  function setQueue(newQueue, startIndex = 0, autoPlay = true, context = null) {
+    queueContext = context || (queueContext.source === 'playlist' ? queueContext : { source: 'default', mode: 'normal' });
     queue = Array.isArray(newQueue) ? [...newQueue] : [];
     unShuffledQueue = [...queue];
     currentIndex = Math.max(0, Math.min(startIndex, queue.length - 1));
     notify('queueChange', queue);
+    if (typeof NativeMedia !== 'undefined') {
+      NativeMedia.setQueue(queue, currentIndex);
+    }
     if (queue.length > 0) {
       playTrackAtIndex(currentIndex, autoPlay);
     } else {
@@ -877,23 +877,45 @@ const Player = (() => {
     }
   }
 
+  function getQueueContext() {
+    return { ...queueContext };
+  }
+
   function appendToQueue(song) {
     if (!song) return;
     queue.push(song);
     unShuffledQueue.push(song);
     notify('queueChange', queue);
+    if (typeof NativeMedia !== 'undefined') {
+      NativeMedia.setQueue(queue, currentIndex);
+    }
   }
 
-  function playNext(song) {
-    if (!song) return;
-    if (currentIndex >= 0 && currentIndex < queue.length) {
-      queue.splice(currentIndex + 1, 0, song);
-      unShuffledQueue.push(song);
-    } else {
-      queue.push(song);
-      unShuffledQueue.push(song);
+  function insertNext(trackOrTracks) {
+    if (!trackOrTracks) return;
+    const items = Array.isArray(trackOrTracks) ? trackOrTracks : [trackOrTracks];
+    const normalized = items.map(s => (typeof DataNormalizer !== 'undefined' ? DataNormalizer.normalizeTrack(s) : s)).filter(Boolean);
+    if (normalized.length === 0) return;
+
+    // Deduplicate: if these tracks appear further down the queue, remove them from later positions
+    const normIds = new Set(normalized.map(s => String(s.id)));
+    for (let i = queue.length - 1; i > currentIndex; i--) {
+      if (normIds.has(String(queue[i].id))) {
+        queue.splice(i, 1);
+      }
     }
+
+    const insertPos = (currentIndex >= 0 && currentIndex < queue.length) ? currentIndex + 1 : queue.length;
+    queue.splice(insertPos, 0, ...normalized);
+    unShuffledQueue = [...queue];
     notify('queueChange', queue);
+    if (typeof NativeMedia !== 'undefined') {
+      NativeMedia.setQueue(queue, currentIndex);
+    }
+  }
+
+  function playNext(trackOrTracks) {
+    insertNext(trackOrTracks);
   }
 
   function removeFromQueue(index) {
@@ -906,6 +928,9 @@ const Player = (() => {
       currentIndex = queue.length - 1;
     }
     notify('queueChange', queue);
+    if (typeof NativeMedia !== 'undefined') {
+      NativeMedia.setQueue(queue, currentIndex);
+    }
 
     if (removedCurrent && queue.length > 0) {
       playTrackAtIndex(currentIndex, true);
@@ -957,7 +982,13 @@ const Player = (() => {
 
   function play() {
     if (audio && audio.paused) {
-      audio.play().catch(console.warn);
+      const playPromise = audio.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(err => {
+          if (err && err.name === 'AbortError') return;
+          console.warn('[Player] play error:', err?.message || err);
+        });
+      }
     }
   }
 
@@ -969,12 +1000,14 @@ const Player = (() => {
 
   async function next() {
     if (queue.length === 0) return;
+    const current = getCurrentTrack();
 
     // Track skip behavior if skipped early (< 20s or < 25%)
-    const current = getCurrentTrack();
-    if (current && audio && audio.currentTime < 20 && typeof Storage !== 'undefined' && Storage.recordSkip) {
-      Storage.recordSkip(current);
-    }
+    try {
+      if (current && audio && audio.currentTime < 20 && typeof Storage !== 'undefined' && Storage.recordSkip) {
+        Storage.recordSkip(current);
+      }
+    } catch (_) {}
 
     if (repeatMode === 'ONE') {
       if (audio) {
@@ -989,6 +1022,12 @@ const Player = (() => {
     } else if (repeatMode === 'ALL') {
       playTrackAtIndex(0, true);
     } else {
+      // If playing a playlist, respect playlist boundaries and do not replace with radio
+      if (queueContext.source === 'playlist' || queueContext.mode === 'playlist') {
+        pause();
+        transitionTo(PlaybackState.COMPLETED);
+        return;
+      }
       if (current) {
         try {
           await autoPopulateContinuousQueue(current);
@@ -1023,13 +1062,22 @@ const Player = (() => {
     const target = Math.max(0, Math.min(seconds, dur || Infinity));
     audio.currentTime = target;
     updatePositionState();
+    notify('timeUpdate', { currentTime: target, duration: dur });
+    if (typeof Lyrics !== 'undefined' && Lyrics.updateTime) {
+      Lyrics.updateTime(target, true);
+    }
   }
 
   function seekPercent(percent) {
     if (!audio || !audio.duration || isNaN(percent)) return;
     const p = Math.max(0, Math.min(percent, 100));
-    audio.currentTime = (p / 100) * audio.duration;
+    const target = (p / 100) * audio.duration;
+    audio.currentTime = target;
     updatePositionState();
+    notify('timeUpdate', { currentTime: target, duration: audio.duration });
+    if (typeof Lyrics !== 'undefined' && Lyrics.updateTime) {
+      Lyrics.updateTime(target, true);
+    }
   }
 
   function toggleShuffle() {
@@ -1215,6 +1263,81 @@ const Player = (() => {
     return false;
   }
 
+  function setEqEnabled(enabled) {
+    if (typeof AudioEffectsEngine !== 'undefined' && AudioEffectsEngine.setEnabled) {
+      AudioEffectsEngine.setEnabled(enabled);
+    }
+  }
+
+  function setEqPreset(presetName) {
+    if (typeof AudioEffectsEngine !== 'undefined' && AudioEffectsEngine.setPreset) {
+      AudioEffectsEngine.setPreset(presetName);
+    }
+  }
+
+  function setEqBand(index, value) {
+    if (typeof AudioEffectsEngine !== 'undefined' && AudioEffectsEngine.setBandGain) {
+      AudioEffectsEngine.setBandGain(index, value);
+    }
+  }
+
+  function setBassBoost(value) {
+    if (typeof AudioEffectsEngine !== 'undefined' && AudioEffectsEngine.setBassBoost) {
+      AudioEffectsEngine.setBassBoost(value);
+    }
+  }
+
+  function setTrebleBoost(value) {
+    if (typeof AudioEffectsEngine !== 'undefined' && AudioEffectsEngine.setTrebleBoost) {
+      AudioEffectsEngine.setTrebleBoost(value);
+    }
+  }
+
+  function setVocalBoost(value) {
+    if (typeof AudioEffectsEngine !== 'undefined' && AudioEffectsEngine.setVocalBoost) {
+      AudioEffectsEngine.setVocalBoost(value);
+    }
+  }
+
+  function setSpatial(level) {
+    if (typeof AudioEffectsEngine !== 'undefined' && AudioEffectsEngine.setSpatial) {
+      AudioEffectsEngine.setSpatial(level);
+    }
+  }
+
+  function setVirtualizerStrength(val) {
+    if (typeof AudioEffectsEngine !== 'undefined' && AudioEffectsEngine.setSpatial) {
+      const mode = val > 66 ? 'HIGH' : (val > 33 ? 'MEDIUM' : (val > 0 ? 'LOW' : 'OFF'));
+      AudioEffectsEngine.setSpatial(mode);
+    }
+  }
+
+  function setNormalization(enabled) {
+    if (typeof AudioEffectsEngine !== 'undefined' && AudioEffectsEngine.setNormalization) {
+      AudioEffectsEngine.setNormalization(enabled);
+    }
+  }
+
+  function setCrossfade(seconds) {
+    if (typeof AudioEffectsEngine !== 'undefined' && AudioEffectsEngine.setCrossfade) {
+      AudioEffectsEngine.setCrossfade(seconds);
+    }
+  }
+
+  function resetAudioEffects() {
+    if (typeof AudioEffectsEngine !== 'undefined') {
+      if (typeof AudioEffectsEngine.resetDefaults === 'function') {
+        AudioEffectsEngine.resetDefaults();
+      } else if (typeof AudioEffectsEngine.resetToDefaults === 'function') {
+        AudioEffectsEngine.resetToDefaults();
+      }
+    }
+    if (typeof Storage !== 'undefined' && Storage.resetAudioEffects) {
+      Storage.resetAudioEffects();
+    }
+    notify('eqChange', { reset: true });
+  }
+
   function on(event, callback) {
     if (!eventListeners[event]) {
       eventListeners[event] = [];
@@ -1254,10 +1377,13 @@ const Player = (() => {
     ErrorCode,
     init,
     initWebAudio,
+    requestTrackPlayback,
+    playTrackAtIndex,
     playSong,
     setQueue,
     startRadioQueue,
     appendToQueue,
+    insertNext,
     playNext,
     removeFromQueue,
     reorderQueue,
@@ -1294,6 +1420,9 @@ const Player = (() => {
     getCurrentTrack,
     getCurrentIndex: () => currentIndex,
     getQueue: () => [...queue],
+    getQueueContext,
+    getPlaybackGeneration: () => playbackGeneration,
+    getPlaybackRequestId: () => playbackRequestId,
     getIsPlaying: () => playbackState === PlaybackState.PLAYING,
     getIsShuffle: () => isShuffle,
     getRepeatMode: () => repeatMode,
@@ -1305,6 +1434,10 @@ const Player = (() => {
     off
   };
 })();
+
+if (typeof window !== 'undefined') {
+  window.Player = Player;
+}
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = Player;

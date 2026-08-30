@@ -131,6 +131,11 @@ fun WebMusicFlowScreen(
 
                 webChromeClient = WebChromeClient()
 
+                addJavascriptInterface(
+                    com.example.musicflow.service.MediaSessionBridge(ctx, this),
+                    "AndroidMediaBridge"
+                )
+
                 loadUrl("file:///android_asset/public/index.html")
                 webViewInstance = this
                 onWebViewCreated(this)

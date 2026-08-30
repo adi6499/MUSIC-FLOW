@@ -527,6 +527,8 @@ const AudioEffectsEngine = (() => {
     saveCustomPreset,
     deleteCustomPreset,
     resumeContext,
+    resumeAudioContext: resumeContext,
+    resume: resumeContext,
     getSettings,
     getPresets,
     getFrequencies,

@@ -23,11 +23,42 @@ const App = (() => {
   let librarySortMode = 'recent';
   let selectedMenuSong = null;
   let selectedMenuPlaylistId = null;
+
+  // Global In-Memory Track Registry for instant O(1) playback
+  const trackRegistry = new Map();
+
+  function registerTrack(track) {
+    if (!track || !track.id) return;
+    trackRegistry.set(String(track.id), track);
+  }
+
+  function registerTracks(tracks) {
+    if (!Array.isArray(tracks)) return;
+    tracks.forEach(registerTrack);
+  }
+
+  function getRegisteredTrack(songId) {
+    if (!songId) return null;
+    return trackRegistry.get(String(songId)) || null;
+  }
+  function escapeHtml(str) {
+    if (!str || typeof str !== 'string') return '';
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
   let editingPlaylistId = null;
   let localUploadedSongs = [];
 
   async function init() {
     console.log('[MusicFlow] Starting clean 100% Android Replica...');
+    if (typeof ThemeManager !== 'undefined') {
+      ThemeManager.apply();
+    }
     showLoader(true);
 
     Player.init();
@@ -59,6 +90,19 @@ const App = (() => {
     // Initialize Audio Output & Bluetooth/Cast Engine
     if (typeof AudioOutputManager !== 'undefined' && AudioOutputManager.init) {
       AudioOutputManager.init();
+    }
+
+    // Initialize In-App Update Manager (Android APK / iOS IPA Sideloaded)
+    if (typeof UpdateManager !== 'undefined' && UpdateManager.init) {
+      UpdateManager.init();
+      UpdateManager.on('stateChange', (state) => {
+        if (typeof UI !== 'undefined' && UI.renderAboutSettings) {
+          UI.renderAboutSettings(state);
+        }
+      });
+      if (typeof UI !== 'undefined' && UI.renderAboutSettings) {
+        UI.renderAboutSettings(UpdateManager.getState());
+      }
     }
 
     // Check last session (restore queue and metadata in paused state without autoplaying)
@@ -124,6 +168,9 @@ const App = (() => {
           homeFeedData = data;
 
           data.sections.forEach(sec => {
+            if (Array.isArray(sec.items)) {
+              registerTracks(sec.items);
+            }
             if (sec.id === 'continue_listening') {
               UI.renderContinueListening(sec.items);
             } else if (sec.id === 'quick_picks') {
@@ -183,7 +230,9 @@ const App = (() => {
   function setupPlayerEventListeners() {
     Player.on('trackChange', (song) => {
       UI.updatePlayerBar(song);
-      Lyrics.loadLyricsForTrack(song);
+      if (typeof Lyrics !== 'undefined' && Lyrics.loadLyricsForTrack) {
+        Lyrics.loadLyricsForTrack(song);
+      }
     });
 
     Player.on('stateChange', ({ isPlaying, state, error }) => {
@@ -195,7 +244,9 @@ const App = (() => {
 
     Player.on('timeUpdate', ({ currentTime, duration }) => {
       UI.updatePlaybackProgress(currentTime, duration);
-      Lyrics.updateTime(currentTime);
+      if (typeof Lyrics !== 'undefined' && Lyrics.updateTime) {
+        Lyrics.updateTime(currentTime);
+      }
     });
 
     Player.on('queueChange', (queue) => {
@@ -257,8 +308,9 @@ const App = (() => {
   // DOM EVENT LISTENERS & NAVIGATION
   // ==========================================================================
   function setupDOMEventListeners() {
-    // 1. Custom Interactive Seek Bar (Design 1 Touch & Pointer Engine)
+    // 1. Custom Interactive Seek Bar & 3D Player Deck
     initSeekBar();
+    initPlayer3DDeckGesture();
 
     // 2. Mood Chips Bar
     const moodContainer = document.getElementById('mood-chips-container');
@@ -538,9 +590,9 @@ const App = (() => {
         const cur = Player.getState().position;
         Player.seek(cur + 5);
       } else if (e.key === 'n' || e.key === 'N') {
-        Player.next();
+        animateToNext();
       } else if (e.key === 'p' || e.key === 'P') {
-        Player.previous();
+        animateToPrevious();
       } else if (e.key === 'l' || e.key === 'L') {
         toggleFavoriteCurrent();
       } else if (e.key === 'Escape') {
@@ -571,23 +623,394 @@ const App = (() => {
       fullPlayerEl.addEventListener('touchend', (e) => {
         if (e.changedTouches.length === 1) {
           const deltaY = e.changedTouches[0].clientY - touchStartY;
-          const deltaX = e.changedTouches[0].clientX - touchStartX;
-
           // Swipe down from top header area to collapse
-          if (touchStartY < 180 && deltaY > 70 && Math.abs(deltaX) < 80) {
+          if (touchStartY < 180 && deltaY > 70) {
             collapseFullPlayer();
-          }
-          // Horizontal swipe on artwork view to skip track
-          else if (e.target.closest('#player-art-view') && Math.abs(deltaX) > 80 && Math.abs(deltaY) < 60) {
-            if (deltaX < 0) {
-              Player.next();
-            } else {
-              Player.previous();
-            }
           }
         }
       }, { passive: true });
     }
+  }
+
+  // ==========================================================================
+  // 3D TINDER/APPLE MUSIC-STYLE SWIPE PLAYER (Deck Physics & Gesture Engine)
+  // ==========================================================================
+  const PlayerSwipeState = {
+    IDLE: 'IDLE',
+    DRAGGING: 'DRAGGING',
+    COMMITTING_NEXT: 'COMMITTING_NEXT',
+    COMMITTING_PREV: 'COMMITTING_PREV',
+    READY: 'READY'
+  };
+
+  let playerSwipeState = PlayerSwipeState.READY;
+  let isCardTransitioning = false;
+
+  function transitionToNext() {
+    if (isCardTransitioning || playerSwipeState === PlayerSwipeState.COMMITTING_NEXT || playerSwipeState === PlayerSwipeState.COMMITTING_PREV) {
+      console.log('[PlayerDeck] Transition lock active — ignoring rapid next request');
+      return;
+    }
+
+    const queue = (typeof Player !== 'undefined' && Player.getQueue) ? Player.getQueue() : [];
+    if (queue.length === 0) return;
+
+    const curIdx = (typeof Player !== 'undefined' && Player.getCurrentIndex) ? Player.getCurrentIndex() : 0;
+    const repeatMode = (typeof Player !== 'undefined' && Player.getRepeatMode) ? Player.getRepeatMode() : 'OFF';
+
+    if (repeatMode === 'ONE') {
+      Player.next();
+      return;
+    }
+
+    const hasNext = (curIdx + 1 < queue.length) || (repeatMode === 'ALL');
+    const queueCtx = (typeof Player !== 'undefined' && Player.getQueueContext) ? Player.getQueueContext() : {};
+    const isPlaylist = queueCtx.source === 'playlist' || queueCtx.mode === 'playlist';
+
+    if (!hasNext && isPlaylist) {
+      Player.next();
+      return;
+    }
+
+    const frontCard = document.getElementById('player-deck-front') || document.getElementById('player-art-card');
+    const nextCard = document.getElementById('player-deck-next') || document.getElementById('player-deck-back-1');
+
+    isCardTransitioning = true;
+    playerSwipeState = PlayerSwipeState.COMMITTING_NEXT;
+
+    if (frontCard) {
+      frontCard.classList.remove('dragging', 'springing');
+      frontCard.classList.add('committing');
+      frontCard.style.transform = 'translate3d(-120%, 0, 0) rotate(-14deg)';
+      frontCard.style.opacity = '0';
+    }
+    if (nextCard) {
+      nextCard.style.display = 'block';
+      nextCard.classList.remove('dragging', 'springing');
+      nextCard.classList.add('committing');
+      nextCard.style.transform = 'translate3d(0, 0, 0) scale(1) rotate(0deg)';
+      nextCard.style.opacity = '1';
+      nextCard.style.filter = 'brightness(1)';
+    }
+
+    setTimeout(() => {
+      Player.next();
+      setTimeout(() => {
+        if (typeof UI !== 'undefined' && UI.renderPlayer3DDeck && Player.getCurrentTrack) {
+          UI.renderPlayer3DDeck(Player.getCurrentTrack());
+        }
+        isCardTransitioning = false;
+        playerSwipeState = PlayerSwipeState.READY;
+      }, 60);
+    }, 200);
+  }
+
+  function transitionToPrevious() {
+    if (isCardTransitioning || playerSwipeState === PlayerSwipeState.COMMITTING_NEXT || playerSwipeState === PlayerSwipeState.COMMITTING_PREV) {
+      console.log('[PlayerDeck] Transition lock active — ignoring rapid prev request');
+      return;
+    }
+
+    const queue = (typeof Player !== 'undefined' && Player.getQueue) ? Player.getQueue() : [];
+    if (queue.length === 0) return;
+
+    const audio = (typeof Player !== 'undefined' && Player.getAudioElement) ? Player.getAudioElement() : null;
+    if (audio && audio.currentTime > 3.0) {
+      Player.previous();
+      return;
+    }
+
+    const frontCard = document.getElementById('player-deck-front') || document.getElementById('player-art-card');
+    const prevCard = document.getElementById('player-deck-prev');
+
+    isCardTransitioning = true;
+    playerSwipeState = PlayerSwipeState.COMMITTING_PREV;
+
+    if (frontCard) {
+      frontCard.classList.remove('dragging', 'springing');
+      frontCard.classList.add('committing');
+      frontCard.style.transform = 'translate3d(120%, 0, 0) rotate(14deg)';
+      frontCard.style.opacity = '0';
+    }
+    if (prevCard) {
+      prevCard.style.display = 'block';
+      prevCard.classList.remove('dragging', 'springing');
+      prevCard.classList.add('committing');
+      prevCard.style.transform = 'translate3d(0, 0, 0) scale(1) rotate(0deg)';
+      prevCard.style.opacity = '1';
+      prevCard.style.filter = 'brightness(1)';
+    }
+
+    setTimeout(() => {
+      Player.previous();
+      setTimeout(() => {
+        if (typeof UI !== 'undefined' && UI.renderPlayer3DDeck && Player.getCurrentTrack) {
+          UI.renderPlayer3DDeck(Player.getCurrentTrack());
+        }
+        isCardTransitioning = false;
+        playerSwipeState = PlayerSwipeState.READY;
+      }, 60);
+    }, 200);
+  }
+
+  function initPlayer3DDeckGesture() {
+    const deckContainer = document.getElementById('player-3d-deck-container');
+    if (!deckContainer || deckContainer._hasDeckGesture) return;
+    deckContainer._hasDeckGesture = true;
+
+    let startX = 0;
+    let startY = 0;
+    let startTime = 0;
+    let lastX = 0;
+    let lastTime = 0;
+    let velocityX = 0;
+    let deltaX = 0;
+    let deltaY = 0;
+    let isDragging = false;
+    let isSwiping = false;
+    let animationFrame = null;
+
+    const getFrontCard = () => document.getElementById('player-deck-front') || document.getElementById('player-art-card');
+    const getNextCard = () => document.getElementById('player-deck-next') || document.getElementById('player-deck-back-1');
+    const getPrevCard = () => document.getElementById('player-deck-prev');
+
+    // Subtle 3D Pointer Tilt on Hover (Non-touch desktop devices)
+    function onPointerHover(e) {
+      if (isDragging || isSwiping || isCardTransitioning || (e.pointerType === 'touch')) return;
+      const rect = deckContainer.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      const x = (e.clientX - rect.left) / rect.width - 0.5;
+      const y = (e.clientY - rect.top) / rect.height - 0.5;
+      const tiltX = -y * 8;
+      const tiltY = x * 8;
+      const front = getFrontCard();
+      if (front && !isDragging && playerSwipeState === PlayerSwipeState.READY) {
+        front.style.transform = `perspective(1000px) rotateX(${tiltX.toFixed(2)}deg) rotateY(${tiltY.toFixed(2)}deg) scale(1.015)`;
+      }
+    }
+
+    function onPointerHoverLeave() {
+      const front = getFrontCard();
+      if (front && !isDragging && !isCardTransitioning && playerSwipeState === PlayerSwipeState.READY) {
+        front.style.transform = 'translate3d(0, 0, 0) scale(1) rotateX(0deg) rotateY(0deg) rotate(0deg)';
+      }
+    }
+
+    function onPointerDown(e) {
+      if (isCardTransitioning || playerSwipeState !== PlayerSwipeState.READY) return;
+      if (e.target.closest('button') || e.target.closest('input') || e.target.closest('a') || e.target.closest('.player-progress-wrap')) return;
+
+      const clientX = (e.touches && e.touches[0]) ? e.touches[0].clientX : e.clientX;
+      const clientY = (e.touches && e.touches[0]) ? e.touches[0].clientY : e.clientY;
+
+      startX = clientX;
+      startY = clientY;
+      lastX = clientX;
+      startTime = Date.now();
+      lastTime = startTime;
+      velocityX = 0;
+      deltaX = 0;
+      deltaY = 0;
+      isDragging = true;
+      isSwiping = false;
+      playerSwipeState = PlayerSwipeState.DRAGGING;
+
+      const front = getFrontCard();
+      const nextC = getNextCard();
+      const prevC = getPrevCard();
+
+      if (front) {
+        front.classList.remove('springing', 'committing');
+        front.classList.add('dragging');
+      }
+      if (nextC) {
+        nextC.classList.remove('springing', 'committing');
+        nextC.classList.add('dragging');
+      }
+      if (prevC) {
+        prevC.classList.remove('springing', 'committing');
+        prevC.classList.add('dragging');
+      }
+    }
+
+    function onPointerMove(e) {
+      if (!isDragging || isCardTransitioning || playerSwipeState !== PlayerSwipeState.DRAGGING) return;
+      const clientX = (e.touches && e.touches[0]) ? e.touches[0].clientX : e.clientX;
+      const clientY = (e.touches && e.touches[0]) ? e.touches[0].clientY : e.clientY;
+
+      deltaX = clientX - startX;
+      deltaY = clientY - startY;
+
+      const now = Date.now();
+      const dt = now - lastTime;
+      if (dt > 8) {
+        velocityX = (clientX - lastX) / dt;
+        lastX = clientX;
+        lastTime = now;
+      }
+
+      if (!isSwiping) {
+        // Vertical gesture protection: If movement is primarily vertical, cancel card drag to allow pull-down collapse
+        if (Math.abs(deltaY) > Math.abs(deltaX) && Math.abs(deltaY) > 8) {
+          isDragging = false;
+          playerSwipeState = PlayerSwipeState.READY;
+          const front = getFrontCard();
+          if (front) front.classList.remove('dragging');
+          return;
+        }
+        if (Math.abs(deltaX) > 8 && Math.abs(deltaX) >= Math.abs(deltaY)) {
+          isSwiping = true;
+        }
+      }
+
+      if (isSwiping) {
+        if (e.cancelable) e.preventDefault();
+        if (animationFrame) cancelAnimationFrame(animationFrame);
+
+        animationFrame = requestAnimationFrame(() => {
+          const front = getFrontCard();
+          const nextC = getNextCard();
+          const prevC = getPrevCard();
+
+          if (front) {
+            const rot = Math.max(-15, Math.min(15, deltaX * 0.045));
+            const vertParallax = deltaY * 0.08;
+            front.style.transform = `translate3d(${deltaX}px, ${vertParallax}px, 0) rotate(${rot}deg)`;
+          }
+
+          // Dragging Left -> Next card scales up into foreground
+          if (deltaX < 0) {
+            const progress = Math.min(1, Math.abs(deltaX) / 180);
+            const scale = 0.92 + (0.08 * progress);
+            const ty = -10 + (10 * progress);
+            const tz = -30 + (30 * progress);
+            const r = 1.5 - (1.5 * progress);
+
+            if (nextC) {
+              nextC.style.display = 'block';
+              nextC.style.transform = `translate3d(0, ${ty}px, ${tz}px) scale(${scale}) rotate(${r}deg)`;
+              nextC.style.opacity = String(0.75 + (0.25 * progress));
+              nextC.style.filter = `brightness(${0.85 + (0.15 * progress)})`;
+            }
+            if (prevC) {
+              prevC.style.transform = 'translate3d(0, -10px, -30px) scale(0.92) rotate(-1.5deg)';
+              prevC.style.opacity = '0.75';
+            }
+          }
+          // Dragging Right -> Previous card scales up into foreground
+          else if (deltaX > 0) {
+            const progress = Math.min(1, deltaX / 180);
+            const scale = 0.92 + (0.08 * progress);
+            const ty = -10 + (10 * progress);
+            const tz = -30 + (30 * progress);
+            const r = -1.5 + (1.5 * progress);
+
+            if (prevC) {
+              prevC.style.display = 'block';
+              prevC.style.transform = `translate3d(0, ${ty}px, ${tz}px) scale(${scale}) rotate(${r}deg)`;
+              prevC.style.opacity = String(0.75 + (0.25 * progress));
+              prevC.style.filter = `brightness(${0.85 + (0.15 * progress)})`;
+            }
+            if (nextC) {
+              nextC.style.transform = 'translate3d(0, -10px, -30px) scale(0.92) rotate(1.5deg)';
+              nextC.style.opacity = '0.75';
+            }
+          }
+        });
+      }
+    }
+
+    function onPointerUp() {
+      if (!isDragging) return;
+      isDragging = false;
+
+      const front = getFrontCard();
+      const nextC = getNextCard();
+      const prevC = getPrevCard();
+
+      if (front) front.classList.remove('dragging');
+      if (nextC) nextC.classList.remove('dragging');
+      if (prevC) prevC.classList.remove('dragging');
+
+      // Tapping the card without swiping: no side effects
+      if (!isSwiping) {
+        playerSwipeState = PlayerSwipeState.READY;
+        return;
+      }
+      isSwiping = false;
+
+      const cardWidth = front ? (front.offsetWidth || 300) : 300;
+      const distanceThreshold = Math.max(60, cardWidth * 0.25);
+      const isFastFlick = Math.abs(velocityX) > 0.45;
+
+      // Swipe Left -> Next Track
+      if (deltaX < -distanceThreshold || (deltaX < -30 && velocityX < -0.45)) {
+        transitionToNext();
+      }
+      // Swipe Right -> Previous Track
+      else if (deltaX > distanceThreshold || (deltaX > 30 && velocityX > 0.45)) {
+        transitionToPrevious();
+      }
+      // Cancelled Swipe -> Spring smoothly back to center without changing audio/queue
+      else {
+        if (front) {
+          front.classList.add('springing');
+          front.style.transform = 'translate3d(0, 0, 0) scale(1) rotate(0deg)';
+          front.style.opacity = '1';
+          front.style.filter = 'brightness(1)';
+        }
+        if (nextC) {
+          nextC.classList.add('springing');
+          nextC.style.transform = 'translate3d(0, -10px, -30px) scale(0.92) rotate(1.5deg)';
+          nextC.style.opacity = '0.75';
+          nextC.style.filter = 'brightness(0.85)';
+        }
+        if (prevC) {
+          prevC.classList.add('springing');
+          prevC.style.transform = 'translate3d(0, -10px, -30px) scale(0.92) rotate(-1.5deg)';
+          prevC.style.opacity = '0.75';
+          prevC.style.filter = 'brightness(0.85)';
+        }
+
+        setTimeout(() => {
+          if (front) front.classList.remove('springing');
+          if (nextC) nextC.classList.remove('springing');
+          if (prevC) prevC.classList.remove('springing');
+          playerSwipeState = PlayerSwipeState.READY;
+        }, 350);
+      }
+    }
+
+    deckContainer.addEventListener('mousemove', onPointerHover);
+    deckContainer.addEventListener('mouseleave', onPointerHoverLeave);
+
+    deckContainer.addEventListener('mousedown', onPointerDown);
+    window.addEventListener('mousemove', onPointerMove, { passive: false });
+    window.addEventListener('mouseup', onPointerUp);
+
+    deckContainer.addEventListener('touchstart', onPointerDown, { passive: true });
+    window.addEventListener('touchmove', onPointerMove, { passive: false });
+    window.addEventListener('touchend', onPointerUp);
+    window.addEventListener('touchcancel', onPointerUp);
+
+    window._animateToNext = transitionToNext;
+    window._animateToPrevious = transitionToPrevious;
+  }
+
+  function navigateToArtist(artist) {
+    if (!artist) return;
+    let artistName = '';
+    if (typeof artist === 'string') {
+      artistName = artist.trim();
+    } else if (typeof artist === 'object') {
+      artistName = (artist.name || artist.title || '').trim();
+    }
+    if (!artistName || artistName.toLowerCase() === 'unknown artist') return;
+
+    if (typeof collapseFullPlayer === 'function') {
+      collapseFullPlayer();
+    }
+    openArtist(artistName);
   }
 
   // Queue Drag & Drop Reordering Support
@@ -677,9 +1100,12 @@ const App = (() => {
       openArtist(state.artistName, false);
     } else if (screen === 'genre' && state && state.genreName) {
       openGenre(state.genreName, false);
+    } else if (screen === 'album' && state) {
+      openAlbum(state.albumId, state.albumTitle, state.artistName, false);
     } else if (screen === 'detail' && state) {
       if (state.playlistId) openCustomPlaylist(state.playlistId, false);
-      else if (state.item) openAlbumOrPlaylist(state.item, false);
+      else if (state.albumId) openAlbum(state.albumId, state.albumTitle, state.artistName, false);
+      else if (state.item) openAlbum(state.item, '', '', false);
       else navigate('library', false);
     } else {
       navigate(screen, false);
@@ -779,6 +1205,7 @@ const App = (() => {
   let activeGenreData = null;
 
   async function loadExplore() {
+    initSwipeDiscovery();
     if (typeof ExploreDataLayer !== 'undefined') {
       try {
         ExploreDataLayer.loadExplore((data, isCache) => {
@@ -892,13 +1319,29 @@ const App = (() => {
         });
       }
 
-      // Fetch Top Songs
+      // Fetch Top Songs with Strict Primary Artist Attribution
       currentArtistPage = 1;
       isArtistTracksExpanded = false;
-      currentArtistSongs = await API.getArtistSongs(name, 1, 25);
+      const cleanNameLower = name.toLowerCase().trim();
+      const rawSongs = await API.getArtistSongs(name, 1, 30);
+      currentArtistSongs = (rawSongs || []).filter(s => {
+        if (!s || !s.name) return false;
+        const art = (s.primaryArtist || s.artists || '').toLowerCase();
+        return art.includes(cleanNameLower);
+      });
+      if (currentArtistSongs.length === 0 && rawSongs && rawSongs.length > 0) {
+        currentArtistSongs = rawSongs;
+      }
       UI.renderArtistTopTracks(currentArtistSongs, false);
 
-      // Hook Recent Release Card
+      // Wire Artist Category Pills
+      const genrePills = document.querySelectorAll('#artist-genre-pills .artist-genre-pill');
+      genrePills.forEach(pill => {
+        pill.classList.toggle('active', pill.dataset.genre === 'All');
+        pill.onclick = () => filterArtistCategory(pill.dataset.genre || pill.textContent.trim());
+      });
+
+      // Hook Genuine Latest Release Card
       const recentSection = document.getElementById('artist-recent-section');
       const recentImg = document.getElementById('artist-recent-img');
       const recentTitle = document.getElementById('artist-recent-title');
@@ -906,12 +1349,36 @@ const App = (() => {
       const recentCard = document.getElementById('artist-recent-card');
 
       if (currentArtistSongs.length > 0) {
-        const first = currentArtistSongs[0];
+        // Sort copy by year to identify latest release
+        const sortedByYear = [...currentArtistSongs].sort((a, b) => (Number(b.year) || 0) - (Number(a.year) || 0));
+        const latestTrack = sortedByYear[0] || currentArtistSongs[0];
         if (recentSection) recentSection.style.display = 'block';
-        if (recentImg) recentImg.src = first.image || img;
-        if (recentTitle) recentTitle.textContent = first.name;
-        if (recentSub) recentSub.textContent = `${first.year || '2024'} • Top Track`;
-        if (recentCard) recentCard.onclick = () => playSongWithQueue(first.id);
+        if (recentImg) recentImg.src = latestTrack.image || img;
+        if (recentTitle) recentTitle.textContent = latestTrack.name;
+        if (recentSub) recentSub.textContent = `${latestTrack.year || '2024'} • Latest Release • ${name}`;
+        if (recentCard) recentCard.onclick = () => playSongWithQueue(latestTrack.id);
+      }
+
+      // Fetch & Render Albums and EPs Section
+      const albumsSection = document.getElementById('artist-albums-section');
+      const albumsContainer = document.getElementById('artist-albums-container');
+      if (albumsSection && albumsContainer) {
+        const albums = await API.searchAlbums(name, 1, 10).catch(() => []);
+        if (albums && albums.length > 0) {
+          albumsSection.style.display = 'block';
+          albumsContainer.innerHTML = albums.map(alb => `
+            <div class="music-square-card" onclick="App.openAlbum('${alb.id}', '${(alb.title || alb.name || 'Album').replace(/'/g, "\\'")}', '${name.replace(/'/g, "\\'")}')">
+              <div class="square-card-art-wrap">
+                <img src="${API.getImageUrl(alb)}" onerror="this.src='assets/logo.png'" alt="${alb.title || alb.name}">
+                <div class="square-card-play-overlay"><span class="material-symbols-outlined fill-icon" style="font-size:20px;">play_arrow</span></div>
+              </div>
+              <div class="square-card-title">${alb.title || alb.name}</div>
+              <div class="square-card-sub">${alb.year || 'Album'} • ${name}</div>
+            </div>
+          `).join('');
+        } else {
+          albumsSection.style.display = 'none';
+        }
       }
 
       // Hook "Best of Artist" and "Artist Radio" playlist cards
@@ -1174,7 +1641,43 @@ const App = (() => {
       followIcon.textContent = isFollowed ? 'thumb_up_off_alt' : 'thumb_up';
       followIcon.classList.toggle('fill-icon', !isFollowed);
     }
-    alert(isFollowed ? `Unfollowed ${name}` : `Followed ${name}!`);
+    UI.showToast(isFollowed ? `Unfollowed ${name}` : `Followed ${name}!`);
+  }
+
+  function filterArtistCategory(category) {
+    const pills = document.querySelectorAll('#artist-genre-pills .artist-genre-pill');
+    pills.forEach(p => p.classList.toggle('active', (p.dataset.genre || p.textContent.trim()) === category));
+
+    if (!category || category === 'All') {
+      UI.renderArtistTopTracks(currentArtistSongs, isArtistTracksExpanded);
+      return;
+    }
+
+    const catLower = category.toLowerCase();
+    const filtered = currentArtistSongs.filter(song => {
+      const title = (song.name || song.title || '').toLowerCase();
+      const album = (song.album || '').toLowerCase();
+
+      if (catLower === 'top hits') {
+        return true;
+      }
+      if (catLower === 'romantic') {
+        return title.includes('love') || title.includes('tum') || title.includes('dil') || title.includes('ishq') || title.includes('romantic') || album.includes('romantic') || title.includes('tera') || title.includes('meri');
+      }
+      if (catLower === 'melody') {
+        return title.includes('sufi') || title.includes('acoustic') || title.includes('unplugged') || title.includes('slow') || title.includes('melody') || album.includes('melody');
+      }
+      if (catLower.includes('90s')) {
+        const yr = parseInt(song.year, 10);
+        return (yr >= 1990 && yr <= 1999) || title.includes('90s') || album.includes('90s');
+      }
+      if (catLower === 'duets') {
+        return (song.artists || '').includes(',') || (song.artists || '').includes('&') || title.includes('feat') || title.includes('duet');
+      }
+      return title.includes(catLower) || album.includes(catLower);
+    });
+
+    UI.renderArtistTopTracks(filtered.length > 0 ? filtered : currentArtistSongs.slice(0, 5), true);
   }
 
   let currentArtistPage = 1;
@@ -1198,7 +1701,7 @@ const App = (() => {
         isArtistTracksExpanded = true;
         UI.renderArtistTopTracks(currentArtistSongs, true);
       } else {
-        alert('No more songs found for this artist.');
+        UI.showToast('No more songs found for this artist.');
       }
     } catch (e) {
       console.error('[Artist] loadMore error:', e);
@@ -1230,14 +1733,14 @@ const App = (() => {
         playMix(`${name} Radio Hits`);
         break;
       case 'follow':
-        alert(`Followed ${name}!`);
+        UI.showToast(`Followed ${name}!`);
         break;
       case 'share':
         if (navigator.share) {
           navigator.share({ title: name, text: `Check out ${name} on MusicFlow`, url: window.location.href });
         } else {
           navigator.clipboard.writeText(`${name} on MusicFlow`);
-          alert('Artist profile link copied!');
+          UI.showToast('Artist profile link copied!');
         }
         break;
     }
@@ -1328,7 +1831,7 @@ const App = (() => {
         currentSearchResults.push(...moreSongs);
         UI.appendSearchSongs(moreSongs, startIdx);
       } else {
-        alert('No more songs found for this query.');
+        UI.showToast('No more songs found for this query.');
       }
     } catch (e) {
       console.error('[Search] loadMore error:', e);
@@ -1373,17 +1876,74 @@ const App = (() => {
   }
 
   function playSongWithQueue(songId) {
-    const song = (homeFeedData?.quickPicks || homeFeedData?.trending?.songs || []).find(s => s.id === songId);
-    if (song) {
-      Player.playSong(song, homeFeedData?.quickPicks || homeFeedData?.trending?.songs || [song]);
-    } else {
-      API.getSongDetails(songId).then(details => {
-        if (details && details.length > 0) {
-          Player.playSong(details[0], details);
+    if (!songId) return;
+    const strId = String(songId);
+    let song = trackRegistry.get(strId);
+    let contextQueue = null;
+
+    if (!song && homeFeedData) {
+      if (Array.isArray(homeFeedData.sections)) {
+        for (const sec of homeFeedData.sections) {
+          if (Array.isArray(sec.items)) {
+            const match = sec.items.find(s => String(s.id) === strId);
+            if (match) {
+              song = match;
+              contextQueue = sec.items;
+              registerTracks(sec.items);
+              break;
+            }
+          }
         }
-      });
+      }
+      if (!song) {
+        const allHome = [
+          ...(homeFeedData.quickPicks || []),
+          ...(homeFeedData.trending?.songs || []),
+          ...(homeFeedData.trendingNow || []),
+          ...(homeFeedData.topSongs || [])
+        ];
+        song = allHome.find(s => String(s.id) === strId);
+        if (song) {
+          contextQueue = allHome;
+          registerTracks(allHome);
+        }
+      }
     }
-    expandFullPlayer();
+
+    if (!song && typeof Storage !== 'undefined') {
+      const recents = Storage.getHistory() || [];
+      const favs = Storage.getFavorites() || [];
+      const downloads = (typeof Storage.getDownloads === 'function') ? (Storage.getDownloads() || []) : [];
+      const allLocal = [...recents, ...favs, ...downloads];
+      song = allLocal.find(s => String(s.id) === strId);
+      if (song) {
+        contextQueue = [song];
+        registerTrack(song);
+      }
+    }
+
+    if (song) {
+      registerTrack(song);
+      Player.playSong(song, contextQueue || [song]);
+      expandFullPlayer();
+      return;
+    }
+
+    // Fallback: fetch details from API
+    API.getSongDetails(strId).then(details => {
+      if (details && details.length > 0) {
+        registerTracks(details);
+        Player.playSong(details[0], details);
+      } else {
+        const placeholder = { id: strId, name: 'Song', provider: 'jiosaavn' };
+        Player.playSong(placeholder, [placeholder]);
+      }
+      expandFullPlayer();
+    }).catch(() => {
+      const placeholder = { id: strId, name: 'Song', provider: 'jiosaavn' };
+      Player.playSong(placeholder, [placeholder]);
+      expandFullPlayer();
+    });
   }
 
   function playSongFromArtistList(index) {
@@ -1449,6 +2009,9 @@ const App = (() => {
         curTimeEl.textContent = (typeof UI !== 'undefined' && UI.formatTime) ? UI.formatTime(progress * duration) : `${Math.floor(progress * duration / 60)}:${String(Math.floor(progress * duration % 60)).padStart(2, '0')}`;
       }
       seekBar.setAttribute('aria-valuenow', String(Math.round(pct)));
+      if (typeof UI !== 'undefined' && UI.WavyProgressBar) {
+        UI.WavyProgressBar.setProgress(parseFloat(pct), isPointerDown);
+      }
     }
 
     function onPointerDown(e) {
@@ -1531,6 +2094,14 @@ const App = (() => {
 
       const isFav = Storage.toggleFavorite(song);
       UI.updatePlayerBar(song);
+
+      const heartIcon = document.getElementById('player-heart-icon');
+      if (heartIcon && isFav) {
+        heartIcon.classList.remove('heart-pop');
+        void heartIcon.offsetWidth;
+        heartIcon.classList.add('heart-pop');
+      }
+
       UI.showToast(isFav ? 'Added to Favorites ❤️' : 'Removed from Favorites');
 
       if (isFav && typeof SmartDownloadManager !== 'undefined' && SmartDownloadManager.handleLikeEvent) {
@@ -1618,6 +2189,17 @@ const App = (() => {
     UI.updateRepeatState(Player.getRepeatMode());
     const cur = Player.getCurrentTrack();
     if (cur) UI.updatePlayerBar(cur);
+    if (typeof UI !== 'undefined' && UI.WavyProgressBar) {
+      const isPlaying = (typeof Player !== 'undefined') && ((typeof Player.isPlaying === 'function' && Player.isPlaying()) || (typeof Player.getIsPlaying === 'function' && Player.getIsPlaying()));
+      UI.WavyProgressBar.setPlaying(isPlaying);
+      const pos = (typeof Player !== 'undefined' && typeof Player.getPosition === 'function') ? Player.getPosition() : 0;
+      const dur = (typeof Player !== 'undefined' && typeof Player.getDuration === 'function') ? Player.getDuration() : 0;
+      if (dur > 0) {
+        UI.WavyProgressBar.setProgress((pos / dur) * 100, false);
+      } else {
+        UI.WavyProgressBar.draw();
+      }
+    }
   }
 
   function collapseFullPlayer() {
@@ -1754,7 +2336,12 @@ const App = (() => {
 
   function openBottomSheet(sheetId) {
     const el = document.getElementById(sheetId);
-    if (el) el.classList.add('active');
+    if (el) {
+      el.classList.add('active');
+      if (sheetId === 'sheet-settings' && typeof UpdateManager !== 'undefined' && typeof UI !== 'undefined' && UI.renderAboutSettings) {
+        UI.renderAboutSettings(UpdateManager.getState());
+      }
+    }
   }
 
   function closeBottomSheet(sheetId) {
@@ -1776,29 +2363,80 @@ const App = (() => {
     }
   }
 
-  async function openSongMenu(songId) {
-    let song = (homeFeedData?.quickPicks || homeFeedData?.trending?.songs || []).find(s => s.id === songId);
-    if (!song) {
-      const details = await API.getSongDetails(songId);
-      if (details && details.length > 0) song = details[0];
+  async function openCurrentSongMenu() {
+    const current = (typeof Player !== 'undefined' && Player.getCurrentTrack) ? Player.getCurrentTrack() : null;
+    if (!current) return;
+    openSongMenu(current);
+  }
+
+  async function openSongMenu(songOrId, context = '') {
+    let song = (typeof songOrId === 'object' && songOrId !== null) ? songOrId : null;
+    if (!song && typeof songOrId === 'string') {
+      const q = (typeof Player !== 'undefined' && Player.getQueue) ? Player.getQueue() : [];
+      song = q.find(s => String(s.id) === String(songOrId)) ||
+             (typeof Storage !== 'undefined' && Storage.getFavorites ? Storage.getFavorites().find(s => String(s.id) === String(songOrId)) : null) ||
+             (typeof Storage !== 'undefined' && Storage.getHistory ? Storage.getHistory().find(s => String(s.id) === String(songOrId)) : null) ||
+             (typeof Storage !== 'undefined' && Storage.getDownloads ? Storage.getDownloads().find(s => String(s.id) === String(songOrId)) : null) ||
+             (typeof Player !== 'undefined' && Player.getCurrentTrack ? Player.getCurrentTrack() : null);
+
+      if (!song && typeof API !== 'undefined' && API.getSongDetails) {
+        try {
+          const details = await API.getSongDetails(songOrId);
+          if (details && details.length > 0) song = details[0];
+        } catch (_) {}
+      }
     }
     if (!song) return;
 
-    activeSongForMenu = song;
-    document.getElementById('sheet-song-img').src = song.image || 'assets/logo.png';
-    document.getElementById('sheet-song-title').textContent = song.name;
-    document.getElementById('sheet-song-artist').textContent = song.artists;
+    if (typeof DataNormalizer !== 'undefined' && DataNormalizer.normalizeTrack) {
+      song = DataNormalizer.normalizeTrack(song);
+    }
 
-    const isFav = Storage.isFavorite(song.id);
-    document.getElementById('sheet-like-icon').textContent = isFav ? 'favorite' : 'favorite_border';
-    document.getElementById('sheet-like-label').textContent = isFav ? 'Unlike' : 'Like';
+    activeSongForMenu = song;
+    selectedMenuSong = song;
+    selectedMenuPlaylistId = (typeof context === 'string' && context.startsWith('pl_')) ? context : null;
+
+    const name = (typeof DataNormalizer !== 'undefined') ? DataNormalizer.getTrackTitle(song) : (song.name || 'Song');
+    const artists = (typeof DataNormalizer !== 'undefined') ? DataNormalizer.getArtistString(song) : (song.artists || 'Artist');
+    const image = song.image || song.artwork || song.albumArt || 'assets/logo.png';
+    const isFav = (typeof Storage !== 'undefined' && Storage.isFavorite) ? Storage.isFavorite(song.id || song) : false;
+
+    // Populate Sheet 1 (#sheet-song-menu)
+    const imgEl = document.getElementById('sheet-song-img');
+    const titleEl = document.getElementById('sheet-song-title');
+    const artistEl = document.getElementById('sheet-song-artist');
+    const likeIconEl = document.getElementById('sheet-like-icon');
+    const likeLabelEl = document.getElementById('sheet-like-label');
+
+    if (imgEl) imgEl.src = image;
+    if (titleEl) titleEl.textContent = name;
+    if (artistEl) artistEl.textContent = artists;
+    if (likeIconEl) likeIconEl.textContent = isFav ? 'favorite' : 'favorite_border';
+    if (likeLabelEl) likeLabelEl.textContent = isFav ? 'Unlike' : 'Like';
+
+    // Populate Sheet 2 (#sheet-song-actions)
+    const titleEl2 = document.getElementById('song-action-title');
+    const subEl2 = document.getElementById('song-action-sub');
+    const artEl2 = document.getElementById('song-action-img');
+    const favIcon2 = document.getElementById('song-act-fav-icon');
+    const favText2 = document.getElementById('song-act-fav-text');
+    const removePlBtn2 = document.getElementById('btn-song-act-remove-pl');
+
+    if (titleEl2) titleEl2.textContent = name;
+    if (subEl2) subEl2.textContent = artists;
+    if (artEl2) artEl2.src = image;
+    if (favIcon2) {
+      favIcon2.textContent = isFav ? 'favorite' : 'favorite_border';
+      favIcon2.style.color = isFav ? 'var(--accent)' : '';
+    }
+    if (favText2) favText2.textContent = isFav ? 'Unlike' : 'Favorite';
+    if (removePlBtn2) removePlBtn2.style.display = selectedMenuPlaylistId ? 'flex' : 'none';
 
     openBottomSheet('sheet-song-menu');
   }
 
-  function openCurrentSongMenu() {
-    const track = Player.getCurrentTrack();
-    if (track) openSongMenu(track.id);
+  async function openHomeSongMenu(songId) {
+    return openSongMenu(songId, 'home');
   }
 
   function sheetAction(action) {
@@ -1821,10 +2459,11 @@ const App = (() => {
         break;
       case 'go-artist':
         collapseFullPlayer();
-        openArtist(song.primaryArtist || song.artists);
+        openArtistActionForSong(song);
         break;
       case 'go-album':
-        if (song.albumId) openAlbumOrPlaylist(song.albumId, 'album');
+        collapseFullPlayer();
+        openAlbum(song.albumId || song.album, song.album, song.primaryArtist || song.artists);
         break;
       case 'add-playlist':
         openPlaylistPicker(song);
@@ -1841,10 +2480,78 @@ const App = (() => {
           navigator.share({ title: song.name, text: `Listen to ${song.name} by ${song.artists} on MusicFlow`, url: window.location.href });
         } else {
           navigator.clipboard.writeText(`${song.name} by ${song.artists}`);
-          alert('Song info copied to clipboard!');
+          UI.showToast('Song info copied to clipboard!');
         }
         break;
     }
+  }
+
+  function openArtistActionForSong(song) {
+    if (!song) return;
+    const artists = (typeof DataNormalizer !== 'undefined' && DataNormalizer.getLegitimateMusicArtists)
+      ? DataNormalizer.getLegitimateMusicArtists(song)
+      : [{ id: 'artist', name: song.primaryArtist || song.artists || 'Artist' }];
+
+    if (artists.length <= 1) {
+      const art = artists[0] || { name: song.primaryArtist || song.artists || 'Artist' };
+      openArtist(art.name, art.providerId || art.id);
+    } else {
+      if (typeof UI !== 'undefined' && UI.renderArtistPicker) {
+        UI.renderArtistPicker(artists, song);
+      }
+      openBottomSheet('sheet-artist-picker');
+    }
+  }
+
+  function selectArtistFromPicker(name, id) {
+    closeBottomSheet('sheet-artist-picker');
+    if (name) {
+      openArtist(name, id || name);
+    }
+  }
+
+  // ==========================================================================
+  // APPEARANCE & THEME PICKER (ThemeManager)
+  // ==========================================================================
+  function openThemeDialog() {
+    if (document.getElementById('sheet-settings')?.classList.contains('active')) {
+      wasSettingsOpenBeforeDialog = true;
+      closeBottomSheet('sheet-settings');
+    } else {
+      wasSettingsOpenBeforeDialog = false;
+    }
+    UI.renderThemePicker();
+    openDialog('dialog-theme-picker');
+  }
+
+  function closeThemeDialog() {
+    closeDialog('dialog-theme-picker');
+    UI.renderSettingsSheet();
+  }
+
+  function selectThemePreset(presetId) {
+    if (typeof ThemeManager !== 'undefined') {
+      ThemeManager.setTheme(presetId);
+    }
+    UI.renderThemePicker();
+    UI.renderSettingsSheet();
+  }
+
+  function setCustomThemeColor(hexColor) {
+    if (typeof ThemeManager !== 'undefined') {
+      ThemeManager.setAccentColor(hexColor);
+    }
+    UI.renderThemePreview(ThemeManager?.getTheme());
+    UI.renderSettingsSheet();
+  }
+
+  function resetTheme() {
+    if (typeof ThemeManager !== 'undefined') {
+      ThemeManager.reset();
+    }
+    UI.renderThemePicker();
+    UI.renderSettingsSheet();
+    UI.showToast('Theme reset to MusicFlow Red');
   }
 
   // ==========================================================================
@@ -1862,13 +2569,25 @@ const App = (() => {
     openDialog('dialog-language-picker');
   }
 
-  function toggleLanguageSelection(langKey) {
-    if (tempSelectedLanguages.includes(langKey)) {
-      if (tempSelectedLanguages.length > 1) {
-        tempSelectedLanguages = tempSelectedLanguages.filter(l => l !== langKey);
+  function toggleLanguageSelection(langKey, isChecked) {
+    if (!langKey) return;
+    const cleanKey = String(langKey).toLowerCase().trim();
+    if (typeof isChecked === 'boolean') {
+      if (isChecked) {
+        if (!tempSelectedLanguages.includes(cleanKey)) tempSelectedLanguages.push(cleanKey);
+      } else {
+        if (tempSelectedLanguages.length > 1) {
+          tempSelectedLanguages = tempSelectedLanguages.filter(l => l !== cleanKey);
+        }
       }
     } else {
-      tempSelectedLanguages.push(langKey);
+      if (tempSelectedLanguages.includes(cleanKey)) {
+        if (tempSelectedLanguages.length > 1) {
+          tempSelectedLanguages = tempSelectedLanguages.filter(l => l !== cleanKey);
+        }
+      } else {
+        tempSelectedLanguages.push(cleanKey);
+      }
     }
     // Reflect immediately in Storage & UI
     Storage.setLanguages(tempSelectedLanguages);
@@ -1897,24 +2616,22 @@ const App = (() => {
   }
 
   function promptCreatePlaylistAndAdd() {
-    const name = prompt('Enter new playlist name:');
-    if (name && activeSongForMenu) {
-      const pl = Storage.createPlaylist(name);
-      Storage.addSongToPlaylist(pl.id, activeSongForMenu);
-      closeDialog('dialog-playlist-picker');
-      alert(`Added "${activeSongForMenu.name}" to "${name}"`);
-    }
+    UI.showPromptModal({
+      title: 'New Playlist',
+      placeholder: 'Enter playlist name...',
+      confirmText: 'Create & Add',
+      onConfirm: (name) => {
+        if (name && activeSongForMenu) {
+          const pl = Storage.createPlaylist(name);
+          Storage.addSongToPlaylist(pl.id, activeSongForMenu);
+          closeDialog('dialog-playlist-picker');
+          UI.showToast(`Added "${activeSongForMenu.name}" to "${name}"`);
+        }
+      }
+    });
   }
 
-  function addSongToSpecificPlaylist(playlistId) {
-    if (activeSongForMenu) {
-      Storage.addSongToPlaylist(playlistId, activeSongForMenu);
-      closeDialog('dialog-playlist-picker');
-      const pl = Storage.getPlaylists().find(p => p.id === playlistId);
-      alert(`Added "${activeSongForMenu.name}" to "${pl?.name || 'Playlist'}"`);
-    }
-  }
-
+  
   // ==========================================================================
   // AUDIO EFFECTS & EQUALIZER 2.0 (EqualizerScreen.kt in Android)
   // ==========================================================================
@@ -1959,7 +2676,7 @@ const App = (() => {
     const valEl = document.getElementById(`eq-val-${index}`);
     if (valEl) {
       valEl.textContent = `${val > 0 ? '+' + val : val}dB`;
-      valEl.style.color = val > 0 ? '#FF2A4D' : (val < 0 ? '#4da6ff' : 'var(--text-secondary)');
+      valEl.style.color = val > 0 ? 'var(--accent)' : (val < 0 ? '#4da6ff' : 'var(--text-secondary)');
     }
   }
 
@@ -1998,25 +2715,37 @@ const App = (() => {
   }
 
   function promptSaveCustomPreset() {
-    const name = prompt('Enter a name for your custom preset:');
-    if (name && name.trim()) {
-      const cleanName = name.trim().slice(0, 30);
-      if (typeof AudioEffectsEngine !== 'undefined') {
-        AudioEffectsEngine.saveCustomPreset(cleanName);
+    UI.showPromptModal({
+      title: 'Save Preset',
+      placeholder: 'Enter preset name...',
+      confirmText: 'Save Preset',
+      onConfirm: (name) => {
+        if (name && name.trim()) {
+          const cleanName = name.trim().slice(0, 30);
+          if (typeof AudioEffectsEngine !== 'undefined') {
+            AudioEffectsEngine.saveCustomPreset(cleanName);
+          }
+          UI.renderEqualizerUI(Storage.getAudioEffects());
+          UI.showToast(`Saved preset "${cleanName}"`);
+        }
       }
-      UI.renderEqualizerUI(Storage.getAudioEffects());
-      UI.showToast(`Saved preset "${cleanName}"`);
-    }
+    });
   }
 
   function deleteCustomPreset(name) {
-    if (confirm(`Delete custom preset "${name}"?`)) {
-      if (typeof AudioEffectsEngine !== 'undefined') {
-        AudioEffectsEngine.deleteCustomPreset(name);
+    UI.showConfirmModal({
+      title: 'Delete Preset?',
+      message: `Delete custom preset "${name}"?`,
+      confirmText: 'Delete',
+      isDestructive: true,
+      onConfirm: () => {
+        if (typeof AudioEffectsEngine !== 'undefined') {
+          AudioEffectsEngine.deleteCustomPreset(name);
+        }
+        UI.renderEqualizerUI(Storage.getAudioEffects());
+        UI.showToast(`Deleted preset "${name}"`);
       }
-      UI.renderEqualizerUI(Storage.getAudioEffects());
-      UI.showToast(`Deleted preset "${name}"`);
-    }
+    });
   }
 
   function resetAudioEffects() {
@@ -2092,9 +2821,7 @@ const App = (() => {
     openBottomSheet('sheet-queue');
   }
 
-  function removeTrackFromQueue(index) {
-    Player.removeFromQueue(index);
-  }
+  
 
   // ==========================================================================
   // SETTINGS & PROFILE
@@ -2125,23 +2852,37 @@ const App = (() => {
   }
 
   function promptChangeName() {
-    const newName = prompt('Enter your name for greeting:', Storage.getUserName());
-    if (newName) {
-      Storage.setUserName(newName);
-      UI.renderHomeGreeting();
-      const nameVal = document.getElementById('settings-name-val');
-      if (nameVal) nameVal.textContent = newName;
-    }
+    UI.showPromptModal({
+      title: 'Change Name',
+      placeholder: 'Enter your name...',
+      defaultValue: Storage.getUserName(),
+      onConfirm: (newName) => {
+        if (newName) {
+          Storage.setUserName(newName);
+          UI.renderHomeGreeting();
+          const nameVal = document.getElementById('settings-name-val');
+          if (nameVal) nameVal.textContent = newName;
+          UI.showToast(`Updated name to "${newName}"`);
+        }
+      }
+    });
   }
 
   function promptChangeAvatar() {
-    const newAvatar = prompt('Enter image URL for avatar:', Storage.getUserAvatar());
-    if (newAvatar && newAvatar.trim().startsWith('http')) {
-      Storage.setUserAvatar(newAvatar.trim());
-      applyPreferences();
-      const setImg = document.getElementById('settings-avatar-img');
-      if (setImg) setImg.src = newAvatar.trim();
-    }
+    UI.showPromptModal({
+      title: 'Change Avatar',
+      placeholder: 'https://...',
+      defaultValue: Storage.getUserAvatar(),
+      onConfirm: (newAvatar) => {
+        if (newAvatar && newAvatar.trim().startsWith('http')) {
+          Storage.setUserAvatar(newAvatar.trim());
+          applyPreferences();
+          const setImg = document.getElementById('settings-avatar-img');
+          if (setImg) setImg.src = newAvatar.trim();
+          UI.showToast('Avatar image updated');
+        }
+      }
+    });
   }
 
   function cyclePerformanceMode() {
@@ -2158,11 +2899,18 @@ const App = (() => {
   }
 
   function clearListeningHistory() {
-    if (confirm('Clear all listening history?')) {
-      Storage.clearHistory();
-      UI.renderLibraryTab('history', librarySearchQuery, librarySortMode);
-      loadHomeFeed();
-    }
+    UI.showConfirmModal({
+      title: 'Clear History?',
+      message: 'Clear all listening history? This cannot be undone.',
+      confirmText: 'Clear',
+      isDestructive: true,
+      onConfirm: () => {
+        Storage.clearHistory();
+        UI.renderLibraryTab('history', librarySearchQuery, librarySortMode);
+        loadHomeFeed();
+        UI.showToast('Listening history cleared 🧹');
+      }
+    });
   }
 
   function openLikedSongs() {
@@ -2171,7 +2919,7 @@ const App = (() => {
       Player.setQueue(favs, 0);
       expandFullPlayer();
     } else {
-      alert('No liked songs in your library yet.');
+      UI.showToast('No liked songs in your library yet.');
     }
   }
 
@@ -2242,26 +2990,43 @@ const App = (() => {
 
   function openStorageLimitDialog() {
     const current = Storage.getDownloadStorageLimitMb();
-    const promptText = `Set Maximum Offline Storage Limit (in MB):\n• 1024 (1 GB)\n• 2048 (2 GB)\n• 5120 (5 GB)\n• 10240 (10 GB)\n• 20480 (20 GB)\n\nEnter MB limit:`;
-    const input = prompt(promptText, String(current));
-    if (input && !isNaN(Number(input)) && Number(input) > 0) {
-      Storage.setDownloadStorageLimitMb(Number(input));
-      applyPreferences();
-      if (activeLibraryTab === 'downloads') {
-        UI.renderLibraryTab('downloads', librarySearchQuery, librarySortMode);
+    UI.showPromptModal({
+      title: 'Storage Limit',
+      subtitle: 'Set offline limit in MB (e.g. 2048 for 2GB):',
+      placeholder: 'MB limit...',
+      defaultValue: String(current),
+      onConfirm: (input) => {
+        if (input && !isNaN(Number(input)) && Number(input) > 0) {
+          Storage.setDownloadStorageLimitMb(Number(input));
+          applyPreferences();
+          if (activeLibraryTab === 'downloads') {
+            UI.renderLibraryTab('downloads', librarySearchQuery, librarySortMode);
+          }
+          UI.showToast(`Storage limit set to ${input} MB`);
+        }
       }
-    }
+    });
   }
 
   function openAutoCleanupDialog() {
-    const promptText = `Select Auto-Cleanup Policy:\n1. never (Never delete)\n2. older_30_days (Older than 30 days)\n3. older_90_days (Older than 90 days)\n4. least_played (Least played / oldest)\n\nEnter choice (1, 2, 3, or 4):`;
-    const input = prompt(promptText, '1');
-    let policy = 'never';
-    if (input === '2') policy = 'older_30_days';
-    else if (input === '3') policy = 'older_90_days';
-    else if (input === '4') policy = 'least_played';
-    Storage.setAutoCleanupPolicy(policy);
-    applyPreferences();
+    const currentPolicy = Storage.getAutoCleanupPolicy ? Storage.getAutoCleanupPolicy() : 'never';
+    UI.showPromptModal({
+      title: 'Auto-Cleanup Policy',
+      subtitle: 'Options: never, older_30_days, older_90_days, least_played',
+      placeholder: 'Enter policy name...',
+      defaultValue: currentPolicy,
+      onConfirm: (input) => {
+        let policy = 'never';
+        if (input === '2' || input === 'older_30_days') policy = 'older_30_days';
+        else if (input === '3' || input === 'older_90_days') policy = 'older_90_days';
+        else if (input === '4' || input === 'least_played') policy = 'least_played';
+        else if (input === '1' || input === 'never') policy = 'never';
+        else if (input) policy = input;
+        Storage.setAutoCleanupPolicy(policy);
+        applyPreferences();
+        UI.showToast(`Auto-cleanup policy set to ${policy}`);
+      }
+    });
   }
 
   function toggleProtectedDownloadAction(songId) {
@@ -2280,12 +3045,17 @@ const App = (() => {
       UI.showToast('No unpinned/unliked downloads to clean up! ✨');
       return;
     }
-    const msg = `Storage Cleanup Preview:\n\n• Will remove: ${preview.willRemoveCount} unpinned tracks (${preview.willRemoveMb} MB)\n• Will keep: ${preview.willKeepCount} tracks (${preview.willKeepMb} MB)\n\nProceed with cleanup?`;
-    if (confirm(msg)) {
-      const removed = await SmartDownloadManager.executeCleanup(preview.candidatesToRemove);
-      UI.showToast(`Cleaned up ${removed} tracks (${preview.willRemoveMb} MB freed) 🧹`);
-      UI.renderLibraryTab('downloads', librarySearchQuery, librarySortMode);
-    }
+    UI.showConfirmModal({
+      title: 'Clean Storage?',
+      message: `Clean up ${preview.willRemoveCount} unpinned tracks (${preview.willRemoveMb} MB)? ${preview.willKeepCount} protected/liked tracks (${preview.willKeepMb} MB) will be preserved.`,
+      confirmText: 'Clean Up',
+      isDestructive: true,
+      onConfirm: async () => {
+        const removed = await SmartDownloadManager.executeCleanup(preview.candidatesToRemove);
+        UI.showToast(`Cleaned up ${removed} tracks (${preview.willRemoveMb} MB freed) 🧹`);
+        UI.renderLibraryTab('downloads', librarySearchQuery, librarySortMode);
+      }
+    });
   }
 
   function removeHistoryTrack(songId) {
@@ -2388,13 +3158,15 @@ const App = (() => {
     const name = nameInp ? nameInp.value.trim() : '';
     const desc = descInp ? descInp.value.trim() : '';
     if (!name) {
-      alert('Please enter a playlist name');
+      UI.showToast('Please enter a playlist name');
       return;
     }
     if (editingPlaylistId) {
       Storage.editPlaylist(editingPlaylistId, { name, description: desc });
+      UI.showToast(`Updated "${name}"`);
     } else {
       Storage.createPlaylist(name, desc);
+      UI.showToast(`Created playlist "${name}" 🎉`);
     }
     closeCreatePlaylistModal();
     UI.renderLibraryTab('playlists', librarySearchQuery, librarySortMode);
@@ -2424,7 +3196,12 @@ const App = (() => {
     const pl = Storage.getPlaylistById(playlistId);
     if (pl && pl.songs && pl.songs.length > 0) {
       const idx = Math.max(0, Math.min(trackIndex, pl.songs.length - 1));
-      Player.setQueue(pl.songs, idx);
+      Player.setQueue(pl.songs, idx, true, {
+        source: 'playlist',
+        sourceId: playlistId,
+        title: pl.name || 'Playlist',
+        mode: 'playlist'
+      });
       expandFullPlayer();
     } else {
       UI.showToast('Playlist is empty.');
@@ -2438,7 +3215,12 @@ const App = (() => {
   function shuffleCustomPlaylist(playlistId) {
     const pl = Storage.getPlaylistById(playlistId);
     if (pl && pl.songs && pl.songs.length > 0) {
-      Player.setQueue(pl.songs, 0);
+      Player.setQueue(pl.songs, 0, true, {
+        source: 'playlist',
+        sourceId: playlistId,
+        title: pl.name || 'Playlist',
+        mode: 'playlist'
+      });
       if (!Player.getIsShuffle()) Player.toggleShuffle();
       expandFullPlayer();
     } else {
@@ -2469,52 +3251,24 @@ const App = (() => {
   }
 
   function deleteCustomPlaylist(playlistId) {
-    if (confirm('Delete this playlist?')) {
-      Storage.deletePlaylist(playlistId);
-      UI.showToast('Playlist deleted');
-      if (activeDetailPlaylistId === playlistId) {
-        navigate('library');
+    const pl = Storage.getPlaylistById(playlistId);
+    const plName = pl?.name || 'Playlist';
+    UI.showConfirmModal({
+      title: 'Delete Playlist?',
+      message: `"${plName}" will be permanently removed.`,
+      confirmText: 'Delete',
+      isDestructive: true,
+      onConfirm: () => {
+        Storage.deletePlaylist(playlistId);
+        UI.showToast('Playlist deleted');
+        if (activeDetailPlaylistId === playlistId) {
+          navigate('library');
+        }
+        UI.renderLibraryTab('playlists', librarySearchQuery, librarySortMode);
       }
-      UI.renderLibraryTab('playlists', librarySearchQuery, librarySortMode);
-    }
+    });
   }
 
-  function openSongMenu(songId, context = '') {
-    let song = null;
-    if (typeof songId === 'object') song = songId;
-    else {
-      song = Storage.getFavorites().find(s => String(s.id) === String(songId)) ||
-             Storage.getHistory().find(s => String(s.id) === String(songId)) ||
-             Storage.getDownloads().find(s => String(s.id) === String(songId)) ||
-             localUploadedSongs.find(s => String(s.id) === String(songId)) ||
-             currentArtistSongs.find(s => String(s.id) === String(songId)) ||
-             Player.getCurrentTrack();
-    }
-    if (!song) return;
-    selectedMenuSong = song;
-    selectedMenuPlaylistId = context && context.startsWith('pl_') ? context : null;
-
-    const titleEl = document.getElementById('song-action-title');
-    const subEl = document.getElementById('song-action-sub');
-    const artEl = document.getElementById('song-action-img');
-    const favIcon = document.getElementById('song-act-fav-icon');
-    const favText = document.getElementById('song-act-fav-text');
-    const removePlBtn = document.getElementById('btn-song-act-remove-pl');
-
-    if (titleEl) titleEl.textContent = song.name;
-    if (subEl) subEl.textContent = song.artists || song.primaryArtist || 'Unknown Artist';
-    if (artEl) artEl.src = song.image || 'assets/logo.png';
-
-    const isFav = Storage.isFavorite(song);
-    if (favIcon) favIcon.textContent = isFav ? 'favorite' : 'favorite_border';
-    if (favIcon) favIcon.style.color = isFav ? '#FF2A4D' : '';
-    if (favText) favText.textContent = isFav ? 'Unlike' : 'Favorite';
-
-    if (removePlBtn) removePlBtn.style.display = selectedMenuPlaylistId ? 'flex' : 'none';
-
-    const sheet = document.getElementById('sheet-song-actions');
-    if (sheet) sheet.style.display = 'flex';
-  }
 
   function closeSongMenu() {
     const sheet = document.getElementById('sheet-song-actions');
@@ -2532,7 +3286,7 @@ const App = (() => {
       } else {
         container.innerHTML = pls.map(p => `
           <div class="modal-pl-item" onclick="App.addSongToSpecificPlaylist('${p.id}')">
-            <span class="material-symbols-outlined" style="color:#FF2A4D;">queue_music</span>
+            <span class="material-symbols-outlined" style="color:var(--accent);">queue_music</span>
             <div>
               <div style="font-weight:700; font-size:14px; color:#fff;">${p.name}</div>
               <div style="font-size:11.5px; color:var(--text-secondary);">${p.songs?.length || 0} songs</div>
@@ -2781,15 +3535,7 @@ const App = (() => {
     UI.renderLibraryTab('local', librarySearchQuery, librarySortMode);
   }
 
-  function playLocalTrack(songId) {
-    const localSongs = Storage.getLocalSongs();
-    const idx = localSongs.findIndex(s => String(s.id) === String(songId));
-    if (idx >= 0) {
-      Player.setQueue(localSongs, idx);
-      expandFullPlayer();
-    }
-  }
-
+  
   function playLocalCollection(id, type) {
     let songs = [];
     if (type === 'album') {
@@ -2821,15 +3567,21 @@ const App = (() => {
   }
 
   async function clearAllDownloadsAction() {
-    if (confirm('Clear all downloaded offline music? This will free storage space.')) {
-      if (typeof DownloadManager !== 'undefined') {
-        await DownloadManager.clearAllDownloads();
-      } else {
-        await Storage.clearAllDownloads();
+    UI.showConfirmModal({
+      title: 'Clear Downloads?',
+      message: 'Clear all downloaded offline music? This will free storage space.',
+      confirmText: 'Clear All',
+      isDestructive: true,
+      onConfirm: async () => {
+        if (typeof DownloadManager !== 'undefined') {
+          await DownloadManager.clearAllDownloads();
+        } else {
+          await Storage.clearAllDownloads();
+        }
+        UI.showToast('Cleared all offline downloads 🧹');
+        UI.renderLibraryTab('downloads', librarySearchQuery, librarySortMode);
       }
-      UI.showToast('Cleared all offline downloads');
-      UI.renderLibraryTab('downloads', librarySearchQuery, librarySortMode);
-    }
+    });
   }
 
   function downloadPlaylistAction(playlistId) {
@@ -2880,10 +3632,113 @@ const App = (() => {
     }
   }
 
-  async function openAlbumOrPlaylist(id, type) {
+  let activeDetailAlbumData = null;
+
+  async function openAlbum(albumIdOrName, albumTitle = '', artistName = '', addToHistory = true) {
+    if (!albumIdOrName && !albumTitle) return;
     showLoader(true);
     try {
-      const data = type === 'album' ? await API.getAlbumDetails(id) : await API.getPlaylistDetails(id);
+      let albumData = null;
+      // 1. Try fetching via API getAlbumDetails if it looks like an ID
+      if (albumIdOrName && !/^\s+$/.test(albumIdOrName)) {
+        albumData = await API.getAlbumDetails(albumIdOrName).catch(() => null);
+      }
+
+      // 2. If getAlbumDetails returned no songs or failed, search songs by album name + artist
+      if (!albumData || !albumData.songs || albumData.songs.length === 0) {
+        const query = `${albumTitle || albumIdOrName} ${artistName}`.trim();
+        const songs = await API.searchSongs(query, 1, 20).catch(() => []);
+        if (songs && songs.length > 0) {
+          albumData = {
+            id: albumIdOrName || `album_${Date.now()}`,
+            name: albumTitle || albumIdOrName || songs[0].album || 'Album',
+            title: albumTitle || albumIdOrName || songs[0].album || 'Album',
+            artist: artistName || songs[0].primaryArtist || songs[0].artists || 'Artist',
+            primaryArtist: artistName || songs[0].primaryArtist || songs[0].artists || 'Artist',
+            year: songs[0].year || '',
+            image: songs[0].image || 'assets/logo.png',
+            songs: songs
+          };
+        }
+      }
+
+      if (albumData && albumData.songs && albumData.songs.length > 0) {
+        activeDetailAlbumData = albumData;
+        if (addToHistory) {
+          pushHistory('album', {
+            albumId: albumData.id,
+            albumTitle: albumData.name || albumData.title,
+            artistName: albumData.artist || albumData.primaryArtist
+          });
+        }
+
+        document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+        const detailScreen = document.getElementById('screen-detail');
+        if (detailScreen) detailScreen.classList.add('active');
+
+        UI.renderAlbumDetail(albumData);
+      } else {
+        UI.showToast(`Could not load album "${albumTitle || albumIdOrName}"`);
+      }
+    } catch (e) {
+      console.error('[App] openAlbum error:', e);
+      UI.showToast('Could not load album');
+    }
+    showLoader(false);
+  }
+
+  function playAlbumTrack(index = 0) {
+    if (activeDetailAlbumData && Array.isArray(activeDetailAlbumData.songs) && activeDetailAlbumData.songs.length > 0) {
+      Player.setQueue(activeDetailAlbumData.songs, index, true);
+      expandFullPlayer();
+    }
+  }
+
+  function shuffleAlbum() {
+    if (activeDetailAlbumData && Array.isArray(activeDetailAlbumData.songs) && activeDetailAlbumData.songs.length > 0) {
+      Player.setQueue(activeDetailAlbumData.songs, 0, true);
+      Player.toggleShuffle();
+      expandFullPlayer();
+    }
+  }
+
+  function startAlbumRadio() {
+    if (activeDetailAlbumData && Array.isArray(activeDetailAlbumData.songs) && activeDetailAlbumData.songs.length > 0) {
+      startRadio(activeDetailAlbumData.songs[0]);
+    } else if (activeDetailAlbumData) {
+      startRadio(activeDetailAlbumData.artist || activeDetailAlbumData.name);
+    }
+  }
+
+  
+  function shareAlbumAction() {
+    if (!activeDetailAlbumData) return;
+    const title = activeDetailAlbumData.name || activeDetailAlbumData.title;
+    const artist = activeDetailAlbumData.artist || activeDetailAlbumData.primaryArtist || '';
+    if (navigator.share) {
+      navigator.share({ title: title, text: `Listen to ${title} by ${artist} on MusicFlow`, url: window.location.href });
+    } else if (navigator.clipboard) {
+      navigator.clipboard.writeText(`${title} by ${artist}`);
+      UI.showToast('Album link copied to clipboard!');
+    }
+  }
+
+  function scrollSearchToTop() {
+    const main = document.getElementById('main-scroll-container') || window;
+    if (main.scrollTo) {
+      main.scrollTo({ top: 0, behavior: 'smooth' });
+    } else {
+      main.scrollTop = 0;
+    }
+  }
+
+  async function openAlbumOrPlaylist(id, type) {
+    if (type === 'album') {
+      return openAlbum(id);
+    }
+    showLoader(true);
+    try {
+      const data = await API.getPlaylistDetails(id);
       if (data && data.songs && data.songs.length > 0) {
         Player.setQueue(data.songs, 0);
         expandFullPlayer();
@@ -2894,7 +3749,526 @@ const App = (() => {
     showLoader(false);
   }
 
-  // Auto initialize when DOM is loaded
+  // ==========================================================================
+  // YOUTUBE PLAYLIST IMPORT & CATALOG MATCHING (Phase 6)
+  // ==========================================================================
+  let activeImportedPlaylist = null;
+
+  function openImportYouTubePlaylistModal() {
+    const modal = document.getElementById('modal-import-yt-playlist');
+    const input = document.getElementById('input-import-yt-url');
+    const loader = document.getElementById('import-yt-loading');
+    const results = document.getElementById('import-yt-results');
+    const preview = document.getElementById('import-yt-tracks-preview');
+
+    if (input) input.value = '';
+    if (loader) loader.style.display = 'none';
+    if (results) results.style.display = 'none';
+    if (preview) preview.innerHTML = '';
+    activeImportedPlaylist = null;
+
+    if (modal) modal.style.display = 'flex';
+  }
+
+  function closeImportYouTubePlaylistModal() {
+    const modal = document.getElementById('modal-import-yt-playlist');
+    if (modal) modal.style.display = 'none';
+    activeImportedPlaylist = null;
+  }
+
+  async function submitYouTubePlaylistImport() {
+    const input = document.getElementById('input-import-yt-url');
+    const loader = document.getElementById('import-yt-loading');
+    const results = document.getElementById('import-yt-results');
+    const preview = document.getElementById('import-yt-tracks-preview');
+    const foundEl = document.getElementById('stat-yt-found');
+    const matchedEl = document.getElementById('stat-yt-matched');
+    const unmatchedEl = document.getElementById('stat-yt-unmatched');
+    const saveBtn = document.getElementById('btn-save-imported-pl');
+
+    const url = (input?.value || '').trim();
+    if (!url) {
+      UI.showToast('Please enter a YouTube link or ID');
+      return;
+    }
+
+    if (loader) loader.style.display = 'block';
+    if (results) results.style.display = 'none';
+
+    const parsedYt = (typeof DataNormalizer !== 'undefined' && DataNormalizer.parseYouTubeUrl)
+      ? DataNormalizer.parseYouTubeUrl(url)
+      : null;
+
+    const isSingleTrack = parsedYt && parsedYt.type === 'track';
+    const endpoint = isSingleTrack ? '/api/providers/ytmusic/import-track' : '/api/providers/ytmusic/import-playlist';
+    const isMobileAndroid = (typeof ApiConfig !== 'undefined' && typeof ApiConfig.isRunningInAndroid === 'function' && ApiConfig.isRunningInAndroid());
+    const fullUrl = (typeof ApiConfig !== 'undefined') ? ApiConfig.buildUrl(endpoint) : endpoint;
+
+    try {
+      let resData = null;
+
+      // In local development, try local Node server; in Android or remote Saavn host, use direct adapter
+      if (!isMobileAndroid && !fullUrl.includes('spoton-trpn.vercel.app')) {
+        try {
+          const fetchSignal = (typeof AbortSignal !== 'undefined' && AbortSignal.timeout)
+            ? AbortSignal.timeout(6000)
+            : undefined;
+
+          const res = await fetch(fullUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({ url }),
+            signal: fetchSignal
+          });
+
+          if (res.ok) {
+            const contentType = (res.headers && typeof res.headers.get === 'function')
+              ? (res.headers.get('content-type') || '')
+              : '';
+            if (!contentType || contentType.includes('application/json')) {
+              resData = await res.json();
+            }
+          }
+        } catch (netErr) {
+          console.warn(`[YouTubeImport] Backend fetch failed (${fullUrl}):`, netErr.message);
+        }
+      }
+
+      // Execute client-side YouTubeMusicService directly (handles Innertube metadata + JioSaavn search matching)
+      if (!resData || resData.success === false) {
+        const ytm = (typeof YouTubeMusicService !== 'undefined')
+          ? YouTubeMusicService
+          : (typeof window !== 'undefined' && window.YouTubeMusicService ? window.YouTubeMusicService : null);
+
+        if (ytm) {
+          console.log('[YouTubeImport] Executing direct YouTube Music adapter');
+          if (isSingleTrack && typeof ytm.importTrack === 'function') {
+            resData = await ytm.importTrack(url);
+          } else if (typeof ytm.importAndMatchPlaylist === 'function') {
+            resData = await ytm.importAndMatchPlaylist(url);
+          }
+        }
+      }
+
+      if (!resData || resData.success === false) {
+        const errorMsg = resData?.error?.message || resData?.error || 'Could not import the specified YouTube link. Please verify the URL and try again.';
+        throw new Error(errorMsg);
+      }
+
+      let data = resData;
+
+      if (isSingleTrack && resData.track) {
+        const tr = (typeof DataNormalizer !== 'undefined') ? DataNormalizer.normalizeTrack(resData.track) : resData.track;
+        if (tr) {
+          tr.playbackAvailable = true;
+          tr.isPlayable = true;
+          registerTrack(tr);
+        }
+        data = {
+          type: 'song',
+          isSingleSong: true,
+          playlistTitle: tr.name || tr.title,
+          image: tr.image || tr.albumArt,
+          totalFound: 1,
+          matchedCount: 1,
+          unmatchedCount: 0,
+          matchedTracks: [tr],
+          unmatchedTracks: [],
+          allTracks: [tr]
+        };
+      } else if (data && data.allTracks) {
+        registerTracks(data.allTracks);
+      }
+
+      activeImportedPlaylist = data;
+
+      if (loader) loader.style.display = 'none';
+      if (results) results.style.display = 'flex';
+
+      if (foundEl) foundEl.textContent = data.totalFound || 0;
+      if (matchedEl) matchedEl.textContent = data.matchedCount || 0;
+      if (unmatchedEl) unmatchedEl.textContent = data.unmatchedCount || 0;
+
+      if (saveBtn) {
+        if (data.isSingleSong) {
+          saveBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size:16px;">favorite</span><span>Save to My Music</span>';
+        } else {
+          saveBtn.innerHTML = '<span class="material-symbols-outlined" style="font-size:16px;">playlist_add_check</span><span>Save to My Music</span>';
+        }
+      }
+
+      if (preview) {
+        const allTracks = data.allTracks || [];
+        preview.innerHTML = allTracks.map((song, idx) => {
+          const isMatched = song.playbackAvailable || song.audioUrl || song.streamUrl;
+          const artistName = (typeof DataNormalizer !== 'undefined') ? DataNormalizer.getArtistString(song) : (song.artists || 'Unknown Artist');
+          return `
+            <div style="display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:8px; background:rgba(255,255,255,0.03);">
+              <span style="font-size:11px; color:var(--text-secondary); width:18px;">${idx + 1}</span>
+              <img src="${song.image || 'assets/logo.png'}" style="width:32px; height:32px; border-radius:6px; object-fit:cover;" onerror="this.src='assets/logo.png'">
+              <div style="flex:1; min-width:0;">
+                <div style="font-size:12.5px; font-weight:600; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(song.name || song.title || 'Track')}</div>
+                <div style="font-size:11px; color:var(--text-secondary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(artistName)}</div>
+              </div>
+              <span style="font-size:10.5px; font-weight:700; padding:2px 6px; border-radius:6px; background:${isMatched ? 'rgba(0,242,254,0.15)' : 'var(--accent-soft)'}; color:${isMatched ? '#00F2FE' : 'var(--accent)'};">
+                ${isMatched ? 'Matched' : 'Unavailable'}
+              </span>
+            </div>
+          `;
+        }).join('');
+      }
+    } catch (err) {
+      if (loader) loader.style.display = 'none';
+      console.error('[YouTubeImport] Import failed:', err);
+
+      let userMsg = 'Unable to connect to MusicFlow server. Check your internet connection and try again.';
+      if (err.name === 'AbortError' || err.name === 'TimeoutError' || (err.message && err.message.includes('timeout'))) {
+        userMsg = 'Request timed out connecting to MusicFlow server. Please try again.';
+      } else if (err.message && !err.message.includes('500') && !err.message.includes('Failed to fetch') && !err.message.includes('NetworkError') && !err.message.includes('fetch')) {
+        userMsg = err.message;
+      }
+      UI.showToast(userMsg);
+    }
+  }
+
+  function saveImportedPlaylist() {
+    if (!activeImportedPlaylist || !activeImportedPlaylist.allTracks) {
+      UI.showToast('No imported track to save.');
+      return;
+    }
+
+    if (activeImportedPlaylist.isSingleSong || activeImportedPlaylist.type === 'song') {
+      const rawSong = activeImportedPlaylist.allTracks[0];
+      const song = (typeof DataNormalizer !== 'undefined') ? DataNormalizer.normalizeTrack(rawSong) : rawSong;
+      if (song) {
+        registerTrack(song);
+        Storage.addFavorite(song);
+        closeImportYouTubePlaylistModal();
+        UI.renderLibraryTab('liked', librarySearchQuery, librarySortMode);
+        UI.showToast(`Saved "${song.name}" to My Music 🎵`);
+        return;
+      }
+    }
+
+    const title = activeImportedPlaylist.playlistTitle || 'Imported YouTube Playlist';
+    const desc = activeImportedPlaylist.description || `Imported from YouTube Music (${activeImportedPlaylist.matchedCount || activeImportedPlaylist.allTracks.length}/${activeImportedPlaylist.totalFound || activeImportedPlaylist.allTracks.length} matched)`;
+    const rawSongs = activeImportedPlaylist.allTracks || [];
+    const songs = rawSongs.map(s => (typeof DataNormalizer !== 'undefined' ? DataNormalizer.normalizeTrack(s) : s)).filter(Boolean);
+
+    const cover = (songs[0] && (songs[0].image || songs[0].artwork)) || '';
+    const newPl = Storage.createPlaylist(title, desc, cover, songs);
+    if (newPl && newPl.id) {
+      // Record recommendation imported taste signal
+      if (typeof RecommendationEngine !== 'undefined' && RecommendationEngine.recordImportSignal) {
+        RecommendationEngine.recordImportSignal(songs);
+      }
+
+      closeImportYouTubePlaylistModal();
+      UI.renderLibraryTab('playlists', librarySearchQuery, librarySortMode);
+      UI.showToast(`Saved "${title}" (${songs.length} tracks) 🎉`);
+    } else {
+      UI.showToast('Could not save playlist.');
+    }
+  }
+
+  // ==========================================================================
+  // IN-APP UPDATE SYSTEM HANDLERS
+  // ==========================================================================
+  function checkUpdatesManual() {
+    if (typeof UpdateManager !== 'undefined') {
+      UpdateManager.checkForUpdates({ manual: true });
+    }
+  }
+
+  function openUpdateDownload() {
+    if (typeof UpdateManager !== 'undefined') {
+      UpdateManager.openUpdate();
+    }
+  }
+
+  function openGitHubRelease() {
+    if (typeof UpdateManager !== 'undefined') {
+      UpdateManager.openReleasePage();
+    }
+  }
+
+  function dismissUpdateDialog() {
+    if (typeof UpdateManager !== 'undefined') {
+      UpdateManager.dismissUpdate();
+    }
+  }
+
+  function dismissUpdateBanner() {
+    if (typeof UI !== 'undefined' && UI.hideUpdateBanner) {
+      UI.hideUpdateBanner();
+    }
+  }
+
+  function closeUpdateDialog() {
+    if (typeof UpdateManager !== 'undefined') {
+      const state = UpdateManager.getState();
+      if (state.updateRequired) return;
+      UpdateManager.dismissUpdate();
+    }
+  }
+
+  // ==========================================================================
+  // UNIFIED MODAL FORWARDERS & 3D SWIPE DISCOVERY HANDLERS
+  // ==========================================================================
+  function closeConfirmModal(isConfirmed) {
+    if (typeof UI !== 'undefined' && UI.closeConfirmModal) {
+      UI.closeConfirmModal(isConfirmed);
+    }
+  }
+
+  function closePromptModal(val) {
+    if (typeof UI !== 'undefined' && UI.closePromptModal) {
+      UI.closePromptModal(val);
+    }
+  }
+
+  function submitPromptModal() {
+    if (typeof UI !== 'undefined' && UI.submitPromptModal) {
+      UI.submitPromptModal();
+    }
+  }
+
+  // ==========================================================================
+  // ENDLESS 3D DISCOVERY CARD ENGINE (State-Machine Driven & Race-Free)
+  // ==========================================================================
+  const SwipeState = {
+    IDLE: 'IDLE',
+    DRAGGING: 'DRAGGING',
+    COMMITTING: 'COMMITTING',
+    LOADING_NEXT: 'LOADING_NEXT',
+    READY: 'READY'
+  };
+
+  let swipeSongs = [];
+  let swipeCurrentIndex = 0;
+  let swipeState = SwipeState.IDLE;
+  let isFetchingDiscoveryBatch = false;
+  let discoveryActiveMood = 'all';
+
+  async function fetchMoreDiscoveryCards(silent = false) {
+    if (isFetchingDiscoveryBatch) return;
+    isFetchingDiscoveryBatch = true;
+    if (!silent && swipeSongs.length === 0) showLoader(true);
+
+    try {
+      let candidatePool = [];
+      const userLangs = (typeof Storage !== 'undefined' && Storage.getLanguages) ? Storage.getLanguages() : ['hindi', 'english'];
+
+      if (typeof HomeDataLayer !== 'undefined' && HomeDataLayer.getQuickPicks) {
+        const qp = await HomeDataLayer.getQuickPicks();
+        if (Array.isArray(qp)) candidatePool.push(...qp);
+      }
+
+      if (typeof API !== 'undefined' && API.getHomeFeed) {
+        const feed = await API.getHomeFeed(userLangs);
+        if (feed?.quickPicks) candidatePool.push(...feed.quickPicks);
+        if (feed?.trending?.songs) candidatePool.push(...feed.trending.songs);
+      }
+
+      let newBatch = [];
+      if (typeof RecommendationEngine !== 'undefined' && RecommendationEngine.getDiscoveryFeed) {
+        newBatch = RecommendationEngine.getDiscoveryFeed(candidatePool, {
+          mood: discoveryActiveMood,
+          selectedLanguages: userLangs,
+          limit: 25,
+          excludeIds: swipeSongs.map(s => String(s.id))
+        });
+      } else {
+        newBatch = candidatePool.slice(0, 25);
+      }
+
+      if (newBatch && newBatch.length > 0) {
+        // Append to existing discovery stack preserving current pointer
+        swipeSongs = [...swipeSongs, ...newBatch];
+        if (typeof UI !== 'undefined' && UI.renderSwipeDiscovery) {
+          UI.renderSwipeDiscovery(swipeSongs.slice(swipeCurrentIndex));
+        }
+        attachSwipeGestures();
+      }
+    } catch (err) {
+      console.warn('[DiscoveryEngine] Batch fetch error:', err);
+    } finally {
+      isFetchingDiscoveryBatch = false;
+      if (!silent) showLoader(false);
+      swipeState = SwipeState.READY;
+    }
+  }
+
+  async function initSwipeDiscovery() {
+    if (swipeSongs.length > 0 && swipeCurrentIndex < swipeSongs.length) {
+      if (typeof UI !== 'undefined' && UI.renderSwipeDiscovery) {
+        UI.renderSwipeDiscovery(swipeSongs.slice(swipeCurrentIndex));
+      }
+      attachSwipeGestures();
+      return;
+    }
+
+    await fetchMoreDiscoveryCards(false);
+  }
+
+  async function refreshDiscoveryFeed() {
+    swipeSongs = [];
+    swipeCurrentIndex = 0;
+    if (typeof RecommendationEngine !== 'undefined' && RecommendationEngine.resetDiscoverySession) {
+      RecommendationEngine.resetDiscoverySession();
+    }
+    await fetchMoreDiscoveryCards(false);
+  }
+
+  function playDiscoveryTrack(song) {
+    if (!song) return;
+    const remainingQueue = swipeSongs.slice(swipeCurrentIndex);
+    Player.setQueue(remainingQueue, 0, true, { source: 'discovery', mode: 'normal' });
+  }
+
+  function swipeCardAction(action) {
+    if (swipeState === SwipeState.COMMITTING || swipeState === SwipeState.LOADING_NEXT) {
+      return; // Ignore inputs during transition commitment
+    }
+
+    if (swipeCurrentIndex >= swipeSongs.length) {
+      fetchMoreDiscoveryCards(false);
+      return;
+    }
+
+    swipeState = SwipeState.COMMITTING;
+    const currentSong = swipeSongs[swipeCurrentIndex];
+    const topCard = document.getElementById('swipe-card-0');
+    const nextCard = document.getElementById('swipe-card-1');
+
+    if (action === 'like') {
+      Storage.addFavorite(currentSong);
+      UI.showToast(`Saved "${currentSong.name || currentSong.title}" to Favorites ❤️`);
+      if (topCard) {
+        topCard.style.transition = 'transform 0.28s cubic-bezier(0.25, 0.46, 0.45, 0.94), opacity 0.28s ease';
+        topCard.style.transform = 'translate3d(120%, 0, 0) rotate(12deg)';
+        topCard.style.opacity = '0';
+      }
+    } else if (action === 'nope') {
+      if (topCard) {
+        topCard.style.transition = 'transform 0.28s cubic-bezier(0.25, 0.46, 0.45, 0.94), opacity 0.28s ease';
+        topCard.style.transform = 'translate3d(-120%, 0, 0) rotate(-12deg)';
+        topCard.style.opacity = '0';
+      }
+    } else if (action === 'play') {
+      playDiscoveryTrack(currentSong);
+      if (topCard) {
+        topCard.style.transition = 'transform 0.28s cubic-bezier(0.25, 0.46, 0.45, 0.94), opacity 0.28s ease';
+        topCard.style.transform = 'translate3d(0, -110%, 0) scale(1.03)';
+        topCard.style.opacity = '0';
+      }
+    }
+
+    if (nextCard) {
+      nextCard.style.transition = 'transform 0.28s cubic-bezier(0.25, 0.46, 0.45, 0.94), opacity 0.28s ease';
+      nextCard.style.transform = 'translate3d(0, 0, 0) scale(1)';
+      nextCard.style.opacity = '1';
+    }
+
+    setTimeout(() => {
+      // Exactly 1 card consumed per completed gesture
+      swipeCurrentIndex++;
+      swipeState = SwipeState.READY;
+
+      if (typeof UI !== 'undefined' && UI.renderSwipeDiscovery) {
+        UI.renderSwipeDiscovery(swipeSongs.slice(swipeCurrentIndex));
+      }
+      attachSwipeGestures();
+
+      // Silent prefetch when 5 or fewer cards remain ahead in stack
+      if (swipeSongs.length - swipeCurrentIndex <= 5) {
+        fetchMoreDiscoveryCards(true);
+      }
+    }, 280);
+  }
+
+  function attachSwipeGestures() {
+    if (typeof document === 'undefined') return;
+    const card = document.getElementById('swipe-card-0');
+    if (!card) return;
+
+    let startX = 0, startY = 0, currentX = 0, currentY = 0;
+    let isDragging = false;
+
+    const onPointerDown = (e) => {
+      if (swipeState === SwipeState.COMMITTING || swipeState === SwipeState.LOADING_NEXT) return;
+      isDragging = true;
+      swipeState = SwipeState.DRAGGING;
+      startX = e.clientX || (e.touches && e.touches[0].clientX) || 0;
+      startY = e.clientY || (e.touches && e.touches[0].clientY) || 0;
+      card.classList.add('dragging');
+      if (card.setPointerCapture && e.pointerId) {
+        try { card.setPointerCapture(e.pointerId); } catch (_) {}
+      }
+    };
+
+    const onPointerMove = (e) => {
+      if (!isDragging || swipeState !== SwipeState.DRAGGING) return;
+      const x = (e.clientX || (e.touches && e.touches[0].clientX) || 0) - startX;
+      const y = (e.clientY || (e.touches && e.touches[0].clientY) || 0) - startY;
+      currentX = x;
+      currentY = y;
+
+      const rot = Math.max(-15, Math.min(15, (x / 200) * 12));
+      card.style.transform = `translate3d(${x}px, ${y}px, 0) rotate(${rot}deg)`;
+
+      const likeBadge = card.querySelector('.swipe-badge-like');
+      const nopeBadge = card.querySelector('.swipe-badge-nope');
+      const playBadge = card.querySelector('.swipe-badge-play');
+
+      if (x > 30 && likeBadge) {
+        likeBadge.style.opacity = Math.min(1, (x - 30) / 60);
+        if (nopeBadge) nopeBadge.style.opacity = 0;
+        if (playBadge) playBadge.style.opacity = 0;
+      } else if (x < -30 && nopeBadge) {
+        nopeBadge.style.opacity = Math.min(1, (-x - 30) / 60);
+        if (likeBadge) likeBadge.style.opacity = 0;
+        if (playBadge) playBadge.style.opacity = 0;
+      } else if (y < -30 && playBadge) {
+        playBadge.style.opacity = Math.min(1, (-y - 30) / 60);
+        if (likeBadge) likeBadge.style.opacity = 0;
+        if (nopeBadge) nopeBadge.style.opacity = 0;
+      } else {
+        if (likeBadge) likeBadge.style.opacity = 0;
+        if (nopeBadge) nopeBadge.style.opacity = 0;
+        if (playBadge) playBadge.style.opacity = 0;
+      }
+    };
+
+    const onPointerUp = () => {
+      if (!isDragging) return;
+      isDragging = false;
+      card.classList.remove('dragging');
+
+      if (currentX > 80) {
+        swipeCardAction('like');
+      } else if (currentX < -80) {
+        swipeCardAction('nope');
+      } else if (currentY < -75) {
+        swipeCardAction('play');
+      } else {
+        swipeState = SwipeState.READY;
+        card.style.transition = 'transform 0.2s ease, opacity 0.2s ease';
+        card.style.transform = '';
+        const badges = card.querySelectorAll('.swipe-card-badge');
+        badges.forEach(b => { b.style.opacity = 0; });
+        setTimeout(() => { card.style.transition = ''; }, 200);
+      }
+      currentX = 0;
+      currentY = 0;
+    };
+
+    card.onpointerdown = onPointerDown;
+    card.onpointermove = onPointerMove;
+    card.onpointerup = onPointerUp;
+    card.onpointercancel = onPointerUp;
+  }
+
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
   } else {
@@ -2903,6 +4277,22 @@ const App = (() => {
 
   return {
     init,
+    checkUpdatesManual,
+    openUpdateDownload,
+    openGitHubRelease,
+    dismissUpdateDialog,
+    dismissUpdateBanner,
+    closeUpdateDialog,
+    closeConfirmModal,
+    closePromptModal,
+    submitPromptModal,
+    initSwipeDiscovery,
+    refreshDiscoveryFeed,
+    selectArtistFromPicker,
+    swipeCardAction,
+    get isUpdateMandatory() {
+      return typeof UpdateManager !== 'undefined' ? !!UpdateManager.getState().updateRequired : false;
+    },
     navigate,
     goBack,
     openArtist,
@@ -2910,6 +4300,7 @@ const App = (() => {
     openArtistMenu,
     artistMenuAction,
     startArtistRadio,
+    filterArtistCategory,
     toggleFollowArtist,
     toggleAllArtistTracks,
     loadMoreArtistSongs,
@@ -2922,6 +4313,9 @@ const App = (() => {
     clearSearchData,
     playSongFromSearch,
     playSongWithQueue,
+    registerTrack,
+    registerTracks,
+    getTrack: getRegisteredTrack,
     playSongFromArtistList,
     playSongFromFavs,
     playMix,
@@ -3006,6 +4400,13 @@ const App = (() => {
     closeAddToPlaylistModal,
     createAndAddSongToPlaylist,
     openCustomPlaylist,
+    openAlbum,
+    playAlbumTrack,
+    shuffleAlbum,
+    startAlbumRadio,
+    downloadAlbumAction,
+    shareAlbumAction,
+    scrollSearchToTop,
     openAlbumOrPlaylist,
     triggerFolderImport,
     triggerFilesImport,
@@ -3022,7 +4423,6 @@ const App = (() => {
     handleQueueDragStart,
     handleQueueDragOver,
     handleQueueDrop,
-    removeTrackFromQueue,
     playCustomPlaylistTrack,
     startPlaylistRadio,
     filterCurrentPlaylist,
@@ -3032,7 +4432,6 @@ const App = (() => {
     handlePlaylistDrop,
     saveQueueAsPlaylistAction,
     exportPlaylistAction,
-    downloadAlbumAction,
     downloadLikedSongsAction,
     clearAllDownloadsAction,
     toggleSmartDownloads,
@@ -3042,15 +4441,43 @@ const App = (() => {
     openAutoCleanupDialog,
     toggleProtectedDownloadAction,
     openStorageCleanupDialog,
-    openSleepTimerDialog,
-    setSleepPreset,
     addSleepMinutes,
     cancelSleepTimer,
     onCustomSleepInput,
     setCustomSleepTimer,
+    openImportYouTubePlaylistModal,
+    closeImportYouTubePlaylistModal,
+    submitYouTubePlaylistImport,
+    saveImportedPlaylist,
+    navigateToArtist,
+    openThemeDialog,
+    closeThemeDialog,
+    selectThemePreset,
+    transitionToNext,
+    transitionToPrevious,
+    animateToNext: () => (typeof transitionToNext === 'function' ? transitionToNext() : Player.next()),
+    animateToPrevious: () => (typeof transitionToPrevious === 'function' ? transitionToPrevious() : Player.previous()),
+    openCurrentSongMenu,
+    openSongMenu,
+    playAllDetailTracks: () => {
+      if (activeDetailPlaylistId) playCustomPlaylist(activeDetailPlaylistId);
+    },
+    shuffleDetailTracks: () => {
+      if (activeDetailPlaylistId) shuffleCustomPlaylist(activeDetailPlaylistId);
+    },
+    downloadDetailPlaylist: () => {
+      if (activeDetailPlaylistId) downloadPlaylistAction(activeDetailPlaylistId);
+    },
+    filterDetailTracks: filterCurrentPlaylist,
     openCastOutputDialog,
     openAudioOutputSheet,
     initSeekBar,
+    redrawSeekBarWave: () => {
+      if (typeof UI !== 'undefined' && UI.WavyProgressBar) {
+        UI.WavyProgressBar.draw();
+      }
+    },
+    initPlayer3DDeckGesture,
     handleBack,
     pushHistory,
     getNavHistory: () => [...navHistory]

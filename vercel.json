@@ -1,0 +1,18 @@
+{
+  "version": 2,
+  "public": false,
+  "rewrites": [
+    { "source": "/api/providers/ytmusic/import-playlist", "destination": "/api/providers/ytmusic/import-playlist.js" },
+    { "source": "/api/providers/ytmusic/import-track", "destination": "/api/providers/ytmusic/import-track.js" },
+    { "source": "/api/providers/ytmusic/search", "destination": "/api/providers/ytmusic/search.js" },
+    { "source": "/api/providers/ytmusic/radio", "destination": "/api/providers/ytmusic/radio.js" },
+    { "source": "/api/providers/ytmusic/song", "destination": "/api/providers/ytmusic/song.js" },
+    { "source": "/api/providers/ytmusic/artist", "destination": "/api/providers/ytmusic/artist.js" },
+    { "source": "/api/providers/ytmusic/album", "destination": "/api/providers/ytmusic/album.js" },
+    { "source": "/api/providers/ytmusic/playlist", "destination": "/api/providers/ytmusic/playlist.js" },
+    { "source": "/api/providers/ytmusic/stream", "destination": "/api/providers/ytmusic/stream.js" },
+    { "source": "/api/providers/health", "destination": "/api/providers/health.js" },
+    { "source": "/api/update", "destination": "/api/update.js" },
+    { "source": "/(.*)", "destination": "/web-app/$1" }
+  ]
+}

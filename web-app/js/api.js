@@ -4,9 +4,16 @@
 
 const API = (() => {
   // Live Working Hosts (Android App host spoton-trpn)
-  const PRIMARY_HOSTS = [
+  const DEFAULT_PRIMARY_HOSTS = [
     'https://spoton-trpn.vercel.app/api'
   ];
+
+  function getPrimaryHosts() {
+    if (typeof ApiConfig !== 'undefined' && typeof ApiConfig.getJioSaavnApiBase === 'function') {
+      return [ApiConfig.getJioSaavnApiBase()];
+    }
+    return DEFAULT_PRIMARY_HOSTS;
+  }
 
   let currentHostIndex = 0;
 
@@ -23,11 +30,15 @@ const API = (() => {
 
   async function fetchWithFallback(endpoint, params = {}) {
     const query = new URLSearchParams(params).toString();
-    const path = `${endpoint}${query ? '?' + query : ''}`;
+    const cleanEndpoint = endpoint.startsWith('/api/')
+      ? endpoint.replace(/^\/api/, '')
+      : (endpoint.startsWith('/') ? endpoint : `/${endpoint}`);
+    const path = `${cleanEndpoint}${query ? '?' + query : ''}`;
+    const hosts = getPrimaryHosts();
 
-    for (let i = 0; i < PRIMARY_HOSTS.length; i++) {
-      const idx = (currentHostIndex + i) % PRIMARY_HOSTS.length;
-      const url = `${PRIMARY_HOSTS[idx]}${path}`;
+    for (let i = 0; i < hosts.length; i++) {
+      const idx = (currentHostIndex + i) % hosts.length;
+      const url = `${hosts[idx]}${path}`;
 
       try {
         const res = await fetch(url, { signal: AbortSignal.timeout(9000) });
@@ -36,10 +47,10 @@ const API = (() => {
         currentHostIndex = idx;
         return data;
       } catch (err) {
-        console.warn(`[API] Host ${PRIMARY_HOSTS[idx]} failed for ${endpoint}:`, err.message);
+        console.warn(`[API] Host ${hosts[idx]} failed for ${cleanEndpoint}:`, err.message);
       }
     }
-    throw new Error(`[API] All hosts failed for ${endpoint}`);
+    throw new Error(`[API] All hosts failed for ${cleanEndpoint}`);
   }
 
   // Helper to extract highest quality image (500x500 HD)
@@ -88,8 +99,12 @@ const API = (() => {
   }
 
   // Normalizes any song object into a standard schema matching Android Song.kt
+  // Normalizes any song object into standard canonical schema
   function normalizeSong(raw) {
     if (!raw) return null;
+    if (typeof DataNormalizer !== 'undefined' && DataNormalizer.normalizeTrack) {
+      return DataNormalizer.normalizeTrack(raw, raw.provider || 'jiosaavn');
+    }
 
     let artistsStr = '';
     if (typeof raw.artists === 'string' && raw.artists.trim()) {
@@ -125,20 +140,32 @@ const API = (() => {
     const cleanAlbum = decodeHtml(typeof raw.album === 'object' ? (raw.album.name || '') : (raw.album || ''));
     const cleanArtists = decodeHtml(artistsStr);
 
+    const audioUrl = getDownloadUrl(raw);
+    const provider = raw.provider || 'jiosaavn';
+    const providerId = String(raw.providerId || raw.id || raw.videoId || raw._id || Math.random());
+    const isPlayable = Boolean(audioUrl || raw.streamUrl || raw.playbackAvailable || provider === 'jiosaavn' || provider === 'local');
+
     return {
-      id: String(raw.id || raw._id || Math.random()),
+      id: String(raw.id || raw._id || (provider === 'youtube_music' ? `yt_${providerId}` : providerId)),
       name: cleanTitle,
+      title: cleanTitle,
       album: cleanAlbum,
       albumId: raw.album?.id || raw.albumId || '',
       artists: cleanArtists,
+      artistNames: [cleanArtists],
       primaryArtist: (cleanArtists || '').split(',')[0].split(';')[0].trim(),
       image: getImageUrl(raw),
-      audioUrl: getDownloadUrl(raw),
+      audioUrl: audioUrl,
+      streamUrl: raw.streamUrl || audioUrl,
       duration: Number(raw.duration || 0),
       rawDuration: raw.duration,
       year: raw.year || '',
       language: raw.language || 'hindi',
-      downloadUrl: raw.downloadUrl || []
+      downloadUrl: raw.downloadUrl || [],
+      provider: provider,
+      providerId: providerId,
+      metadataAvailable: true,
+      playbackAvailable: isPlayable
     };
   }
 
@@ -151,37 +178,49 @@ const API = (() => {
     // Home feed recommendations & charts (curated high quality queries + personalization)
     async getHomeFeed(languages = ['hindi', 'english', 'punjabi']) {
       try {
-        const primaryLang = (languages && languages[0]) ? (languages[0].charAt(0).toUpperCase() + languages[0].slice(1)) : 'Hindi';
+        const langList = Array.isArray(languages) && languages.length > 0 ? languages : ['hindi', 'english'];
+        const searchPromises = [];
 
-        const [songsRes, newRelRes, albumsRes, playlistsRes] = await Promise.allSettled([
-          this.searchSongs(`Top 50 ${primaryLang} Hits 2024`, 1, 24),
-          this.searchSongs(`Latest Bollywood Songs 2024`, 1, 24),
+        langList.slice(0, 3).forEach(lang => {
+          const capLang = String(lang).charAt(0).toUpperCase() + String(lang).slice(1);
+          searchPromises.push(this.searchSongs(`Top ${capLang} Hits 2024`, 1, 16));
+        });
+
+        const primaryLang = String(langList[0]).charAt(0).toUpperCase() + String(langList[0]).slice(1);
+        const [albumRes, playlistRes] = await Promise.allSettled([
           fetchWithFallback('/search/albums', { query: `Top Albums ${primaryLang}`, limit: 12 }),
           fetchWithFallback('/search/playlists', { query: `Top 50 Hits ${primaryLang}`, limit: 12 })
         ]);
 
-        const quickPicks = songsRes.status === 'fulfilled' ? songsRes.value : [];
-        const freshReleases = newRelRes.status === 'fulfilled' ? newRelRes.value : [];
-        const albums = albumsRes.status === 'fulfilled' ? (albumsRes.value?.data?.results || []) : [];
-        const charts = playlistsRes.status === 'fulfilled' ? (playlistsRes.value?.data?.results || []) : [];
+        const songSettled = await Promise.allSettled(searchPromises);
+        let candidatePool = [];
+        songSettled.forEach(res => {
+          if (res.status === 'fulfilled' && Array.isArray(res.value)) {
+            candidatePool.push(...res.value);
+          }
+        });
 
-        const candidatePool = [...quickPicks, ...freshReleases].filter(s => s && s.name && s.name.toLowerCase() !== 'trending');
+        if (candidatePool.length === 0) {
+          candidatePool = await this.searchSongs('Top Songs 2024', 1, 24);
+        }
 
-        // Apply Hybrid Recommendation Personalization & Diversity if RecommendationEngine is available
+        const albums = albumRes.status === 'fulfilled' ? (albumRes.value?.data?.results || []) : [];
+        const charts = playlistRes.status === 'fulfilled' ? (playlistRes.value?.data?.results || []) : [];
+
         let personalizedPicks = candidatePool;
         let diverseTrending = candidatePool;
         if (typeof RecommendationEngine !== 'undefined') {
           const userHistory = (typeof Storage !== 'undefined') ? Storage.getHistory() : [];
           const userFavs = (typeof Storage !== 'undefined') ? Storage.getFavorites() : [];
-          const rawPicks = RecommendationEngine.getPersonalizedRecommendations(userHistory, userFavs, candidatePool, { limit: 16 });
+          const rawPicks = RecommendationEngine.getPersonalizedRecommendations(userHistory, userFavs, candidatePool, { limit: 16, selectedLanguages: langList });
           personalizedPicks = rawPicks.map(r => r.song || r);
-          const rawTrending = RecommendationEngine.getPersonalizedRecommendations([], [], freshReleases.length > 0 ? freshReleases : candidatePool, { limit: 20 });
+          const rawTrending = RecommendationEngine.getPersonalizedRecommendations([], [], candidatePool, { limit: 20, selectedLanguages: langList });
           diverseTrending = rawTrending.map(r => r.song || r);
         }
 
         return {
-          quickPicks: personalizedPicks.length > 0 ? personalizedPicks : quickPicks.slice(0, 16),
-          trending: { songs: diverseTrending.length > 0 ? diverseTrending : quickPicks.slice(0, 20) },
+          quickPicks: personalizedPicks.length > 0 ? personalizedPicks : candidatePool.slice(0, 16),
+          trending: { songs: diverseTrending.length > 0 ? diverseTrending : candidatePool.slice(0, 20) },
           charts,
           albums
         };
@@ -244,7 +283,14 @@ const API = (() => {
           this.searchSongs(parsed.normalizedQuery, 1, 30),
           fetchWithFallback('/search/artists', { query: targetArtist || parsed.normalizedQuery, limit: 10 }),
           fetchWithFallback('/search/albums', { query: parsed.candidateSongTitle || parsed.normalizedQuery, limit: 10 }),
-          fetchWithFallback('/search/playlists', { query: parsed.candidateSongTitle || parsed.normalizedQuery, limit: 10 })
+          fetchWithFallback('/search/playlists', { query: parsed.candidateSongTitle || parsed.normalizedQuery, limit: 10 }),
+          // Parallel secondary query to YouTube Music provider
+          fetch((typeof ApiConfig !== 'undefined' && typeof ApiConfig.buildUrl === 'function') ? ApiConfig.buildUrl('/api/providers/ytmusic/search') : '/api/providers/ytmusic/search', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query: parsed.normalizedQuery, limit: 20 }),
+            signal: AbortSignal.timeout(3500)
+          }).then(r => r.ok ? r.json() : { songs: [] }).catch(() => ({ songs: [] }))
         ];
 
         if (parsed.isCompoundQuery && parsed.candidateSongTitle) {
@@ -262,16 +308,19 @@ const API = (() => {
         const artistsRes = results[2];
         const albumsRes = results[3];
         const playlistsRes = results[4];
-        const subSongRes = results[5];
-        const artistSongsRes = results[6];
+        const ytRes = results[5];
+        const subSongRes = results[6];
+        const artistSongsRes = results[7];
 
         const federated = searchRes.status === 'fulfilled' ? (searchRes.value?.data || searchRes.value) : {};
         const deepSongs = songsRes.status === 'fulfilled' ? songsRes.value : [];
+        const ytData = ytRes && ytRes.status === 'fulfilled' ? ytRes.value : { songs: [], artists: [], albums: [], playlists: [] };
+        const ytSongs = (ytData?.songs || []).map(normalizeSong);
         const subSongs = (subSongRes && subSongRes.status === 'fulfilled') ? subSongRes.value : [];
         const artistSongs = (artistSongsRes && artistSongsRes.status === 'fulfilled') ? artistSongsRes.value : [];
 
         const federatedSongs = (federated?.songs?.results || []).map(normalizeSong);
-        const allCandidateSongs = [...deepSongs, ...subSongs, ...artistSongs, ...federatedSongs];
+        const allCandidateSongs = [...deepSongs, ...ytSongs, ...subSongs, ...artistSongs, ...federatedSongs];
 
         const rawArtists = artistsRes.status === 'fulfilled' ? (artistsRes.value?.data?.results || []) : (federated?.artists?.results || []);
         const rawAlbums = albumsRes.status === 'fulfilled' ? (albumsRes.value?.data?.results || []) : (federated?.albums?.results || []);
@@ -352,6 +401,16 @@ const API = (() => {
             promises.push(fetchWithFallback('/search/songs', { query: parsed.candidateSongTitle, page: p, limit: 30 }));
           }
         }
+
+        // Also query YouTube Music provider in parallel for rich catalog coverage
+        promises.push(
+          fetch((typeof ApiConfig !== 'undefined' && typeof ApiConfig.buildUrl === 'function') ? ApiConfig.buildUrl('/api/providers/ytmusic/search') : '/api/providers/ytmusic/search', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query: parsed.normalizedQuery, limit: 30 }),
+            signal: AbortSignal.timeout(3500)
+          }).then(r => r.ok ? r.json() : { songs: [] }).then(d => d?.songs || []).catch(() => [])
+        );
 
         // For page 1, also fetch top albums and their songs to enrich discography with iconic hits
         if (page === 1) {
@@ -441,8 +500,36 @@ const API = (() => {
 
     // Get Song Details (including audio download streams)
     async getSongDetails(id) {
+      if (!id) return [];
+      const idStr = String(id).trim();
+
+      // Handle YouTube Music track IDs without querying JioSaavn
+      if (idStr.startsWith('yt_')) {
+        const videoId = idStr.replace(/^yt_/, '');
+        try {
+          if (typeof youtubeMusicProvider !== 'undefined' && typeof youtubeMusicProvider.getSong === 'function') {
+            const ytTrack = await youtubeMusicProvider.getSong(videoId);
+            if (ytTrack) return [ytTrack];
+          }
+          const songUrl = (typeof ApiConfig !== 'undefined' && typeof ApiConfig.buildUrl === 'function')
+            ? ApiConfig.buildUrl('/api/providers/ytmusic/song')
+            : '/api/providers/ytmusic/song';
+          const res = await fetch(songUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ videoId }),
+            signal: AbortSignal.timeout(4000)
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data?.track) return [normalizeSong(data.track)];
+          }
+        } catch (_) {}
+        return [];
+      }
+
       try {
-        const res = await fetchWithFallback(`/songs/${id}`);
+        const res = await fetchWithFallback(`/songs/${idStr}`);
         const list = Array.isArray(res?.data) ? res.data : (res?.data ? [res.data] : (Array.isArray(res) ? res : []));
         return list.map(normalizeSong);
       } catch (e) {
@@ -579,7 +666,10 @@ const API = (() => {
     async getSimilarSongs(trackId, limit = 20) {
       if (!trackId) return [];
       try {
-        const res = await fetch(`/api/recommendations/track/${trackId}`);
+        const trackUrl = (typeof ApiConfig !== 'undefined' && typeof ApiConfig.buildUrl === 'function')
+          ? ApiConfig.buildUrl(`/api/recommendations/track/${trackId}`)
+          : `/api/recommendations/track/${trackId}`;
+        const res = await fetch(trackUrl);
         if (res.ok) {
           const data = await res.json();
           const recs = data?.recommendations?.map(r => r.song) || [];
@@ -595,15 +685,32 @@ const API = (() => {
           let candidatePool = [];
           
           if (primaryArtist && primaryArtist !== 'undefined') {
-            const [artistSongs, searchSongs] = await Promise.allSettled([
+            const radioUrl = (typeof ApiConfig !== 'undefined' && typeof ApiConfig.buildUrl === 'function')
+              ? ApiConfig.buildUrl('/api/providers/ytmusic/radio')
+              : '/api/providers/ytmusic/radio';
+            const [artistSongs, searchSongs, ytRadio] = await Promise.allSettled([
               API.getArtistSongs(primaryArtist, 1, limit),
-              API.searchSongs(`${primaryArtist} Hits`, 1, limit)
+              API.searchSongs(`${primaryArtist} Hits`, 1, limit),
+              fetch(radioUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  videoId: current.providerId || (String(current.id).startsWith('yt_') ? current.id.replace('yt_', '') : undefined),
+                  title: current.name || current.title,
+                  artist: primaryArtist,
+                  limit: 25
+                }),
+                signal: AbortSignal.timeout(3500)
+              }).then(r => r.ok ? r.json() : { candidates: [] }).then(d => (d?.candidates || []).map(normalizeSong)).catch(() => [])
             ]);
             if (artistSongs.status === 'fulfilled' && Array.isArray(artistSongs.value)) {
               candidatePool.push(...artistSongs.value);
             }
             if (searchSongs.status === 'fulfilled' && Array.isArray(searchSongs.value)) {
               candidatePool.push(...searchSongs.value);
+            }
+            if (ytRadio.status === 'fulfilled' && Array.isArray(ytRadio.value)) {
+              candidatePool.push(...ytRadio.value);
             }
           }
 
@@ -630,8 +737,11 @@ const API = (() => {
       try {
         const history = (typeof Storage !== 'undefined') ? Storage.getHistory() : [];
         const favorites = (typeof Storage !== 'undefined') ? Storage.getFavorites() : [];
+        const recUrl = (typeof ApiConfig !== 'undefined' && typeof ApiConfig.buildUrl === 'function')
+          ? ApiConfig.buildUrl('/api/recommendations/personalized')
+          : '/api/recommendations/personalized';
         
-        const res = await fetch('/api/recommendations/personalized', {
+        const res = await fetch(recUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ history, favorites, candidatePool, limit })

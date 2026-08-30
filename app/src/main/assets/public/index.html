@@ -42,7 +42,7 @@
             <img id="home-user-avatar" src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80" alt="Avatar">
           </div>
           <h1 class="home-greeting-text" id="home-greeting">Good morning</h1>
-          <div id="offline-pill-indicator" style="display:none; align-items:center; gap:4px; padding:3px 8px; border-radius:12px; background:rgba(255,42,77,0.15); border:1px solid rgba(255,42,77,0.3); font-size:10.5px; font-weight:800; color:#FF2A4D; letter-spacing:0.5px; margin-left:auto; margin-right:8px;">
+          <div id="offline-pill-indicator" style="display:none; align-items:center; gap:4px; padding:3px 8px; border-radius:12px; background:var(--accent-soft); border:1px solid var(--accent-border); font-size:10.5px; font-weight:800; color:var(--accent); letter-spacing:0.5px; margin-left:auto; margin-right:8px;">
             <span class="material-symbols-outlined" style="font-size:13px;">cloud_off</span>
             <span>OFFLINE</span>
           </div>
@@ -83,7 +83,7 @@
                 <h2 class="shelf-title">Quick picks</h2>
               </div>
               <button class="shelf-action-pill" id="btn-quick-picks-play-all">
-                <span class="material-symbols-outlined fill-icon" style="color:#FF2A4D; font-size:16px;">play_arrow</span>
+                <span class="material-symbols-outlined fill-icon" style="color:var(--accent); font-size:16px;">play_arrow</span>
                 <span>Play all</span>
               </button>
             </div>
@@ -262,48 +262,42 @@
           <h1 class="screen-title">Navigation</h1>
         </header>
 
-        <!-- Ambient Soundscapes Generator -->
-        <div class="explore-section">
-          <h2 class="explore-subheading">Ambient Soundscapes</h2>
-          <div class="explore-soundscapes-grid">
-            <div class="soundscape-tile" data-sound="ocean" onclick="App.toggleSoundscape('ocean')">
-              <span class="material-symbols-outlined sound-tile-icon" style="color:#74b9ff;">waves</span>
-              <div class="sound-tile-info">
-                <span class="sound-tile-title">Ocean Waves</span>
-                <span class="sound-tile-sub">Coastal tide</span>
-              </div>
-              <span class="material-symbols-outlined sound-tile-action">play_circle</span>
+        <!-- 1. 3D SWIPE DISCOVERY: Discover For You -->
+        <div class="discover-swipe-section">
+          <div class="shelf-header">
+            <div>
+              <span class="shelf-tag">3D DISCOVERY</span>
+              <h2 class="shelf-title">Discover For You</h2>
             </div>
-            <div class="soundscape-tile" data-sound="rain" onclick="App.toggleSoundscape('rain')">
-              <span class="material-symbols-outlined sound-tile-icon" style="color:#74b9ff;">rainy</span>
-              <div class="sound-tile-info">
-                <span class="sound-tile-title">Gentle Rain</span>
-                <span class="sound-tile-sub">Soft rain drops</span>
-              </div>
-              <span class="material-symbols-outlined sound-tile-action">play_circle</span>
+          </div>
+          <div class="discover-swipe-container" id="discover-swipe-container">
+            <div class="swipe-card-stack" id="swipe-card-stack">
+              <div class="loading-shimmer-card" style="height:320px; border-radius:24px;"></div>
             </div>
-            <div class="soundscape-tile" data-sound="forest" onclick="App.toggleSoundscape('forest')">
-              <span class="material-symbols-outlined sound-tile-icon" style="color:#a8e6cf;">forest</span>
-              <div class="sound-tile-info">
-                <span class="sound-tile-title">Forest Wind</span>
-                <span class="sound-tile-sub">Mountain breeze</span>
-              </div>
-              <span class="material-symbols-outlined sound-tile-action">play_circle</span>
-            </div>
-            <div class="soundscape-tile" data-sound="campfire" onclick="App.toggleSoundscape('campfire')">
-              <span class="material-symbols-outlined sound-tile-icon" style="color:#ff7675;">local_fire_department</span>
-              <div class="sound-tile-info">
-                <span class="sound-tile-title">Campfire</span>
-                <span class="sound-tile-sub">Warm crackles</span>
-              </div>
-              <span class="material-symbols-outlined sound-tile-action">play_circle</span>
-            </div>
+          </div>
+          <div class="swipe-card-actions">
+            <button class="swipe-btn swipe-btn-nope" onclick="App.swipeCardAction('nope')" title="Not interested" aria-label="Not interested">
+              <span class="material-symbols-outlined">close</span>
+            </button>
+            <button class="swipe-btn swipe-btn-play" onclick="App.swipeCardAction('play')" title="Play track" aria-label="Play track">
+              <span class="material-symbols-outlined fill-icon" style="font-size:32px;">play_arrow</span>
+            </button>
+            <button class="swipe-btn swipe-btn-like" onclick="App.swipeCardAction('like')" title="Favorite track" aria-label="Favorite track">
+              <span class="material-symbols-outlined fill-icon">favorite</span>
+            </button>
           </div>
         </div>
 
-        <!-- Explore Category Tiles (Genres & Languages) -->
-        <div class="explore-section">
-          <h2 class="explore-subheading">Featured Genres &amp; Languages</h2>
+        <!-- 2. BROWSE HUB: Genres, Moods, Charts, New Releases, Top Playlists -->
+        <div class="explore-section" style="margin-top:28px;">
+          <h2 class="explore-subheading">Browse Genres &amp; Moods</h2>
+          <div class="search-chips-row" style="margin-bottom:16px;">
+            <button class="search-pill-btn active" onclick="App.openGenre('All')">Genres</button>
+            <button class="search-pill-btn" onclick="App.openGenre('Moods & Moments')">Moods</button>
+            <button class="search-pill-btn" onclick="App.openGenre('Top Charts')">Charts</button>
+            <button class="search-pill-btn" onclick="App.openGenre('New Releases')">New Releases</button>
+            <button class="search-pill-btn" onclick="App.openGenre('Top Playlists')">Top Playlists</button>
+          </div>
           <div class="search-categories-grid">
             <div class="search-cat-card" onclick="App.openGenre('Bollywood')" style="background: linear-gradient(135deg, #8a2387 0%, #e94057 50%, #f27121 100%);">
               <span class="search-cat-name">Bollywood</span>
@@ -340,12 +334,22 @@
           </div>
         </div>
 
-        <!-- Trending Charts in Explore -->
+        <!-- 3. TRENDING HUB: Songs, Artists, Albums -->
+        <div class="explore-section" style="margin-top:24px;">
+          <h2 class="explore-subheading">Trending Now</h2>
+          <div class="search-chips-row" style="margin-bottom:12px;">
+            <button class="search-pill-btn" onclick="App.searchCategory('Trending Songs')">🔥 Trending Songs</button>
+            <button class="search-pill-btn" onclick="App.searchCategory('Top Artists')">⭐ Trending Artists</button>
+            <button class="search-pill-btn" onclick="App.searchCategory('Top Albums')">💿 Trending Albums</button>
+          </div>
+        </div>
+
+        <!-- 4. EXPLORE: Made For You, Popular In India, International Hits -->
         <div class="explore-section" id="explore-charts-section" style="margin-top:20px;">
           <div class="shelf-header">
             <div>
-              <span class="shelf-tag">EXPLORE</span>
-              <h2 class="shelf-title">Top Charts &amp; Playlists</h2>
+              <span class="shelf-tag">EXPLORE DISCOVERY</span>
+              <h2 class="shelf-title">Popular In India &amp; Global Hits</h2>
             </div>
           </div>
           <div class="cards-horizontal-shelf" id="explore-charts-container">
@@ -380,7 +384,7 @@
                 <h2 class="shelf-title">Popular in this Genre</h2>
               </div>
               <button class="shelf-action-pill" id="btn-genre-play-all" onclick="App.playAllGenreSongs()">
-                <span class="material-symbols-outlined fill-icon" style="color:#FF2A4D; font-size:16px;">play_arrow</span>
+                <span class="material-symbols-outlined fill-icon" style="color:var(--accent); font-size:16px;">play_arrow</span>
                 <span>Play all</span>
               </button>
             </div>
@@ -402,25 +406,33 @@
 
       <!-- ================= 3. SEARCH SCREEN (SearchScreen.kt) ================= -->
       <section id="screen-search" class="screen">
-        <!-- Search Input Bar -->
-        <div class="search-bar-wrap">
-          <div class="search-bar-inner">
-            <span class="material-symbols-outlined search-icon">search</span>
-            <input type="search" id="search-input" class="search-input" placeholder="Find music or podcasts" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
-            <button class="search-clear-btn" id="btn-search-clear" style="display:none;" aria-label="Clear">
-              <span class="material-symbols-outlined">close</span>
-            </button>
+        <!-- Sticky Search Header (Bar + Categories) -->
+        <div class="search-header-sticky-container" id="search-sticky-header">
+          <!-- Search Input Bar -->
+          <div class="search-bar-wrap">
+            <div class="search-bar-inner">
+              <span class="material-symbols-outlined search-icon">search</span>
+              <input type="search" id="search-input" class="search-input" placeholder="Find music or podcasts" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+              <button class="search-clear-btn" id="btn-search-clear" style="display:none;" aria-label="Clear">
+                <span class="material-symbols-outlined">close</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Filter Category Chips -->
+          <div class="search-category-chips" id="search-category-chips">
+            <button class="search-cat-chip active" data-cat="All">All</button>
+            <button class="search-cat-chip" data-cat="Songs">Songs</button>
+            <button class="search-cat-chip" data-cat="Artists">Artists</button>
+            <button class="search-cat-chip" data-cat="Albums">Albums</button>
+            <button class="search-cat-chip" data-cat="Playlists">Playlists</button>
           </div>
         </div>
 
-        <!-- Filter Category Chips -->
-        <div class="search-category-chips" id="search-category-chips">
-          <button class="search-cat-chip active" data-cat="All">All</button>
-          <button class="search-cat-chip" data-cat="Songs">Songs</button>
-          <button class="search-cat-chip" data-cat="Artists">Artists</button>
-          <button class="search-cat-chip" data-cat="Albums">Albums</button>
-          <button class="search-cat-chip" data-cat="Playlists">Playlists</button>
-        </div>
+        <!-- Floating Compact Scroll to Top Control -->
+        <button class="scroll-top-btn" id="btn-search-scroll-top" onclick="App.scrollSearchToTop()" aria-label="Scroll to top" style="display:none;">
+          <span class="material-symbols-outlined">arrow_upward</span>
+        </button>
 
         <!-- Search Discovery Hub (when query is empty) -->
         <div id="search-discovery-hub" class="search-discovery-hub">
@@ -692,14 +704,13 @@
           <button class="icon-btn-glass" onclick="App.goBack()" aria-label="Back">
             <span class="material-symbols-outlined">arrow_back</span>
           </button>
-          <div class="detail-hero-content">
-            <img id="detail-cover-img" class="detail-cover-img" src="assets/logo.png" alt="Cover">
-            <h1 class="detail-title" id="detail-title">Title</h1>
-            <p class="detail-subtitle" id="detail-subtitle">Subtitle</p>
-            <button class="detail-play-btn" id="btn-detail-play-all">
-              <span class="material-symbols-outlined fill-icon" style="font-size:18px;">play_arrow</span>
-              <span>Play All</span>
-            </button>
+          <div class="detail-hero-content" id="detail-hero-content">
+            <img id="detail-cover-img" class="detail-cover-img" src="assets/logo.png" alt="Cover" onerror="this.src='assets/logo.png'">
+            <div class="detail-info-col" id="detail-info-col">
+              <span class="detail-source-tag" id="detail-source-tag">PLAYLIST</span>
+              <h1 class="detail-title" id="detail-title">Playlist Title</h1>
+              <div class="detail-meta-line" id="detail-subtitle">0 tracks</div>
+            </div>
           </div>
         </div>
         <div class="detail-tracks-list" id="detail-tracks-container"></div>
@@ -724,7 +735,7 @@
         <button class="icon-btn-mini" id="btn-mini-play" onclick="event.stopPropagation(); Player.togglePlay();" aria-label="Play or Pause">
           <span class="material-symbols-outlined fill-icon" id="mini-play-icon">play_arrow</span>
         </button>
-        <button class="icon-btn-mini" id="btn-mini-next" onclick="event.stopPropagation(); Player.next();" aria-label="Next Track">
+        <button class="icon-btn-mini" id="btn-mini-next" onclick="event.stopPropagation(); App.animateToNext();" aria-label="Next Track">
           <span class="material-symbols-outlined fill-icon">skip_next</span>
         </button>
       </div>
@@ -774,8 +785,8 @@
         <button class="icon-btn-glass" id="btn-player-cast" onclick="App.openAudioOutputSheet()" aria-label="Audio Output & Devices" title="Audio Output & Devices">
           <span class="material-symbols-outlined">cast</span>
         </button>
-        <button class="icon-btn-glass" id="btn-player-right-action" onclick="App.handlePlayerRightAction()" aria-label="More Options" title="More">
-          <span class="material-symbols-outlined" id="player-right-icon">more_vert</span>
+        <button class="icon-btn-glass" id="btn-player-right-action" onclick="App.openQueueSheet()" aria-label="Queue" title="Queue">
+          <span class="material-symbols-outlined" id="player-right-icon">queue_music</span>
         </button>
       </div>
     </header>
@@ -785,10 +796,21 @@
 
     <!-- Center Content (Artwork or Live Synced Lyrics) -->
     <div class="player-center-body" id="player-center-body">
-      <!-- 1. Artwork View -->
+      <!-- 1. Artwork View / 3D Interactive Deck -->
       <div class="player-art-view" id="player-art-view">
-        <div class="player-art-card" id="player-art-card">
-          <img id="full-player-art" class="full-art-img" src="assets/logo.png" alt="Album Art" onerror="this.src='assets/logo.png'">
+        <div class="player-3d-deck-container" id="player-3d-deck-container">
+          <!-- Previous Card (Underneath / Prepared Left-Back) -->
+          <div class="player-deck-card player-deck-card-prev" id="player-deck-prev">
+            <img class="full-art-img" id="player-art-prev" src="assets/logo.png" alt="Previous Album Art" onerror="this.src='assets/logo.png'">
+          </div>
+          <!-- Next Card (Underneath / Prepared Right-Back) -->
+          <div class="player-deck-card player-deck-card-next player-deck-card-back-1" id="player-deck-next">
+            <img class="full-art-img" id="player-art-next" src="assets/logo.png" alt="Next Album Art" onerror="this.src='assets/logo.png'">
+          </div>
+          <!-- Current Interactive Front Card -->
+          <div class="player-deck-card player-deck-card-front player-art-card" id="player-art-card">
+            <img id="full-player-art" class="full-art-img" src="assets/logo.png" alt="Current Album Art" onerror="this.src='assets/logo.png'">
+          </div>
         </div>
       </div>
 
@@ -804,7 +826,7 @@
     <div class="player-meta-row">
       <div class="player-meta-col">
         <h2 class="player-song-title" id="full-player-title">Song Title</h2>
-        <div class="player-artist-line">
+        <div class="player-artist-line" id="full-player-artist-container">
           <span class="player-artist-name clickable-link" id="full-player-artist">Artist</span>
         </div>
         <div class="player-badges-row">
@@ -825,9 +847,10 @@
       </div>
     </div>
 
-    <!-- Touch & Pointer Optimized Custom Scrubber -->
+    <!-- Touch & Pointer Optimized Custom Scrubber with Wavy Animation -->
     <div class="player-progress-wrap">
       <div class="player-custom-seek-bar" id="player-seek-bar" role="slider" aria-label="Seek track position" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <canvas id="player-seek-wave" class="player-seek-wave"></canvas>
         <div class="player-seek-track" id="player-seek-track">
           <div class="player-seek-fill" id="player-seek-fill" style="width: 0%;"></div>
           <div class="player-seek-thumb" id="player-seek-thumb" style="left: 0%;"></div>
@@ -844,13 +867,13 @@
       <button class="transport-sub-btn" id="btn-player-shuffle" onclick="Player.toggleShuffle()" aria-label="Shuffle Off">
         <span class="material-symbols-outlined" id="player-shuffle-icon">shuffle</span>
       </button>
-      <button class="transport-sub-btn" id="btn-player-prev" onclick="Player.previous()" aria-label="Previous Track">
+      <button class="transport-sub-btn" id="btn-player-prev" onclick="App.animateToPrevious()" aria-label="Previous Track">
         <span class="material-symbols-outlined fill-icon" style="font-size:30px;">skip_previous</span>
       </button>
       <button class="transport-main-play-btn" id="btn-player-play" onclick="Player.togglePlay()" aria-label="Play or Pause">
         <span class="material-symbols-outlined fill-icon" id="player-main-play-icon" style="font-size:36px; color:#FFFFFF;">play_arrow</span>
       </button>
-      <button class="transport-sub-btn" id="btn-player-next" onclick="Player.next()" aria-label="Next Track">
+      <button class="transport-sub-btn" id="btn-player-next" onclick="App.animateToNext()" aria-label="Next Track">
         <span class="material-symbols-outlined fill-icon" style="font-size:30px;">skip_next</span>
       </button>
       <button class="transport-sub-btn" id="btn-player-repeat" onclick="Player.toggleRepeat()" aria-label="Repeat Off">
@@ -881,18 +904,6 @@
         <span>Queue</span>
       </button>
     </div>
-
-    <!-- Bottom Connected Audio Output / Device Bar (Live Routing) -->
-    <div class="player-device-output-card" onclick="App.openAudioOutputSheet()" role="button" aria-label="Audio Output Device">
-      <div style="display:flex; align-items:center; gap:10px;">
-        <span class="material-symbols-outlined" id="player-device-icon" style="color:#FF2A4D; font-size:20px;">bluetooth</span>
-        <div style="display:flex; flex-direction:column;">
-          <span style="font-size:13px; font-weight:700; color:#FFFFFF;" id="player-device-name">Default Audio Output</span>
-          <span style="font-size:11px; font-weight:600; color:#FF2A4D;" id="player-device-status">Connected</span>
-        </div>
-      </div>
-      <span class="material-symbols-outlined" style="color:var(--text-secondary); font-size:20px;">keyboard_arrow_down</span>
-    </div>
   </div>
 
   <!-- ================= MODALS & BOTTOM SHEETS ================= -->
@@ -904,8 +915,7 @@
       <div class="sheet-song-header" id="sheet-song-header">
         <img id="sheet-song-img" class="sheet-song-img" src="assets/logo.png" alt="">
         <div class="sheet-song-info">
-          <span class="sheet-song-title" id="sheet-song-title">Song Name</span>
-          <span class="sheet-song-artist" id="sheet-song-artist">Artist</span>
+          <span class="sheet-song-title" id="sheet-song-title" style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:240px; display:block;">Song Name</span>
         </div>
       </div>
       <div class="sheet-actions-list">
@@ -949,6 +959,25 @@
           <span class="material-symbols-outlined">share</span>
           <span>Share Track Link</span>
         </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 1.1 Dedicated Multi-Artist Selection Bottom Sheet -->
+  <div class="bottom-sheet-backdrop" id="sheet-artist-picker" onclick="App.closeBottomSheet('sheet-artist-picker')">
+    <div class="bottom-sheet-panel" onclick="event.stopPropagation()" style="max-height:75vh; display:flex; flex-direction:column;">
+      <div class="sheet-drag-handle"></div>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="material-symbols-outlined" style="color:var(--accent); font-size:22px;">person</span>
+          <h3 class="screen-title" style="font-size:18px; margin-bottom:0;">Go to artist</h3>
+        </div>
+        <button onclick="App.closeBottomSheet('sheet-artist-picker')" style="background:transparent; border:none; color:var(--text-secondary); cursor:pointer;" aria-label="Close">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+      <div class="sheet-actions-list" id="artist-picker-list" style="overflow-y:auto; flex:1;">
+        <!-- Dynamically populated with legitimate artists -->
       </div>
     </div>
   </div>
@@ -1018,7 +1047,7 @@
           <button class="player-top-action-btn" onclick="App.closeEqualizer()" aria-label="Back" style="width:36px; height:36px; background:rgba(255,255,255,0.08); border-radius:50%; border:none; color:#FFFFFF; display:flex; align-items:center; justify-content:center; cursor:pointer;">
             <span class="material-symbols-outlined" style="font-size:20px;">arrow_back</span>
           </button>
-          <span class="material-symbols-outlined" style="color:#FF2A4D; font-size:24px;">equalizer</span>
+          <span class="material-symbols-outlined" style="color:var(--accent); font-size:24px;">equalizer</span>
           <h3 class="screen-title" style="font-size:20px; margin-bottom:0;">Audio Effects &amp; EQ</h3>
         </div>
         <div style="display:flex; align-items:center; gap:8px;">
@@ -1034,10 +1063,10 @@
       <div class="audio-effects-card" style="background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:14px; margin-bottom:16px;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
           <div style="display:flex; align-items:center; gap:8px;">
-            <span class="material-symbols-outlined" style="color:#FF2A4D; font-size:20px;">spatial_audio</span>
+            <span class="material-symbols-outlined" style="color:var(--accent); font-size:20px;">spatial_audio</span>
             <span style="font-size:14px; font-weight:800; color:#FFFFFF; letter-spacing:0.3px;">3D / Spatial Audio</span>
           </div>
-          <span id="eq-spatial-val-badge" class="lossless-badge-pill" style="color:#FF2A4D; border-color:rgba(255,42,77,0.3);">OFF</span>
+          <span id="eq-spatial-val-badge" class="lossless-badge-pill" style="color:var(--accent); border-color:var(--accent-border);">OFF</span>
         </div>
         <!-- Spatial Level Buttons: OFF, LOW, MEDIUM, HIGH -->
         <div class="eq-segmented-group" id="eq-spatial-levels" style="display:grid; grid-template-columns:repeat(4, 1fr); gap:6px; margin-bottom:10px;">
@@ -1057,7 +1086,7 @@
       <!-- 2. Presets Horizontal Carousel -->
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
         <span class="settings-sec-head" style="margin-bottom:0;">Sound Presets</span>
-        <button onclick="App.promptSaveCustomPreset()" style="background:transparent; border:none; color:#FF2A4D; font-size:12px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:4px;">
+        <button onclick="App.promptSaveCustomPreset()" style="background:transparent; border:none; color:var(--accent); font-size:12px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:4px;">
           <span class="material-symbols-outlined" style="font-size:16px;">bookmark_add</span>
           <span>Save Preset</span>
         </button>
@@ -1075,10 +1104,10 @@
       <div class="eq-bass-wrap" style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:14px; padding:12px; margin-bottom:10px;">
         <div style="display:flex; justify-content:space-between; font-size:13px; font-weight:700; color:#FFFFFF; margin-bottom:8px;">
           <div style="display:flex; align-items:center; gap:8px;">
-            <span class="material-symbols-outlined" style="color:#FF2A4D; font-size:18px;">headphones</span>
+            <span class="material-symbols-outlined" style="color:var(--accent); font-size:18px;">headphones</span>
             <span>Studio Bass Boost (80 Hz)</span>
           </div>
-          <span id="eq-bass-val" style="color:#FF2A4D; font-weight:800;">0 dB</span>
+          <span id="eq-bass-val" style="color:var(--accent); font-weight:800;">0 dB</span>
         </div>
         <input type="range" class="player-seek-slider" id="eq-bass-slider" min="0" max="12" step="1" value="0" oninput="App.updateBassBoost(this.value)">
       </div>
@@ -1087,10 +1116,10 @@
       <div class="eq-bass-wrap" style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:14px; padding:12px; margin-bottom:10px;">
         <div style="display:flex; justify-content:space-between; font-size:13px; font-weight:700; color:#FFFFFF; margin-bottom:8px;">
           <div style="display:flex; align-items:center; gap:8px;">
-            <span class="material-symbols-outlined" style="color:#FF2A4D; font-size:18px;">graphic_eq</span>
+            <span class="material-symbols-outlined" style="color:var(--accent); font-size:18px;">graphic_eq</span>
             <span>Crisp Treble (10 kHz)</span>
           </div>
-          <span id="eq-treble-val" style="color:#FF2A4D; font-weight:800;">0 dB</span>
+          <span id="eq-treble-val" style="color:var(--accent); font-weight:800;">0 dB</span>
         </div>
         <input type="range" class="player-seek-slider" id="eq-treble-slider" min="-6" max="12" step="1" value="0" oninput="App.updateTrebleBoost(this.value)">
       </div>
@@ -1099,10 +1128,10 @@
       <div class="eq-bass-wrap" style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); border-radius:14px; padding:12px; margin-bottom:16px;">
         <div style="display:flex; justify-content:space-between; font-size:13px; font-weight:700; color:#FFFFFF; margin-bottom:8px;">
           <div style="display:flex; align-items:center; gap:8px;">
-            <span class="material-symbols-outlined" style="color:#FF2A4D; font-size:18px;">record_voice_over</span>
+            <span class="material-symbols-outlined" style="color:var(--accent); font-size:18px;">record_voice_over</span>
             <span>Vocal Clarity (2.8 kHz)</span>
           </div>
-          <span id="eq-vocal-val" style="color:#FF2A4D; font-weight:800;">0 dB</span>
+          <span id="eq-vocal-val" style="color:var(--accent); font-weight:800;">0 dB</span>
         </div>
         <input type="range" class="player-seek-slider" id="eq-vocal-slider" min="0" max="8" step="1" value="0" oninput="App.updateVocalBoost(this.value)">
       </div>
@@ -1143,7 +1172,7 @@
           <span class="material-symbols-outlined" style="font-size:18px;">restart_alt</span>
           <span>Reset Defaults</span>
         </button>
-        <button class="sheet-action-item" onclick="App.closeEqualizer()" style="flex:1; justify-content:center; border-radius:12px; background:#FF2A4D; color:#FFFFFF; font-size:13px; font-weight:700;">
+        <button class="sheet-action-item" onclick="App.closeEqualizer()" style="flex:1; justify-content:center; border-radius:12px; background:var(--accent); color:var(--accent-text); font-size:13px; font-weight:700;">
           <span class="material-symbols-outlined" style="font-size:18px;">done</span>
           <span>Apply &amp; Done</span>
         </button>
@@ -1156,7 +1185,7 @@
     <div class="dialog-panel" onclick="event.stopPropagation()">
       <div class="dialog-title-row" style="display:flex; justify-content:space-between; align-items:center;">
         <div style="display:flex; align-items:center; gap:10px;">
-          <span class="material-symbols-outlined" style="color:#FF2A4D;">timer</span>
+          <span class="material-symbols-outlined" style="color:var(--accent);">timer</span>
           <h3 class="dialog-title">Sleep Timer</h3>
         </div>
         <button onclick="App.closeDialog('dialog-sleep-timer')" style="background:transparent; border:none; color:var(--text-secondary); cursor:pointer; display:flex; align-items:center;" aria-label="Close sleep timer">
@@ -1174,7 +1203,7 @@
     <div class="dialog-panel" onclick="event.stopPropagation()" style="max-height:80vh; display:flex; flex-direction:column;">
       <div class="dialog-title-row" style="display:flex; justify-content:space-between; align-items:center;">
         <div style="display:flex; align-items:center; gap:10px;">
-          <span class="material-symbols-outlined" style="color:#FF2A4D;">translate</span>
+          <span class="material-symbols-outlined" style="color:var(--accent);">translate</span>
           <h3 class="dialog-title">Music Languages</h3>
         </div>
         <button onclick="App.closeDialog('dialog-language-picker')" style="background:transparent; border:none; color:var(--text-secondary); cursor:pointer; display:flex; align-items:center;">
@@ -1194,7 +1223,7 @@
     <div class="dialog-panel" onclick="event.stopPropagation()">
       <div class="dialog-title-row" style="display:flex; justify-content:space-between; align-items:center;">
         <div style="display:flex; align-items:center; gap:10px;">
-          <span class="material-symbols-outlined" style="color:#FF2A4D;">playlist_add</span>
+          <span class="material-symbols-outlined" style="color:var(--accent);">playlist_add</span>
           <h3 class="dialog-title">Add to Playlist</h3>
         </div>
         <button onclick="App.closeDialog('dialog-playlist-picker')" style="background:transparent; border:none; color:var(--text-secondary); cursor:pointer; display:flex; align-items:center;">
@@ -1202,8 +1231,8 @@
         </button>
       </div>
       <div style="margin-bottom:12px;">
-        <button class="sheet-action-item" onclick="App.promptCreatePlaylistAndAdd()" style="background:rgba(255,42,77,0.12); color:#FF2A4D; font-weight:700; width:100%; border-radius:12px; justify-content:center;">
-          <span class="material-symbols-outlined" style="color:#FF2A4D;">add</span>
+        <button class="sheet-action-item" onclick="App.promptCreatePlaylistAndAdd()" style="background:var(--accent-soft); color:var(--accent); font-weight:700; width:100%; border-radius:12px; justify-content:center;">
+          <span class="material-symbols-outlined" style="color:var(--accent);">add</span>
           <span>Create New Playlist</span>
         </button>
       </div>
@@ -1216,7 +1245,7 @@
     <div class="dialog-panel" onclick="event.stopPropagation()">
       <div class="dialog-title-row" style="display:flex; justify-content:space-between; align-items:center;">
         <div style="display:flex; align-items:center; gap:10px;">
-          <span class="material-symbols-outlined" style="color:#FF2A4D;">high_quality</span>
+          <span class="material-symbols-outlined" style="color:var(--accent);">high_quality</span>
           <h3 class="dialog-title">Streaming Audio Quality</h3>
         </div>
         <button onclick="App.closeDialog('dialog-quality')" style="background:transparent; border:none; color:var(--text-secondary); cursor:pointer; display:flex; align-items:center;">
@@ -1224,6 +1253,77 @@
         </button>
       </div>
       <div class="dialog-options-list" id="quality-options-list"></div>
+    </div>
+  </div>
+
+  <!-- 8.4. Appearance & Theme Picker Dialog (Material You Style) -->
+  <div class="dialog-backdrop" id="dialog-theme-picker" onclick="App.closeThemeDialog()">
+    <div class="dialog-panel" onclick="event.stopPropagation()" style="max-height:85vh; display:flex; flex-direction:column;">
+      <div class="dialog-title-row" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="material-symbols-outlined" style="color:var(--accent); font-size:24px;">palette</span>
+          <h3 class="dialog-title" style="margin:0; font-size:18px;">Appearance &amp; Theme</h3>
+        </div>
+        <button onclick="App.closeThemeDialog()" style="background:transparent; border:none; color:var(--text-secondary); cursor:pointer; display:flex; align-items:center;" aria-label="Close Theme Dialog">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+
+      <div style="flex:1; overflow-y:auto; padding-right:4px;">
+        <!-- Live Miniature App Preview -->
+        <span class="settings-sec-head" style="margin-bottom:8px; display:block;">Live Preview</span>
+        <div class="theme-preview-card" id="theme-live-preview">
+          <div class="theme-preview-head">
+            <span class="theme-preview-nav-pill">
+              <span class="material-symbols-outlined" style="font-size:14px;">music_note</span>
+              <span>Now Playing</span>
+            </span>
+            <span class="theme-preview-badge">320 KBPS</span>
+          </div>
+
+          <div class="theme-preview-track-row">
+            <div class="theme-preview-art"></div>
+            <div class="theme-preview-meta">
+              <div class="theme-preview-title">MusicFlow Atmosphere</div>
+              <div class="theme-preview-artist">Theme Accent Colors</div>
+            </div>
+            <span class="material-symbols-outlined" style="color:var(--accent); font-size:20px;">favorite</span>
+          </div>
+
+          <div class="theme-preview-progress-wrap">
+            <div class="theme-preview-progress-bar"></div>
+          </div>
+
+          <div class="theme-preview-controls-row">
+            <span class="material-symbols-outlined" style="color:var(--text-secondary); font-size:20px;">skip_previous</span>
+            <div class="theme-preview-play-btn">
+              <span class="material-symbols-outlined" style="font-size:20px;">play_arrow</span>
+            </div>
+            <span class="material-symbols-outlined" style="color:var(--text-secondary); font-size:20px;">skip_next</span>
+          </div>
+        </div>
+
+        <!-- Presets -->
+        <span class="settings-sec-head" style="margin-bottom:8px; display:block;">Accent Color</span>
+        <div class="theme-presets-grid" id="theme-presets-container">
+          <!-- Dynamically populated by UI.renderThemePicker() -->
+        </div>
+
+        <!-- Custom Color -->
+        <div class="theme-custom-color-row">
+          <div>
+            <div style="font-size:13px; font-weight:700; color:#fff;">Custom Color</div>
+            <div style="font-size:11px; color:var(--text-secondary);">Pick any custom accent shade</div>
+          </div>
+          <input type="color" id="theme-custom-color-input" class="theme-custom-picker-input" value="#FF1744" oninput="App.setCustomThemeColor(this.value)">
+        </div>
+
+        <!-- Reset to Default Option -->
+        <button class="sheet-action-item" onclick="App.resetTheme()" style="width:100%; border-radius:12px; background:rgba(255,255,255,0.04); justify-content:center; margin-top:8px; font-weight:700; font-size:13px;">
+          <span class="material-symbols-outlined" style="font-size:18px;">restart_alt</span>
+          <span>Reset to Default</span>
+        </button>
+      </div>
     </div>
   </div>
 
@@ -1236,7 +1336,7 @@
           <button class="player-top-action-btn" onclick="App.closeBottomSheet('sheet-audio-output')" aria-label="Back" style="width:36px; height:36px; background:rgba(255,255,255,0.08); border-radius:50%; border:none; color:#FFFFFF; display:flex; align-items:center; justify-content:center; cursor:pointer;">
             <span class="material-symbols-outlined" style="font-size:20px;">arrow_back</span>
           </button>
-          <span class="material-symbols-outlined" style="color:#FF2A4D; font-size:24px;">speaker_group</span>
+          <span class="material-symbols-outlined" style="color:var(--accent); font-size:24px;">speaker_group</span>
           <h3 class="screen-title" style="font-size:19px; margin-bottom:0;">Audio Output &amp; Devices</h3>
         </div>
         <button class="icon-btn-glass" onclick="AudioOutputManager.refreshDevices(); AudioOutputManager.renderOutputSheet();" title="Refresh Devices" aria-label="Refresh">
@@ -1248,7 +1348,7 @@
       <div class="audio-output-cast-card" onclick="AudioOutputManager.promptCastSession()">
         <div style="display:flex; align-items:center; gap:12px;">
           <div class="audio-output-cast-icon-wrap">
-            <span class="material-symbols-outlined" style="font-size:22px; color:#FF2A4D;">cast</span>
+            <span class="material-symbols-outlined" style="font-size:22px; color:var(--accent);">cast</span>
           </div>
           <div>
             <span style="font-size:14px; font-weight:700; color:#FFFFFF; display:block;">Google Cast / Wireless Display</span>
@@ -1266,8 +1366,8 @@
 
       <!-- Scan & Hardware Access Button -->
       <div style="margin-top:16px;">
-        <button class="sheet-action-item" onclick="AudioOutputManager.requestAudioPermissions()" style="background:rgba(255,42,77,0.12); color:#FF2A4D; font-weight:700; width:100%; border-radius:14px; justify-content:center; padding:12px 14px;">
-          <span class="material-symbols-outlined" style="color:#FF2A4D;">bluetooth_searching</span>
+        <button class="sheet-action-item" onclick="AudioOutputManager.requestAudioPermissions()" style="background:var(--accent-soft); color:var(--accent); font-weight:700; width:100%; border-radius:14px; justify-content:center; padding:12px 14px;">
+          <span class="material-symbols-outlined" style="color:var(--accent);">bluetooth_searching</span>
           <span>Scan for Bluetooth &amp; External Outputs</span>
         </button>
       </div>
@@ -1347,13 +1447,23 @@
         </div>
       </div>
 
-      <!-- Display & Device Optimization -->
+      <!-- Appearance & Theme Section -->
       <div class="settings-section">
-        <span class="settings-sec-head">Performance &amp; Theme</span>
+        <span class="settings-sec-head">Appearance &amp; Theme</span>
+        <div class="settings-row" onclick="App.openThemeDialog()">
+          <div class="settings-row-col">
+            <span class="settings-label">Theme &amp; Accent Color</span>
+            <span class="settings-sub" id="settings-theme-summary">Customize the look and accent color</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <div id="settings-theme-dot" style="width:18px; height:18px; border-radius:50%; background:var(--accent); box-shadow:0 0 8px var(--accent-glow);"></div>
+            <span class="material-symbols-outlined" style="color:var(--text-secondary);">chevron_right</span>
+          </div>
+        </div>
         <div class="settings-row">
           <div class="settings-row-col">
             <span class="settings-label">Dynamic Ambient Lighting</span>
-            <span class="settings-sub">Adaptive color aura glow</span>
+            <span class="settings-sub">Player atmospheric glow derived from album artwork</span>
           </div>
           <label class="switch-wrap">
             <input type="checkbox" id="settings-glow-switch" checked onchange="App.toggleAmbientGlow(this.checked)">
@@ -1426,27 +1536,39 @@
             <span class="settings-label">Clear Listening History</span>
             <span class="settings-sub">Reset recent plays</span>
           </div>
-          <span class="material-symbols-outlined" style="color:#FF2A4D;">delete</span>
+          <span class="material-symbols-outlined" style="color:var(--accent);">delete</span>
         </div>
         <div class="settings-row" onclick="App.clearSearchData()">
           <div class="settings-row-col">
             <span class="settings-label">Clear Search History</span>
             <span class="settings-sub">Remove cached search terms</span>
           </div>
-          <span class="material-symbols-outlined" style="color:#FF2A4D;">delete</span>
+          <span class="material-symbols-outlined" style="color:var(--accent);">delete</span>
         </div>
       </div>
 
-      <!-- About Section -->
+      <!-- About & In-App Updates Section -->
       <div class="settings-section" style="border-bottom:none;">
-        <span class="settings-sec-head">About</span>
+        <span class="settings-sec-head">About &amp; Updates</span>
         <div class="settings-row">
-          <span>App Version</span>
-          <span style="color:var(--text-secondary); font-size:13px;">MusicFlow 2.0 (100% Android Replica)</span>
+          <div class="settings-row-col">
+            <span class="settings-label">MusicFlow Version</span>
+            <span class="settings-sub" id="settings-platform-sub">Sideloaded Build (Lossless Audio Engine)</span>
+          </div>
+          <span class="settings-value-pill" id="settings-version-val">v2.6.0</span>
         </div>
-        <div class="settings-row">
-          <span>Audio Engine</span>
-          <span style="color:#FF2A4D; font-size:13px; font-weight:700;">Lossless Web Audio + LRCLib</span>
+        <div class="settings-row" style="cursor:default;">
+          <div class="settings-row-col">
+            <span class="settings-label">Updates</span>
+            <span class="settings-sub" id="settings-update-status">✓ You're up to date</span>
+          </div>
+          <button class="settings-action-btn" id="btn-check-updates" onclick="App.checkUpdatesManual()" style="padding:6px 14px; border-radius:var(--radius-full); background:var(--accent-soft); border:1px solid var(--accent-border); color:var(--accent); font-size:12px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px;">
+            <span class="material-symbols-outlined" id="icon-update-spin" style="font-size:15px;">sync</span>
+            <span id="text-update-btn">Check</span>
+          </button>
+        </div>
+        <div style="font-size:11px; color:var(--text-secondary); margin-top:6px; padding:0 4px;" id="settings-update-time">
+          Last checked: Never
         </div>
       </div>
     </div>
@@ -1472,7 +1594,7 @@
         <div class="sheet-action-item" id="btn-song-act-add-pl"><span class="material-symbols-outlined">playlist_add</span><span>Add to Playlist</span></div>
         <div class="sheet-action-item" id="btn-song-act-download"><span class="material-symbols-outlined">download</span><span>Download</span></div>
         <div class="sheet-action-item" id="btn-song-act-artist"><span class="material-symbols-outlined">person</span><span>Go to Artist</span></div>
-        <div class="sheet-action-item" id="btn-song-act-remove-pl" style="display:none; color:#FF2A4D;"><span class="material-symbols-outlined">remove_circle_outline</span><span>Remove from Playlist</span></div>
+        <div class="sheet-action-item" id="btn-song-act-remove-pl" style="display:none; color:var(--accent);"><span class="material-symbols-outlined">remove_circle_outline</span><span>Remove from Playlist</span></div>
       </div>
     </div>
   </div>
@@ -1495,7 +1617,7 @@
         <div class="sheet-action-item" id="btn-pl-act-queue"><span class="material-symbols-outlined">add_to_queue</span><span>Add to Queue</span></div>
         <div class="sheet-action-item" id="btn-pl-act-edit"><span class="material-symbols-outlined">edit</span><span>Edit Playlist</span></div>
         <div class="sheet-action-item" id="btn-pl-act-duplicate"><span class="material-symbols-outlined">content_copy</span><span>Duplicate Playlist</span></div>
-        <div class="sheet-action-item" id="btn-pl-act-delete" style="color:#FF2A4D;"><span class="material-symbols-outlined">delete</span><span>Delete Playlist</span></div>
+        <div class="sheet-action-item" id="btn-pl-act-delete" style="color:var(--accent);"><span class="material-symbols-outlined">delete</span><span>Delete Playlist</span></div>
       </div>
     </div>
   </div>
@@ -1535,6 +1657,150 @@
     </div>
   </div>
 
+  <!-- ================= IMPORT YOUTUBE PLAYLIST / SONG MODAL ================= -->
+  <div id="modal-import-yt-playlist" class="modal-dialog-backdrop" style="display:none;" onclick="if(event.target===this)App.closeImportYouTubePlaylistModal()">
+    <div class="modal-glass-card" style="max-width:480px; width:92%;">
+      <div class="modal-head-row">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span class="material-symbols-outlined" style="color:#FF0000; font-size:24px;">smart_display</span>
+          <h3 class="modal-title">Import from YouTube</h3>
+        </div>
+        <button class="icon-btn-glass" onclick="App.closeImportYouTubePlaylistModal()"><span class="material-symbols-outlined">close</span></button>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:12px; margin-top:8px;">
+        <label class="modal-field-label">Paste a YouTube / YouTube Music song or playlist URL</label>
+        <div style="display:flex; gap:8px;">
+          <input type="text" id="input-import-yt-url" class="modal-text-input" placeholder="https://music.youtube.com/playlist?list=... or watch?v=..." style="flex:1;">
+          <button class="modal-primary-btn" id="btn-submit-yt-fetch" onclick="App.submitYouTubePlaylistImport()" style="white-space:nowrap; padding:0 16px;">
+            <span class="material-symbols-outlined" style="font-size:16px;">download</span>
+            <span>Fetch</span>
+          </button>
+        </div>
+        
+        <!-- Shimmer loading state -->
+        <div id="import-yt-loading" style="display:none; text-align:center; padding:20px 0;">
+          <div class="loading-shimmer-row" style="margin-bottom:8px;"></div>
+          <span style="font-size:12.5px; color:var(--text-secondary);">Analyzing playlist & matching audio streams...</span>
+        </div>
+
+        <!-- Import Summary & Track List preview -->
+        <div id="import-yt-results" style="display:none; flex-direction:column; gap:10px;">
+          <div class="import-stats-banner" style="display:flex; justify-content:space-between; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); padding:10px 14px; border-radius:12px; font-size:12px;">
+            <div><span style="color:var(--text-secondary);">Found:</span> <strong id="stat-yt-found" style="color:#fff;">0</strong></div>
+            <div><span style="color:#00F2FE;">Matched:</span> <strong id="stat-yt-matched" style="color:#00F2FE;">0</strong></div>
+            <div><span style="color:var(--accent);">Unavailable:</span> <strong id="stat-yt-unmatched" style="color:var(--accent);">0</strong></div>
+          </div>
+
+          <div id="import-yt-tracks-preview" style="max-height:220px; overflow-y:auto; display:flex; flex-direction:column; gap:6px; padding-right:4px;"></div>
+
+          <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:8px;">
+            <button class="modal-secondary-btn" onclick="App.closeImportYouTubePlaylistModal()">Cancel</button>
+            <button class="modal-primary-btn" id="btn-save-imported-pl" onclick="App.saveImportedPlaylist()">
+              <span class="material-symbols-outlined" style="font-size:16px;">playlist_add_check</span>
+              <span>Save to My Music</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= IN-APP UPDATE MODAL DIALOG ================= -->
+  <div id="modal-update-dialog" class="modal-bottom-sheet" style="display:none;" onclick="if(event.target===this && !App.isUpdateMandatory)App.closeUpdateDialog()">
+    <div class="bottom-sheet-content update-modal-card">
+      <div class="bottom-sheet-drag-handle"></div>
+      
+      <div class="update-dialog-header">
+        <div class="update-icon-glow">
+          <span class="material-symbols-outlined" style="font-size:28px; color:#00F2FE;">system_update</span>
+        </div>
+        <div class="update-header-meta">
+          <div class="update-dialog-badge" id="update-dialog-badge">Update Available</div>
+          <h2 class="update-dialog-title" id="update-dialog-title">MusicFlow Update</h2>
+        </div>
+      </div>
+
+      <div class="update-version-row">
+        <div class="version-stat-box">
+          <span class="version-stat-label">Current</span>
+          <span class="version-stat-num" id="update-curr-version">v2.6.0</span>
+        </div>
+        <span class="material-symbols-outlined" style="color:var(--text-secondary); font-size:18px;">arrow_forward</span>
+        <div class="version-stat-box highlight">
+          <span class="version-stat-label">Latest</span>
+          <span class="version-stat-num" id="update-new-version">v2.7.0</span>
+        </div>
+      </div>
+
+      <div class="update-notes-container">
+        <div class="update-notes-heading">What's New</div>
+        <ul class="update-notes-list" id="update-notes-list">
+          <li>Major improvements to discovery and playback.</li>
+        </ul>
+      </div>
+
+      <div class="update-dialog-actions">
+        <button class="update-primary-btn" id="btn-update-now" onclick="App.openUpdateDownload()">
+          <span class="material-symbols-outlined" style="font-size:18px;">download</span>
+          <span id="btn-update-now-text">Update Now</span>
+        </button>
+        <button class="update-release-btn" onclick="App.openGitHubRelease()">
+          <span class="material-symbols-outlined" style="font-size:16px;">open_in_new</span>
+          <span>View Release</span>
+        </button>
+        <button class="update-later-btn" id="btn-update-later" onclick="App.dismissUpdateDialog()">Later</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= IN-APP SUBTLE UPDATE BANNER ================= -->
+  <div id="update-banner" class="update-banner-card" style="display:none;">
+    <div class="update-banner-icon">
+      <span class="material-symbols-outlined" style="font-size:20px; color:#00F2FE;">system_update</span>
+    </div>
+    <div class="update-banner-info">
+      <div class="update-banner-title" id="update-banner-title">MusicFlow Update Available</div>
+      <div class="update-banner-sub" id="update-banner-sub">Better discovery, radio and player improvements.</div>
+    </div>
+    <div class="update-banner-actions">
+      <button class="update-banner-btn-update" onclick="App.openUpdateDownload()">Update</button>
+      <button class="update-banner-btn-dismiss" onclick="App.dismissUpdateBanner()">
+        <span class="material-symbols-outlined" style="font-size:18px;">close</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- ================= UNIFIED MUSICFLOW CONFIRMATION MODAL ================= -->
+  <div id="modal-confirm-dialog" class="mf-custom-modal-overlay" onclick="if(event.target===this)App.closeConfirmModal(false)">
+    <div class="mf-custom-modal-card">
+      <div class="mf-modal-icon-badge" id="modal-confirm-badge">
+        <span class="material-symbols-outlined" id="modal-confirm-icon" style="font-size:28px;">help_outline</span>
+      </div>
+      <h3 class="mf-modal-title" id="modal-confirm-title">Confirm Action</h3>
+      <p class="mf-modal-message" id="modal-confirm-msg">Are you sure you want to proceed?</p>
+      <div class="mf-modal-btn-row">
+        <button class="btn-mf-modal-cancel" id="btn-modal-confirm-cancel" onclick="App.closeConfirmModal(false)">Cancel</button>
+        <button class="btn-mf-modal-confirm" id="btn-modal-confirm-ok" onclick="App.closeConfirmModal(true)">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= UNIFIED MUSICFLOW INPUT / PROMPT MODAL ================= -->
+  <div id="modal-prompt-dialog" class="mf-custom-modal-overlay" onclick="if(event.target===this)App.closePromptModal(null)">
+    <div class="mf-custom-modal-card">
+      <div class="mf-modal-icon-badge" id="modal-prompt-badge">
+        <span class="material-symbols-outlined" id="modal-prompt-icon" style="font-size:28px;">edit</span>
+      </div>
+      <h3 class="mf-modal-title" id="modal-prompt-title">Edit Name</h3>
+      <p class="mf-modal-message" id="modal-prompt-msg" style="display:none;"></p>
+      <input type="text" class="mf-modal-input-field" id="modal-prompt-input" placeholder="Enter name..." maxlength="60" onkeydown="if(event.key==='Enter')App.submitPromptModal()">
+      <div class="mf-modal-btn-row">
+        <button class="btn-mf-modal-cancel" id="btn-modal-prompt-cancel" onclick="App.closePromptModal(null)">Cancel</button>
+        <button class="btn-mf-modal-confirm" id="btn-modal-prompt-ok" onclick="App.submitPromptModal()">Save</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Hidden Inputs for Local Audio Import -->
   <input type="file" id="local-file-input" multiple accept="audio/*" style="display:none;" onchange="App.handleLocalFilesImport(event)">
   <input type="file" id="local-folder-input" webkitdirectory directory multiple style="display:none;" onchange="App.handleLocalFolderImport(event)">
@@ -1543,6 +1809,13 @@
   <audio id="app-audio" preload="auto" playsinline webkit-playsinline></audio>
 
   <!-- Modular Scripts -->
+  <script src="js/apiConfig.js"></script>
+  <script src="js/themeManager.js"></script>
+  <script src="js/dataNormalizer.js"></script>
+  <script src="js/musicProvider.js"></script>
+  <script src="js/jioSaavnProvider.js"></script>
+  <script src="js/youtubeMusicService.js"></script>
+  <script src="js/youtubeMusicProvider.js"></script>
   <script src="js/id3Parser.js"></script>
   <script src="js/indexedDbStorage.js"></script>
   <script src="js/queryNormalizer.js"></script>
@@ -1556,6 +1829,7 @@
   <script src="js/searchEngine.js"></script>
   <script src="js/recommendationEngine.js"></script>
   <script src="js/storage.js"></script>
+  <script src="js/updateManager.js"></script>
   <script src="js/typesenseClient.js"></script>
   <script src="js/downloadManager.js"></script>
   <script src="js/smartDownloads.js"></script>
@@ -1563,6 +1837,8 @@
   <script src="js/homeDataLayer.js"></script>
   <script src="js/exploreDataLayer.js"></script>
   <script src="js/audioEffectsEngine.js"></script>
+  <script src="js/playbackResolver.js"></script>
+  <script src="js/nativeMedia.js"></script>
   <script src="js/player.js"></script>
   <script src="js/lyrics.js"></script>
   <script src="js/audioOutputManager.js"></script>

@@ -18,9 +18,17 @@ const UI = (() => {
     return n.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
   }
 
+  const colorCache = new Map();
+
   // Extract vibrant dominant color from image and set dynamic ambient background
   function setDynamicColor(imgUrl) {
     if (!imgUrl || typeof Image === 'undefined' || typeof document === 'undefined') return;
+    if (colorCache.has(imgUrl)) {
+      try {
+        document.documentElement.style.setProperty('--dynamic-color', colorCache.get(imgUrl));
+      } catch (_) {}
+      return;
+    }
     const img = new Image();
     img.crossOrigin = 'Anonymous';
     img.onload = () => {
@@ -32,6 +40,11 @@ const UI = (() => {
         ctx.drawImage(img, 0, 0, 1, 1);
         const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
         const color = `rgba(${r}, ${g}, ${b}, 0.40)`;
+        colorCache.set(imgUrl, color);
+        if (colorCache.size > 100) {
+          const oldest = colorCache.keys().next().value;
+          colorCache.delete(oldest);
+        }
         document.documentElement.style.setProperty('--dynamic-color', color);
       } catch (_) {}
     };
@@ -40,8 +53,11 @@ const UI = (() => {
 
   // Format artists into clean string
   function formatArtists(artists) {
+    if (typeof DataNormalizer !== 'undefined' && DataNormalizer.getArtistName) {
+      return DataNormalizer.getArtistName(artists);
+    }
     if (!artists) return 'Various Artists';
-    if (typeof artists === 'string') return API.decodeHtml(artists);
+    if (typeof artists === 'string') return (typeof API !== 'undefined' && API.decodeHtml) ? API.decodeHtml(artists) : artists;
     if (Array.isArray(artists)) {
       return artists.map(a => typeof a === 'object' ? (a.name || a.title || '') : a).filter(Boolean).join(', ') || 'Various Artists';
     }
@@ -58,7 +74,10 @@ const UI = (() => {
   }
 
   function escapeHtml(str) {
-    if (!str || typeof str !== 'string') return str || '';
+    if (typeof str === 'object' && str !== null) {
+      str = (typeof DataNormalizer !== 'undefined') ? DataNormalizer.getArtistName(str) : String(str.name || str.title || '');
+    }
+    if (!str || typeof str !== 'string') return String(str || '');
     return str
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
@@ -68,17 +87,66 @@ const UI = (() => {
   }
 
   function escapeAttr(str) {
-    if (!str || typeof str !== 'string') return str || '';
+    if (typeof str === 'object' && str !== null) {
+      str = (typeof DataNormalizer !== 'undefined') ? DataNormalizer.getArtistName(str) : String(str.name || str.title || '');
+    }
+    if (!str || typeof str !== 'string') return String(str || '');
     return str
       .replace(/\\/g, '\\\\')
       .replace(/'/g, "\\'")
       .replace(/"/g, '&quot;');
   }
 
+  function renderFullPlayerArtistLinks(songOrArtists) {
+    if (!songOrArtists) return '<span class="artist-plain">Unknown Artist</span>';
+    
+    let artistEntities = [];
+    if (typeof DataNormalizer !== 'undefined' && DataNormalizer.getLegitimateMusicArtists) {
+      artistEntities = DataNormalizer.getLegitimateMusicArtists(songOrArtists);
+    } else if (typeof DataNormalizer !== 'undefined' && DataNormalizer.normalizeArtists) {
+      artistEntities = DataNormalizer.normalizeArtists(songOrArtists);
+    } else {
+      const name = formatArtists(songOrArtists);
+      artistEntities = [{ id: name, name: name }];
+    }
+
+    if (!artistEntities || artistEntities.length === 0) {
+      return '<span class="artist-plain">Unknown Artist</span>';
+    }
+
+    // Limit to max 2-3 performing artists in Full Player
+    const visibleArtists = artistEntities.slice(0, 3);
+    const remainingCount = artistEntities.length - visibleArtists.length;
+
+    const linksHtml = visibleArtists.map(a => {
+      const name = escapeHtml(a.name || 'Unknown Artist');
+      if (name.toLowerCase() === 'unknown artist') {
+        return `<span class="artist-plain">${name}</span>`;
+      }
+      return `<span class="player-artist-name clickable-link" onclick="event.stopPropagation(); App.navigateToArtist('${escapeAttr(a.name)}')">${name}</span>`;
+    }).join('<span class="artist-link-separator">•</span>');
+
+    if (remainingCount > 0) {
+      return `${linksHtml}<span class="artist-more-count">+${remainingCount}</span>`;
+    }
+
+    return linksHtml;
+  }
+
+  function renderArtistLinks(artists, options = {}) {
+    if (!artists) return '<span class="artist-plain">Unknown Artist</span>';
+    if (!options.clickable) {
+      return `<span class="artist-plain">${escapeHtml(formatArtists(artists))}</span>`;
+    }
+    return renderFullPlayerArtistLinks(artists);
+  }
+
   return {
     formatTime,
     formatListeners,
     formatArtists,
+    renderArtistLinks,
+    renderFullPlayerArtistLinks,
     escapeHtml,
     escapeAttr,
     setDynamicColor,
@@ -554,18 +622,20 @@ const UI = (() => {
           `;
         } else if (bestMatch && bestMatch.type === 'album') {
           const alb = bestMatch.item;
+          const albTitle = escapeAttr(alb.title || alb.name || 'Album');
+          const albArt = escapeAttr(alb.artists || alb.artist || '');
           html += `
-            <div class="best-match-card" onclick="App.openAlbumOrPlaylist('${alb.id}', 'album')">
+            <div class="best-match-card" onclick="App.openAlbum('${alb.id}', '${albTitle}', '${albArt}')">
               <div class="best-match-art-wrap">
                 <img src="${API.getImageUrl(alb)}" onerror="this.src='assets/logo.png'" alt="${alb.title || alb.name}">
               </div>
               <div class="best-match-info">
                 <span class="best-match-badge">BEST MATCH • ALBUM</span>
-                <div class="best-match-title">${alb.title || alb.name}</div>
-                <div class="best-match-sub">${formatArtists(alb.artists || alb.artist || 'Album')}</div>
+                <div class="best-match-title">${escapeHtml(alb.title || alb.name)}</div>
+                <div class="best-match-sub">${escapeHtml(formatArtists(alb.artists || alb.artist || 'Album'))}</div>
               </div>
               <div class="best-match-actions" onclick="event.stopPropagation();">
-                <button class="best-match-play-btn" onclick="App.openAlbumOrPlaylist('${alb.id}', 'album')" title="Open Album">
+                <button class="best-match-play-btn" onclick="App.openAlbum('${alb.id}', '${albTitle}', '${albArt}')" title="Open Album">
                   <span class="material-symbols-outlined fill-icon">album</span>
                 </button>
               </div>
@@ -581,9 +651,9 @@ const UI = (() => {
             <div class="search-section-title">Artists</div>
             <div class="similar-artists-shelf">
               ${artists.map(art => `
-                <div class="similar-artist-item" onclick="App.openArtist('${(art.name || art.title || art.id || '').replace(/'/g, "\\'")}')">
+                <div class="similar-artist-item" onclick="App.openArtist('${escapeAttr(art.name || art.title || art.id)}')">
                   <img class="similar-artist-avatar" src="${API.getImageUrl(art)}" onerror="this.src='assets/logo.png'" alt="${art.title || art.name}">
-                  <span class="similar-artist-name">${art.title || art.name}</span>
+                  <span class="similar-artist-name">${escapeHtml(art.title || art.name)}</span>
                 </div>
               `).join('')}
             </div>
@@ -604,8 +674,8 @@ const UI = (() => {
                 <div class="vertical-track-row" onclick="App.playSongFromSearch(${idx})">
                   <img class="vertical-track-img" src="${song.image}" onerror="this.src='assets/logo.png'" alt="${song.name}">
                   <div class="vertical-track-info">
-                    <div class="vertical-track-title">${song.name}</div>
-                    <div class="vertical-track-artist">${song.artists}</div>
+                    <div class="vertical-track-title">${escapeHtml(song.name)}</div>
+                    <div class="vertical-track-artist">${escapeHtml(formatArtists(song.artists || song.primaryArtist))}</div>
                   </div>
                   <button class="vertical-track-more" onclick="event.stopPropagation(); App.openSongMenu('${song.id}');" aria-label="More">
                     <span class="material-symbols-outlined">more_vert</span>
@@ -630,13 +700,13 @@ const UI = (() => {
             <div class="search-section-title">Albums</div>
             <div class="cards-horizontal-shelf" style="padding: 4px 0;">
               ${albums.map(alb => `
-                <div class="music-square-card" onclick="App.openAlbumOrPlaylist('${alb.id}', 'album')">
+                <div class="music-square-card" onclick="App.openAlbum('${alb.id}', '${escapeAttr(alb.title || alb.name || 'Album')}', '${escapeAttr(alb.artists || alb.artist || alb.subtitle || '')}')">
                   <div class="square-card-art-wrap">
                     <img src="${API.getImageUrl(alb)}" onerror="this.src='assets/logo.png'" alt="${alb.title || alb.name}">
                     <div class="square-card-play-overlay"><span class="material-symbols-outlined fill-icon" style="font-size:20px;">play_arrow</span></div>
                   </div>
-                  <div class="square-card-title">${alb.title || alb.name}</div>
-                  <div class="square-card-sub">${formatArtists(alb.artists || alb.artist || alb.subtitle || 'Album')}</div>
+                  <div class="square-card-title">${escapeHtml(alb.title || alb.name)}</div>
+                  <div class="square-card-sub">${escapeHtml(formatArtists(alb.artists || alb.artist || alb.subtitle || 'Album'))}</div>
                 </div>
               `).join('')}
             </div>
@@ -656,8 +726,8 @@ const UI = (() => {
                     <img src="${API.getImageUrl(pl)}" onerror="this.src='assets/logo.png'" alt="${pl.title || pl.name}">
                     <div class="square-card-play-overlay"><span class="material-symbols-outlined fill-icon" style="font-size:20px;">play_arrow</span></div>
                   </div>
-                  <div class="square-card-title">${pl.title || pl.name}</div>
-                  <div class="square-card-sub">${formatArtists(pl.subtitle || pl.artists || 'Playlist')}</div>
+                  <div class="square-card-title">${escapeHtml(pl.title || pl.name)}</div>
+                  <div class="square-card-sub">${escapeHtml(formatArtists(pl.subtitle || pl.artists || 'Playlist'))}</div>
                 </div>
               `).join('')}
             </div>
@@ -803,10 +873,16 @@ const UI = (() => {
         let html = `
           <div class="library-sort-bar">
             <span style="font-size:14px; font-weight:700; color:#fff;">Your Playlists (${customPlaylists.length})</span>
-            <button class="lib-action-pill-btn" onclick="App.openCreatePlaylistModal()">
-              <span class="material-symbols-outlined" style="font-size:16px;">add</span>
-              <span>New</span>
-            </button>
+            <div style="display:flex; gap:6px;">
+              <button class="lib-action-pill-btn" onclick="App.openImportYouTubePlaylistModal()" title="Import YouTube Playlist">
+                <span class="material-symbols-outlined" style="font-size:16px; color:#FF0000;">smart_display</span>
+                <span>Import YT</span>
+              </button>
+              <button class="lib-action-pill-btn" onclick="App.openCreatePlaylistModal()">
+                <span class="material-symbols-outlined" style="font-size:16px;">add</span>
+                <span>New</span>
+              </button>
+            </div>
           </div>
         `;
 
@@ -815,11 +891,17 @@ const UI = (() => {
             <div class="library-empty-state">
               <span class="material-symbols-outlined library-empty-icon">queue_music</span>
               <h4 class="library-empty-title">No playlists yet</h4>
-              <p class="library-empty-sub">Create your first custom playlist to group your favorite songs and mixes.</p>
-              <button class="library-empty-cta-btn" onclick="App.openCreatePlaylistModal()">
-                <span class="material-symbols-outlined" style="font-size:18px;">add</span>
-                <span>Create Playlist</span>
-              </button>
+              <p class="library-empty-sub">Create your first custom playlist or import existing YouTube Music playlists.</p>
+              <div style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin-top:8px;">
+                <button class="library-empty-cta-btn" onclick="App.openCreatePlaylistModal()">
+                  <span class="material-symbols-outlined" style="font-size:18px;">add</span>
+                  <span>Create Playlist</span>
+                </button>
+                <button class="library-empty-cta-btn" style="background:var(--accent-soft); border:1px solid var(--accent-border); color:var(--accent);" onclick="App.openImportYouTubePlaylistModal()">
+                  <span class="material-symbols-outlined" style="font-size:18px;">smart_display</span>
+                  <span>Import YouTube Playlist</span>
+                </button>
+              </div>
             </div>
           `;
         } else {
@@ -860,7 +942,7 @@ const UI = (() => {
       else if (tab === 'songs') {
         let songs = [...favs];
         if (q) {
-          songs = songs.filter(s => s.name.toLowerCase().includes(q) || (s.artists && s.artists.toLowerCase().includes(q)));
+          songs = songs.filter(s => (s.name || s.title || '').toLowerCase().includes(q) || (typeof DataNormalizer !== 'undefined' ? DataNormalizer.getArtistString(s) : String(s.artists || '')).toLowerCase().includes(q));
         }
 
         // Apply Sorting
@@ -952,11 +1034,11 @@ const UI = (() => {
         } else {
           html += `<div class="albums-cards-grid">`;
           html += savedAlbums.map(alb => `
-            <div class="album-rich-card" onclick="App.openAlbumOrPlaylist('${alb.id}', 'album')">
+            <div class="album-rich-card" onclick="App.openAlbum('${alb.id}', '${escapeAttr(alb.title || alb.name || 'Album')}', '${escapeAttr(alb.artist || alb.artists || 'Artist')}')">
               <img src="${alb.image || 'assets/logo.png'}" class="album-rich-cover" alt="${alb.title || alb.name}" onerror="this.src='assets/logo.png'">
               <div class="album-rich-info">
-                <div class="album-rich-title">${alb.title || alb.name}</div>
-                <div class="album-rich-artist">${alb.artist || alb.artists || 'Artist'} • ${alb.year || 'Album'}</div>
+                <div class="album-rich-title">${escapeHtml(alb.title || alb.name)}</div>
+                <div class="album-rich-artist">${escapeHtml(formatArtists(alb.artist || alb.artists || 'Artist'))} • ${escapeHtml(alb.year || 'Album')}</div>
               </div>
             </div>
           `).join('');
@@ -1020,7 +1102,7 @@ const UI = (() => {
       else if (tab === 'history') {
         let history = Storage.getHistory();
         if (q) {
-          history = history.filter(s => s.name.toLowerCase().includes(q) || (s.artists && s.artists.toLowerCase().includes(q)));
+          history = history.filter(s => (s.name || s.title || '').toLowerCase().includes(q) || (typeof DataNormalizer !== 'undefined' ? DataNormalizer.getArtistString(s) : String(s.artists || '')).toLowerCase().includes(q));
         }
 
         let html = `
@@ -1079,7 +1161,7 @@ const UI = (() => {
         const pendingTasks = activeTasks.filter(t => t.status === 'DOWNLOADING' || t.status === 'QUEUED' || t.status === 'PAUSED' || t.status === 'FAILED');
 
         if (q) {
-          dlSongs = dlSongs.filter(s => s.name.toLowerCase().includes(q) || (s.artists && s.artists.toLowerCase().includes(q)));
+          dlSongs = dlSongs.filter(s => (s.name || s.title || '').toLowerCase().includes(q) || (typeof DataNormalizer !== 'undefined' ? DataNormalizer.getArtistString(s) : String(s.artists || '')).toLowerCase().includes(q));
         }
 
         let html = `
@@ -1097,7 +1179,7 @@ const UI = (() => {
                   <span class="material-symbols-outlined" style="font-size:14px;">tune</span>
                   <span>Settings</span>
                 </button>
-                <button class="lib-action-pill-btn" style="font-size:11px; padding:4px 10px; border-color:rgba(255,42,77,0.3); color:#FF2A4D;" onclick="App.openStorageCleanupDialog();" title="Manage Storage">
+                <button class="lib-action-pill-btn" style="font-size:11px; padding:4px 10px; border-color:var(--accent-border); color:var(--accent);" onclick="App.openStorageCleanupDialog();" title="Manage Storage">
                   <span class="material-symbols-outlined" style="font-size:14px;">cleaning_services</span>
                   <span>Cleanup</span>
                 </button>
@@ -1106,7 +1188,7 @@ const UI = (() => {
 
             <!-- Storage Progress Bar (0% - 100%) -->
             <div style="width:100%; height:6px; background:rgba(255,255,255,0.1); border-radius:4px; overflow:hidden; margin:8px 0 10px 0;">
-              <div style="width:${metrics.percentUsed}%; height:100%; background:${metrics.percentUsed > 90 ? '#FF2A4D' : 'linear-gradient(90deg, #00F2FE, #4FACFE)'}; border-radius:4px; transition:width 0.3s ease;"></div>
+              <div style="width:${metrics.percentUsed}%; height:100%; background:${metrics.percentUsed > 90 ? 'var(--accent)' : 'linear-gradient(90deg, #00F2FE, #4FACFE)'}; border-radius:4px; transition:width 0.3s ease;"></div>
             </div>
 
             <!-- Breakdown Badges -->
@@ -1134,7 +1216,7 @@ const UI = (() => {
                     <span class="material-symbols-outlined fill-icon" style="font-size:16px;">play_arrow</span>
                     <span>Play All</span>
                   </button>
-                  <button class="lib-action-pill-btn" style="border-color:rgba(255,42,77,0.3); color:#FF2A4D;" onclick="App.clearAllDownloadsAction()" title="Clear All Downloads">
+                  <button class="lib-action-pill-btn" style="border-color:var(--accent-border); color:var(--accent);" onclick="App.clearAllDownloadsAction()" title="Clear All Downloads">
                     <span class="material-symbols-outlined" style="font-size:16px;">delete_sweep</span>
                   </button>
                 ` : ''}
@@ -1148,11 +1230,11 @@ const UI = (() => {
           html += `
             <div class="download-queue-shelf" style="margin-bottom:18px; padding:12px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.08); border-radius:14px;">
               <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                <span style="font-size:12px; font-weight:800; letter-spacing:0.5px; color:#FF2A4D; text-transform:uppercase;">Download Queue (${pendingTasks.length})</span>
+                <span style="font-size:12px; font-weight:800; letter-spacing:0.5px; color:var(--accent); text-transform:uppercase;">Download Queue (${pendingTasks.length})</span>
                 <div style="display:flex; gap:4px;">
                   <button class="lib-action-pill-btn" style="font-size:10px; padding:2px 8px;" onclick="DownloadManager.pauseAll()">Pause All</button>
                   <button class="lib-action-pill-btn" style="font-size:10px; padding:2px 8px;" onclick="DownloadManager.resumeAll()">Resume All</button>
-                  <button class="lib-action-pill-btn" style="font-size:10px; padding:2px 8px; color:#FF2A4D;" onclick="DownloadManager.cancelAll()">Cancel All</button>
+                  <button class="lib-action-pill-btn" style="font-size:10px; padding:2px 8px; color:var(--accent);" onclick="DownloadManager.cancelAll()">Cancel All</button>
                 </div>
               </div>
               <div class="download-tasks-list">
@@ -1168,7 +1250,7 @@ const UI = (() => {
                 <div class="vertical-track-info">
                   <div class="vertical-track-title">${task.name}</div>
                   <div class="vertical-track-artist" style="font-size:11px;">
-                    ${isDl ? `<span style="color:#00F2FE;">Downloading ${task.progress}%</span>` : (isPsd ? '<span style="color:#F59E0B;">Paused</span>' : (isFailed ? '<span style="color:#FF2A4D;">Failed</span>' : '<span style="color:var(--text-secondary);">Queued</span>'))}
+                    ${isDl ? `<span style="color:#00F2FE;">Downloading ${task.progress}%</span>` : (isPsd ? '<span style="color:#F59E0B;">Paused</span>' : (isFailed ? '<span style="color:var(--accent);">Failed</span>' : '<span style="color:var(--text-secondary);">Queued</span>'))}
                     ${task.priority === 'smart' ? ' • <span style="color:#A78BFA;">Smart</span>' : ''}
                     ${task.totalBytes > 0 ? ` • ${(task.bytesDownloaded / (1024 * 1024)).toFixed(1)} / ${(task.totalBytes / (1024 * 1024)).toFixed(1)} MB` : ''}
                   </div>
@@ -1216,7 +1298,7 @@ const UI = (() => {
                     <span class="material-symbols-outlined" style="font-size:18px; color:${isProtected ? '#00F2FE' : 'var(--text-secondary)'};">${isProtected ? 'bookmark' : 'bookmark_border'}</span>
                   </button>
                   <button class="icon-btn-mini" onclick="event.stopPropagation(); App.removeDownloadTrack('${song.id}');" title="Delete Download">
-                    <span class="material-symbols-outlined" style="font-size:18px; color:#FF2A4D;">delete</span>
+                    <span class="material-symbols-outlined" style="font-size:18px; color:var(--accent);">delete</span>
                   </button>
                   <button class="vertical-track-more" onclick="event.stopPropagation(); App.openSongMenu('${song.id}', 'downloads');" aria-label="More">
                     <span class="material-symbols-outlined">more_vert</span>
@@ -1344,7 +1426,7 @@ const UI = (() => {
     },
 
     // ========================================================================
-    // PLAYLIST DETAIL SCREEN (PlaylistDetail.kt)
+    // PLAYLIST DETAIL SCREEN (PlaylistDetail.kt — Premium Redesign)
     // ========================================================================
     renderPlaylistDetail(playlistId, searchQuery = '', sortMode = 'custom') {
       const pl = Storage.getPlaylistById(playlistId);
@@ -1354,61 +1436,70 @@ const UI = (() => {
       const titleEl = document.getElementById('detail-title');
       const subEl = document.getElementById('detail-subtitle');
       const coverImg = document.getElementById('detail-cover-img');
-      const playBtn = document.getElementById('btn-detail-play-all');
+      const sourceTagEl = document.getElementById('detail-source-tag');
 
       let songs = pl.songs || [];
       const totalSec = songs.reduce((acc, s) => acc + (Number(s.duration) || 0), 0);
       const durStr = totalSec > 0 ? ` • ${Math.floor(totalSec / 60)} min` : '';
 
-      if (titleEl) titleEl.textContent = pl.name;
-      if (subEl) subEl.textContent = `${pl.description ? pl.description + ' • ' : ''}${songs.length} ${songs.length === 1 ? 'track' : 'tracks'}${durStr}`;
+      const matchedCount = songs.filter(s => s.isPlayable || s.audioUrl || s.streamUrl).length;
+      const isImported = (pl.description && pl.description.includes('Imported from YouTube')) || pl.source === 'youtube_music';
+      const sourceLabel = isImported ? 'Imported from YouTube Music' : 'Created by You';
+      const matchSummary = isImported
+        ? `${matchedCount} of ${songs.length} tracks matched`
+        : `${songs.length} ${songs.length === 1 ? 'track' : 'tracks'}`;
+
+      if (titleEl) titleEl.textContent = pl.name || 'Playlist';
+      if (sourceTagEl) sourceTagEl.textContent = sourceLabel;
+      if (subEl) subEl.textContent = `${matchSummary}${durStr}`;
       if (coverImg) {
         coverImg.src = pl.cover || (songs[0] && songs[0].image) || 'assets/logo.png';
-      }
-
-      if (playBtn) {
-        playBtn.onclick = () => App.playCustomPlaylist(playlistId);
       }
 
       // Filter by in-playlist search
       const q = (searchQuery || '').toLowerCase().trim();
       let filtered = [...songs];
       if (q) {
-        filtered = filtered.filter(s => (s.name || '').toLowerCase().includes(q) || (s.artists || s.primaryArtist || '').toLowerCase().includes(q));
+        filtered = filtered.filter(s => (s.name || s.title || '').toLowerCase().includes(q) || (typeof DataNormalizer !== 'undefined' ? DataNormalizer.getArtistString(s) : String(s.artists || s.primaryArtist || '')).toLowerCase().includes(q));
       }
 
       // Sort
       filtered = Storage.sortPlaylistTracks(filtered, sortMode);
 
       let html = `
-        <div class="detail-action-bar" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:8px;">
-          <div style="display:flex; align-items:center; gap:8px;">
-            <button class="lib-action-pill-btn" onclick="App.shuffleCustomPlaylist('${pl.id}')" title="Shuffle Playlist">
-              <span class="material-symbols-outlined" style="font-size:16px;">shuffle</span>
-              <span>Shuffle</span>
-            </button>
-            <button class="lib-action-pill-btn" onclick="App.startPlaylistRadio('${pl.id}')" title="Playlist Radio">
-              <span class="material-symbols-outlined" style="font-size:16px;">radio</span>
-              <span>Radio</span>
-            </button>
-            <button class="lib-action-pill-btn" onclick="App.downloadPlaylistAction('${pl.id}')" title="Download Playlist">
-              <span class="material-symbols-outlined" style="font-size:16px;">download</span>
-              <span>Download</span>
-            </button>
-          </div>
-          <div style="display:flex; align-items:center; gap:6px;">
-            <button class="icon-btn-mini" onclick="App.openEditPlaylistModal('${pl.id}')" title="Edit Playlist">
-              <span class="material-symbols-outlined" style="font-size:18px;">edit</span>
-            </button>
-            <button class="icon-btn-mini" onclick="App.exportPlaylistAction('${pl.id}')" title="Export Playlist">
-              <span class="material-symbols-outlined" style="font-size:18px;">share</span>
-            </button>
-          </div>
+        <div class="detail-actions-bar">
+          <button class="detail-play-btn" onclick="App.playCustomPlaylist('${pl.id}')" aria-label="Play All">
+            <span class="material-symbols-outlined fill-icon" style="font-size:18px;">play_arrow</span>
+            <span>Play All</span>
+          </button>
+          <button class="detail-action-pill" onclick="App.shuffleCustomPlaylist('${pl.id}')" title="Shuffle Playlist">
+            <span class="material-symbols-outlined" style="font-size:16px;">shuffle</span>
+            <span>Shuffle</span>
+          </button>
+          <button class="detail-action-pill" onclick="App.startPlaylistRadio('${pl.id}')" title="Playlist Radio">
+            <span class="material-symbols-outlined fill-icon" style="font-size:16px;">radio</span>
+            <span>Radio</span>
+          </button>
+          <button class="detail-action-pill" onclick="App.downloadPlaylistAction('${pl.id}')" title="Download Playlist">
+            <span class="material-symbols-outlined" style="font-size:16px;">download</span>
+            <span>Download</span>
+          </button>
+          <button class="detail-action-pill" onclick="App.openEditPlaylistModal('${pl.id}')" title="Edit Playlist">
+            <span class="material-symbols-outlined" style="font-size:16px;">edit</span>
+            <span>Edit</span>
+          </button>
+          <button class="detail-action-pill" onclick="App.exportPlaylistAction('${pl.id}')" title="Export Playlist">
+            <span class="material-symbols-outlined" style="font-size:16px;">share</span>
+            <span>Share</span>
+          </button>
         </div>
 
         <!-- In-Playlist Search & Filter -->
-        <div class="playlist-filter-bar" style="display:flex; gap:8px; margin-bottom:14px;">
-          <input type="text" class="search-input" style="height:36px; font-size:12.5px;" placeholder="Search in ${pl.name}..." value="${searchQuery}" oninput="App.filterCurrentPlaylist(this.value)">
+        <div class="detail-search-wrap">
+          <div class="detail-search-box">
+            <span class="material-symbols-outlined" style="font-size:18px;">search</span>
+            <input type="text" placeholder="Search in ${escapeAttr(pl.name)}..." value="${escapeAttr(searchQuery)}" oninput="App.filterCurrentPlaylist(this.value)">
+          </div>
         </div>
       `;
 
@@ -1428,15 +1519,23 @@ const UI = (() => {
         html += `<div class="playlist-tracks-list">`;
         filtered.forEach((song, idx) => {
           const actualIdx = songs.findIndex(s => String(s.id) === String(song.id));
+          const isCurrentlyPlaying = (typeof Player !== 'undefined' && Player.getCurrentTrack()?.id === song.id);
+          const trackNum = String(actualIdx + 1).padStart(2, '0');
+          const artistLinks = renderArtistLinks(song);
+          const dur = (song.duration && !isNaN(song.duration) && song.duration > 0) ? formatTime(song.duration) : '';
+
           html += `
-            <div class="vertical-track-row" draggable="true" ondragstart="App.handlePlaylistDragStart(event, ${actualIdx})" ondragover="App.handlePlaylistDragOver(event)" ondrop="App.handlePlaylistDrop(event, '${pl.id}', ${actualIdx})" onclick="App.playCustomPlaylistTrack('${pl.id}', ${actualIdx})">
-              <span class="material-symbols-outlined queue-drag-handle" title="Drag to reorder">drag_indicator</span>
-              <img class="vertical-track-img" src="${song.image || 'assets/logo.png'}" onerror="this.src='assets/logo.png'" alt="${song.name}">
+            <div class="vertical-track-row ${isCurrentlyPlaying ? 'playing' : ''}" draggable="true" ondragstart="App.handlePlaylistDragStart(event, ${actualIdx})" ondragover="App.handlePlaylistDragOver(event)" ondrop="App.handlePlaylistDrop(event, '${pl.id}', ${actualIdx})" onclick="App.playCustomPlaylistTrack('${pl.id}', ${actualIdx})">
+              <span class="track-index-num" style="width:24px; font-size:13px; color:${isCurrentlyPlaying ? 'var(--color-primary)' : 'var(--text-secondary)'}; font-weight:700;">
+                ${isCurrentlyPlaying ? '<span class="material-symbols-outlined fill-icon playing-eq-indicator">equalizer</span>' : trackNum}
+              </span>
+              <img class="vertical-track-img" src="${song.image || 'assets/logo.png'}" onerror="this.src='assets/logo.png'" alt="${escapeAttr(song.name)}">
               <div class="vertical-track-info">
-                <div class="vertical-track-title">${song.name}</div>
-                <div class="vertical-track-artist">${song.artists || song.primaryArtist || 'Unknown Artist'}</div>
+                <div class="vertical-track-title ${isCurrentlyPlaying ? 'text-primary' : ''}">${escapeHtml(song.name)}</div>
+                <div class="vertical-track-artist">${artistLinks}</div>
               </div>
-              <div style="display:flex; align-items:center; gap:4px;">
+              <span class="vertical-track-duration" style="font-size:12px; color:var(--text-secondary); margin-right:4px;">${dur}</span>
+              <div style="display:flex; align-items:center; gap:2px;">
                 <button class="queue-delete-btn" onclick="event.stopPropagation(); App.removeTrackFromCustomPlaylist('${pl.id}', '${song.id}');" title="Remove from Playlist">
                   <span class="material-symbols-outlined" style="font-size:18px;">close</span>
                 </button>
@@ -1451,6 +1550,184 @@ const UI = (() => {
       }
 
       if (container) container.innerHTML = html;
+    },
+
+    // ========================================================================
+    // ALBUM DETAIL VIEW
+    // ========================================================================
+    renderAlbumDetail(albumData) {
+      if (!albumData) return;
+      const container = document.getElementById('detail-tracks-container');
+      const titleEl = document.getElementById('detail-title');
+      const subEl = document.getElementById('detail-subtitle');
+      const coverImg = document.getElementById('detail-cover-img');
+      const playBtn = document.getElementById('btn-detail-play-all');
+
+      const songs = albumData.songs || [];
+      const artist = albumData.artist || albumData.primaryArtist || (songs[0] && (songs[0].primaryArtist || songs[0].artists)) || 'Unknown Artist';
+      const year = albumData.year || (songs[0] && songs[0].year) || '';
+      const type = albumData.type || (songs.length > 5 ? 'Album' : (songs.length > 1 ? 'EP' : 'Single'));
+      const totalSec = songs.reduce((acc, s) => acc + (Number(s.duration) || 0), 0);
+      const durStr = totalSec > 0 ? ` • ${Math.floor(totalSec / 60)} min` : '';
+
+      if (titleEl) titleEl.textContent = albumData.name || albumData.title || 'Album';
+      if (subEl) {
+        subEl.innerHTML = `
+          <span style="color:#FFF; font-weight:700; cursor:pointer;" onclick="App.openArtist('${artist.replace(/'/g, "\\'")}')">${artist}</span>
+          <span> • ${year ? year + ' • ' : ''}${type} • ${songs.length} track${songs.length === 1 ? '' : 's'}${durStr}</span>
+        `;
+      }
+      if (coverImg) {
+        coverImg.src = albumData.image || (songs[0] && songs[0].image) || 'assets/logo.png';
+      }
+      if (playBtn) {
+        playBtn.onclick = () => App.playAlbumTrack(0);
+      }
+
+      let html = `
+        <div class="detail-action-bar" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:8px;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <button class="lib-action-pill-btn" onclick="App.shuffleAlbum()" title="Shuffle Album">
+              <span class="material-symbols-outlined" style="font-size:16px;">shuffle</span>
+              <span>Shuffle</span>
+            </button>
+            <button class="lib-action-pill-btn" onclick="App.startAlbumRadio()" title="Album Radio">
+              <span class="material-symbols-outlined" style="font-size:16px;">radio</span>
+              <span>Radio</span>
+            </button>
+            <button class="lib-action-pill-btn" onclick="App.downloadAlbumAction()" title="Download Album">
+              <span class="material-symbols-outlined" style="font-size:16px;">download</span>
+              <span>Download</span>
+            </button>
+          </div>
+          <div style="display:flex; align-items:center; gap:6px;">
+            <button class="icon-btn-mini" onclick="App.shareAlbumAction()" title="Share Album">
+              <span class="material-symbols-outlined" style="font-size:18px;">share</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="vertical-tracks-shelf" style="padding:0;">
+      `;
+
+      if (songs.length === 0) {
+        html += `
+          <div class="library-empty-state" style="padding:40px 10px;">
+            <span class="material-symbols-outlined library-empty-icon">album</span>
+            <h4 class="library-empty-title">No tracks found in this album</h4>
+          </div>
+        `;
+      } else {
+        html += songs.map((song, idx) => {
+          const num = String(idx + 1).padStart(2, '0');
+          const isDl = (typeof Storage !== 'undefined' && Storage.isDownloaded && Storage.isDownloaded(song.id));
+          return `
+            <div class="vertical-track-row" onclick="App.playAlbumTrack(${idx})">
+              <div style="width:24px; font-size:13px; font-weight:700; color:var(--text-secondary); text-align:center; flex-shrink:0;">${num}</div>
+              <img class="vertical-track-img" src="${song.image || albumData.image || 'assets/logo.png'}" onerror="this.src='assets/logo.png'" alt="${song.name}">
+              <div class="vertical-track-info">
+                <div class="vertical-track-title">${song.name}</div>
+                <div class="vertical-track-artist">
+                  ${song.artists || artist}
+                  ${isDl ? '<span class="source-badge source-badge-downloaded" style="margin-left:4px; font-size:9px;">● DOWNLOADED</span>' : ''}
+                </div>
+              </div>
+              <div style="font-size:12px; color:var(--text-secondary); margin-right:8px; font-variant-numeric:tabular-nums;">
+                ${song.duration ? formatTime(Number(song.duration)) : ''}
+              </div>
+              <button class="vertical-track-more" onclick="event.stopPropagation(); App.openSongMenu('${song.id}');" aria-label="More">
+                <span class="material-symbols-outlined">more_vert</span>
+              </button>
+            </div>
+          `;
+        }).join('');
+      }
+
+      html += `</div>`;
+      if (container) container.innerHTML = html;
+    },
+
+    renderPlayer3DDeck(song) {
+      if (!song) return;
+      const queue = (typeof Player !== 'undefined' && Player.getQueue) ? Player.getQueue() : [];
+      const curIdx = (typeof Player !== 'undefined' && Player.getCurrentIndex) ? Player.getCurrentIndex() : 0;
+      const repeatMode = (typeof Player !== 'undefined' && Player.getRepeatMode) ? Player.getRepeatMode() : 'OFF';
+
+      const frontArt = document.getElementById('full-player-art');
+      const prevArt = document.getElementById('player-art-prev');
+      const nextArt = document.getElementById('player-art-next') || document.getElementById('player-art-back-1');
+      const frontCard = document.getElementById('player-deck-front') || document.getElementById('player-art-card');
+      const prevCard = document.getElementById('player-deck-prev');
+      const nextCard = document.getElementById('player-deck-next') || document.getElementById('player-deck-back-1');
+
+      // Determine previous & next tracks considering repeat mode
+      let prevSong = null;
+      if (curIdx - 1 >= 0 && curIdx - 1 < queue.length) {
+        prevSong = queue[curIdx - 1];
+      } else if (repeatMode === 'ALL' && queue.length > 1) {
+        prevSong = queue[queue.length - 1];
+      }
+
+      let nextSong = null;
+      if (curIdx + 1 < queue.length) {
+        nextSong = queue[curIdx + 1];
+      } else if (repeatMode === 'ALL' && queue.length > 1) {
+        nextSong = queue[0];
+      }
+
+      // 1. Current Front Card
+      if (frontArt) {
+        frontArt.src = song.image || 'assets/logo.png';
+      }
+      if (frontCard) {
+        frontCard.classList.remove('dragging', 'committing', 'springing');
+        frontCard.style.transition = 'none';
+        frontCard.style.transform = 'translate3d(0, 0, 0) scale(1) rotate(0deg)';
+        frontCard.style.opacity = '1';
+        frontCard.style.filter = 'brightness(1)';
+        void frontCard.offsetWidth; // Force reflow
+        frontCard.style.transition = '';
+      }
+
+      // 2. Previous Card (Underneath / Prepared Left-Back)
+      if (prevArt) {
+        prevArt.src = (prevSong && prevSong.image) ? prevSong.image : 'assets/logo.png';
+      }
+      if (prevCard) {
+        prevCard.classList.remove('dragging', 'committing', 'springing');
+        prevCard.style.transition = 'none';
+        prevCard.style.display = prevSong ? 'block' : 'none';
+        prevCard.style.transform = 'translate3d(0, -10px, -30px) scale(0.92) rotate(-1.5deg)';
+        prevCard.style.opacity = '0.75';
+        prevCard.style.filter = 'brightness(0.85)';
+        prevCard.style.zIndex = '8';
+      }
+
+      // 3. Next Card (Underneath / Prepared Right-Back)
+      if (nextArt) {
+        nextArt.src = (nextSong && nextSong.image) ? nextSong.image : 'assets/logo.png';
+      }
+      if (nextCard) {
+        nextCard.classList.remove('dragging', 'committing', 'springing');
+        nextCard.style.transition = 'none';
+        nextCard.style.display = nextSong ? 'block' : 'none';
+        nextCard.style.transform = 'translate3d(0, -10px, -30px) scale(0.92) rotate(1.5deg)';
+        nextCard.style.opacity = '0.75';
+        nextCard.style.filter = 'brightness(0.85)';
+        nextCard.style.zIndex = '8';
+      }
+
+      // Preload next/previous artwork into browser memory cache for instantaneous transitions
+      if (typeof Image !== 'undefined') {
+        if (nextSong && nextSong.image && nextSong.image.startsWith('http')) {
+          const imgPreloadNext = new Image();
+          imgPreloadNext.src = nextSong.image;
+        }
+        if (prevSong && prevSong.image && prevSong.image.startsWith('http')) {
+          const imgPreloadPrev = new Image();
+          imgPreloadPrev.src = prevSong.image;
+        }
+      }
     },
 
     // ========================================================================
@@ -1473,8 +1750,18 @@ const UI = (() => {
 
       if (miniPlayer) miniPlayer.style.display = 'flex';
       if (miniArt) miniArt.src = song.image || 'assets/logo.png';
-      if (miniTitle) miniTitle.textContent = song.name || 'Unknown Track';
-      if (miniArtist) miniArtist.textContent = song.artists || song.primaryArtist || 'MusicFlow';
+      if (miniTitle) {
+        miniTitle.textContent = (typeof DataNormalizer !== 'undefined') ? DataNormalizer.getTrackTitle(song) : (song.name || 'Unknown Track');
+        miniTitle.classList.remove('track-text-transition');
+        void miniTitle.offsetWidth;
+        miniTitle.classList.add('track-text-transition');
+      }
+      if (miniArtist) {
+        miniArtist.textContent = formatArtists(song.artists || song.primaryArtist || 'MusicFlow');
+        miniArtist.classList.remove('track-text-transition');
+        void miniArtist.offsetWidth;
+        miniArtist.classList.add('track-text-transition');
+      }
 
       if (miniBadge) {
         if (isLoc) {
@@ -1492,22 +1779,31 @@ const UI = (() => {
         } else {
           miniBadge.textContent = '320K';
           miniBadge.style.display = 'inline-block';
-          miniBadge.style.color = '#FF2A4D';
-          miniBadge.style.borderColor = 'rgba(255, 42, 77, 0.3)';
-          miniBadge.style.background = 'rgba(255, 42, 77, 0.12)';
+          miniBadge.style.color = 'var(--accent)';
+          miniBadge.style.borderColor = 'var(--accent-border)';
+          miniBadge.style.background = 'var(--accent-surface)';
         }
       }
 
       if (miniLikeIcon) {
+        const wasFav = miniLikeIcon.textContent === 'favorite';
         miniLikeIcon.textContent = isFav ? 'favorite' : 'favorite_border';
-        miniLikeIcon.style.color = isFav ? '#FF2A4D' : 'rgba(255, 255, 255, 0.7)';
+        miniLikeIcon.style.color = isFav ? 'var(--accent)' : 'rgba(255, 255, 255, 0.7)';
         miniLikeIcon.style.fontVariationSettings = isFav ? "'FILL' 1, 'wght' 600" : "'FILL' 0, 'wght' 400";
+        if (isFav && !wasFav) {
+          miniLikeIcon.classList.remove('heart-pop');
+          void miniLikeIcon.offsetWidth;
+          miniLikeIcon.classList.add('heart-pop');
+        }
       }
 
-      // 2. Full Player Sheet
+      // 2. Full Player Sheet & 3D Deck
+      this.renderPlayer3DDeck(song);
+
       const fullArt = document.getElementById('full-player-art');
       const fullTitle = document.getElementById('full-player-title');
       const fullArtist = document.getElementById('full-player-artist');
+      const fullArtistContainer = document.getElementById('full-player-artist-container');
       const heartIcon = document.getElementById('player-heart-icon');
       const heartBtn = document.getElementById('btn-player-favorite');
       const curTime = document.getElementById('player-time-current');
@@ -1519,9 +1815,20 @@ const UI = (() => {
       const qualityBadge = document.getElementById('player-quality-badge');
 
       if (fullArt) fullArt.src = song.image || 'assets/logo.png';
-      if (fullTitle) fullTitle.textContent = song.name || 'Unknown Track';
-      if (fullArtist) {
-        fullArtist.textContent = song.artists || song.primaryArtist || 'MusicFlow';
+      if (fullTitle) {
+        fullTitle.textContent = (typeof DataNormalizer !== 'undefined') ? DataNormalizer.getTrackTitle(song) : (song.name || 'Unknown Track');
+        fullTitle.classList.remove('track-text-transition');
+        void fullTitle.offsetWidth;
+        fullTitle.classList.add('track-text-transition');
+      }
+      
+      if (fullArtistContainer) {
+        fullArtistContainer.innerHTML = renderFullPlayerArtistLinks(song);
+        fullArtistContainer.classList.remove('track-text-transition');
+        void fullArtistContainer.offsetWidth;
+        fullArtistContainer.classList.add('track-text-transition');
+      } else if (fullArtist) {
+        fullArtist.textContent = formatArtists(song.artists || song.primaryArtist || 'MusicFlow');
         fullArtist.onclick = () => {
           App.collapseFullPlayer();
           App.openArtist(song.primaryArtist || song.artists);
@@ -1561,7 +1868,7 @@ const UI = (() => {
         heartBtn.classList.toggle('active', isFav);
         heartBtn.setAttribute('aria-label', isFav ? 'Remove from Favorites' : 'Add to Favorites');
         heartIcon.textContent = isFav ? 'favorite' : 'favorite_border';
-        heartIcon.style.color = isFav ? '#FF2A4D' : 'rgba(255, 255, 255, 0.7)';
+        heartIcon.style.color = isFav ? 'var(--accent)' : 'rgba(255, 255, 255, 0.7)';
         heartIcon.style.fontVariationSettings = isFav ? "'FILL' 1, 'wght' 600" : "'FILL' 0, 'wght' 400";
       }
 
@@ -1637,6 +1944,140 @@ const UI = (() => {
       if (playerMainPlayBtn) {
         playerMainPlayBtn.setAttribute('aria-label', isPlaying ? 'Pause' : 'Play');
       }
+
+      // Synchronize Wavy Progress Bar Animation State
+      const shouldAnimateWave = isPlaying && !isBuffering && !isError && playbackState !== 'PAUSED' && playbackState !== 'COMPLETED';
+      if (this.WavyProgressBar) {
+        this.WavyProgressBar.setPlaying(shouldAnimateWave);
+      }
+    },
+
+    // ==========================================================================
+    // ANIMATED WAVY PROGRESS BAR SINGLETON ENGINE (Layer 3 Continuous 60fps Wave)
+    // ==========================================================================
+    WavyProgressBar: {
+      animFrameId: null,
+      currentPct: 0,
+      wavePhase: 0,
+      isPlaying: false,
+      isSeeking: false,
+
+      setPlaying(playing) {
+        this.isPlaying = !!playing;
+        if (this.isPlaying) {
+          this.startLoop();
+        } else {
+          this.stopLoop();
+        }
+      },
+
+      setProgress(pct, isSeeking = false) {
+        this.currentPct = Math.max(0, Math.min(100, isNaN(pct) ? 0 : pct));
+        this.isSeeking = !!isSeeking;
+        this.draw();
+      },
+
+      startLoop() {
+        if (this.animFrameId) return; // Enforce single active animation loop
+        if (typeof requestAnimationFrame !== 'function') return;
+        const tick = () => {
+          if (!this.isPlaying) {
+            this.animFrameId = null;
+            return;
+          }
+          this.wavePhase = (this.wavePhase + 0.075) % (Math.PI * 2);
+          this.draw();
+          if (typeof requestAnimationFrame === 'function') {
+            this.animFrameId = requestAnimationFrame(tick);
+          }
+        };
+        this.animFrameId = requestAnimationFrame(tick);
+      },
+
+      stopLoop() {
+        if (this.animFrameId && typeof cancelAnimationFrame === 'function') {
+          cancelAnimationFrame(this.animFrameId);
+        }
+        this.animFrameId = null;
+        this.draw(); // Draw clean frozen state
+      },
+
+      draw() {
+        const canvas = document.getElementById('player-seek-wave');
+        if (!canvas || typeof canvas.getContext !== 'function') return;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+
+        const rect = canvas.getBoundingClientRect();
+        const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+        const width = rect.width || canvas.parentElement?.clientWidth || 300;
+        const height = rect.height || 32;
+
+        if (width <= 0 || height <= 0) return;
+
+        const targetCanvasWidth = Math.round(width * dpr);
+        const targetCanvasHeight = Math.round(height * dpr);
+
+        if (canvas.width !== targetCanvasWidth || canvas.height !== targetCanvasHeight) {
+          canvas.width = targetCanvasWidth;
+          canvas.height = targetCanvasHeight;
+        }
+
+        ctx.save();
+        ctx.scale(dpr, dpr);
+        ctx.clearRect(0, 0, width, height);
+
+        const centerY = height / 2;
+        const playedWidth = Math.max(0, Math.min(width, (this.currentPct / 100) * width));
+
+        // 1. Draw Unplayed Track Baseline (from playedWidth to right boundary)
+        ctx.beginPath();
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
+        ctx.lineWidth = 3.0;
+        ctx.lineCap = 'round';
+        const startX = Math.min(width, Math.max(0, playedWidth));
+        ctx.moveTo(startX, centerY);
+        ctx.lineTo(width, centerY);
+        ctx.stroke();
+
+        // 2. Draw Active Played Sinusoidal Wave (from 0 to playedWidth)
+        if (playedWidth > 1) {
+          const rootStyle = (typeof window !== 'undefined' && window.getComputedStyle && document.documentElement) ? getComputedStyle(document.documentElement) : null;
+          const accentColor = (rootStyle && rootStyle.getPropertyValue('--accent').trim()) || '#FF1744';
+          const accentGlow = (rootStyle && rootStyle.getPropertyValue('--accent-glow').trim()) || 'rgba(255, 23, 68, 0.45)';
+
+          ctx.beginPath();
+          ctx.strokeStyle = accentColor;
+          ctx.lineWidth = 3.0;
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          ctx.shadowColor = accentGlow;
+          ctx.shadowBlur = 6;
+
+          const amplitude = this.isPlaying ? 3.5 : 1.8;
+          const frequency = 0.048;
+          const taperDist = Math.min(18, playedWidth / 2);
+
+          for (let x = 0; x <= playedWidth; x += 1.5) {
+            let taper = 1.0;
+            if (x < taperDist) {
+              taper = x / taperDist;
+            } else if (playedWidth - x < taperDist) {
+              taper = (playedWidth - x) / taperDist;
+            }
+
+            const y = centerY + Math.sin(x * frequency + this.wavePhase) * amplitude * taper;
+            if (x === 0) {
+              ctx.moveTo(0, y);
+            } else {
+              ctx.lineTo(x, y);
+            }
+          }
+          ctx.stroke();
+        }
+
+        ctx.restore();
+      }
     },
 
     updatePlaybackProgress(currentTime, duration) {
@@ -1661,6 +2102,9 @@ const UI = (() => {
             seekBar.setAttribute('aria-valuenow', String(Math.round(pct)));
             seekBar.setAttribute('aria-valuetext', `${formatTime(cleanCur)} of ${formatTime(cleanDur)}`);
           }
+          if (this.WavyProgressBar) {
+            this.WavyProgressBar.setProgress(pct, false);
+          }
         } else {
           if (seekFill) seekFill.style.width = '0%';
           if (seekThumb) seekThumb.style.left = '0%';
@@ -1668,9 +2112,21 @@ const UI = (() => {
             seekBar.setAttribute('aria-valuenow', '0');
             seekBar.setAttribute('aria-valuetext', '0:00');
           }
+          if (this.WavyProgressBar) {
+            this.WavyProgressBar.setProgress(0, false);
+          }
         }
       } else {
         if (totTimeEl && cleanDur > 0) totTimeEl.textContent = formatTime(cleanDur);
+      }
+    },
+
+    renderWavyProgress(progressPct = 0, isPlaying = false) {
+      if (this.WavyProgressBar) {
+        this.WavyProgressBar.setProgress(progressPct, false);
+        if (isPlaying !== undefined) {
+          this.WavyProgressBar.setPlaying(isPlaying);
+        }
       }
     },
 
@@ -1682,7 +2138,7 @@ const UI = (() => {
         shuffleBtn.setAttribute('aria-label', isShuffle ? 'Shuffle On' : 'Shuffle Off');
       }
       if (shuffleIcon) {
-        shuffleIcon.style.color = isShuffle ? '#FF2A4D' : 'rgba(255, 255, 255, 0.7)';
+        shuffleIcon.style.color = isShuffle ? 'var(--accent)' : 'rgba(255, 255, 255, 0.7)';
       }
     },
 
@@ -1696,7 +2152,23 @@ const UI = (() => {
       }
       if (repeatIcon) {
         repeatIcon.textContent = repeatMode === 'ONE' ? 'repeat_one' : 'repeat';
-        repeatIcon.style.color = isActive ? '#FF2A4D' : 'rgba(255, 255, 255, 0.7)';
+        repeatIcon.style.color = isActive ? 'var(--accent)' : 'rgba(255, 255, 255, 0.7)';
+      }
+    },
+
+    onThemeChange(targetTheme) {
+      // 1. Redraw dynamic waveform canvas
+      if (this.WavyProgressBar) {
+        this.WavyProgressBar.draw();
+      }
+      // 2. Refresh active UI elements if a song is loaded
+      if (typeof Player !== 'undefined') {
+        const curSong = Player.getCurrentTrack();
+        if (curSong) {
+          this.updatePlayerBar(curSong);
+        }
+        this.updateShuffleState(Player.getIsShuffle());
+        this.updateRepeatState(Player.getRepeatMode());
       }
     },
 
@@ -1790,10 +2262,10 @@ const UI = (() => {
           <div class="queue-track-row active" onclick="App.expandFullPlayer()">
             <img class="vertical-track-img" src="${currentSong.image || 'assets/logo.png'}" onerror="this.src='assets/logo.png'" alt="${currentSong.name}">
             <div class="vertical-track-info">
-              <div class="vertical-track-title" style="color:#FF2A4D; font-weight:800;">${currentSong.name}</div>
+              <div class="vertical-track-title" style="color:var(--accent); font-weight:800;">${currentSong.name}</div>
               <div class="vertical-track-artist">${currentSong.artists || currentSong.primaryArtist || 'MusicFlow'}</div>
             </div>
-            <span class="material-symbols-outlined fill-icon" style="color:#FF2A4D; font-size:22px; margin-right:8px;">graphic_eq</span>
+            <span class="material-symbols-outlined fill-icon" style="color:var(--accent); font-size:22px; margin-right:8px;">graphic_eq</span>
           </div>
         `;
       }
@@ -1879,7 +2351,7 @@ const UI = (() => {
       const spatialLevel = eqData.spatial || (eqData.virtualizer > 0 ? (eqData.virtualizer >= 60 ? 'HIGH' : 'MEDIUM') : 'OFF');
       if (spatialBadge) {
         spatialBadge.textContent = spatialLevel;
-        spatialBadge.style.color = spatialLevel === 'OFF' ? 'var(--text-secondary)' : '#FF2A4D';
+        spatialBadge.style.color = spatialLevel === 'OFF' ? 'var(--text-secondary)' : 'var(--accent)';
       }
       if (spatialButtons && spatialButtons.length > 0) {
         spatialButtons.forEach(btn => {
@@ -1944,8 +2416,8 @@ const UI = (() => {
           const val = Number(bands[idx]) || 0;
           return `
             <div class="eq-band-col" style="display:flex; flex-direction:column; align-items:center; gap:6px;">
-              <span class="eq-band-val" id="eq-val-${idx}" style="font-size:10px; font-weight:800; color:${val > 0 ? '#FF2A4D' : (val < 0 ? '#4da6ff' : 'var(--text-secondary)')};">${val > 0 ? '+' + val : val}dB</span>
-              <input type="range" class="eq-band-slider" min="-12" max="12" step="1" value="${val}" oninput="App.updateEqBand(${idx}, this.value)" style="height:120px; -webkit-appearance:slider-vertical; writing-mode:bt-lr; width:24px;">
+              <span class="eq-band-val" id="eq-val-${idx}" style="font-size:10px; font-weight:800; color:${val > 0 ? 'var(--accent)' : (val < 0 ? '#4da6ff' : 'var(--text-secondary)')};">${val > 0 ? '+' + val : val}dB</span>
+              <input type="range" class="eq-band-slider" min="-12" max="12" step="1" value="${val}" oninput="App.updateEqBand(${idx}, this.value)" style="height:120px; writing-mode:vertical-lr; direction:rtl; width:24px; accent-color:var(--accent);">
               <span class="eq-band-label" style="font-size:9.5px; text-align:center; color:var(--text-secondary); line-height:1.2;">${lbl.replace('\n', '<br>')}</span>
             </div>
           `;
@@ -1961,29 +2433,28 @@ const UI = (() => {
         { key: 'hindi', label: 'Hindi' },
         { key: 'english', label: 'English' },
         { key: 'punjabi', label: 'Punjabi' },
-        { key: 'tamil', label: 'Tamil' },
         { key: 'telugu', label: 'Telugu' },
+        { key: 'tamil', label: 'Tamil' },
         { key: 'bhojpuri', label: 'Bhojpuri' },
         { key: 'malayalam', label: 'Malayalam' },
-        { key: 'kannada', label: 'Kannada' },
-        { key: 'bengali', label: 'Bengali' },
         { key: 'marathi', label: 'Marathi' },
+        { key: 'bengali', label: 'Bengali' },
+        { key: 'kannada', label: 'Kannada' },
         { key: 'gujarati', label: 'Gujarati' },
-        { key: 'spanish', label: 'Spanish' },
-        { key: 'korean', label: 'Korean' }
+        { key: 'urdu', label: 'Urdu' },
+        { key: 'rajasthani', label: 'Rajasthani' },
+        { key: 'haryanvi', label: 'Haryanvi' }
       ];
 
-      container.innerHTML = availableLanguages.map(l => {
-        const isSel = selectedLangs.includes(l.key);
+      const currentSelected = new Set((selectedLangs || []).map(l => String(l).toLowerCase().trim()));
+
+      container.innerHTML = availableLanguages.map(lang => {
+        const isChecked = currentSelected.has(lang.key);
         return `
-          <div class="lang-item-row ${isSel ? 'selected' : ''}" onclick="App.toggleLanguageSelection('${l.key}')">
-            <div class="lang-item-left">
-              <div class="lang-checkbox">
-                <span class="material-symbols-outlined">check</span>
-              </div>
-              <span class="lang-label">${l.label}</span>
-            </div>
-          </div>
+          <label class="lang-selection-item" style="display:flex; align-items:center; justify-content:space-between; padding:12px 14px; border-radius:12px; margin-bottom:6px; background:rgba(255,255,255,0.03); cursor:pointer;">
+            <div style="font-size:14px; font-weight:600; color:#FFFFFF;">${lang.label}</div>
+            <input type="checkbox" value="${lang.key}" ${isChecked ? 'checked' : ''} onchange="App.toggleLanguageSelection('${lang.key}', this.checked)" style="width:18px; height:18px; accent-color:var(--accent); cursor:pointer;">
+          </label>
         `;
       }).join('');
     },
@@ -2003,7 +2474,7 @@ const UI = (() => {
 
       container.innerHTML = playlists.map(pl => `
         <div class="sheet-action-item" onclick="App.addSongToSpecificPlaylist('${pl.id}')" style="border-radius:12px; margin-bottom:4px; background:#141416;">
-          <span class="material-symbols-outlined" style="color:#FF2A4D;">queue_music</span>
+          <span class="material-symbols-outlined" style="color:var(--accent);">queue_music</span>
           <div style="flex:1;">
             <div style="font-weight:700; color:#FFFFFF; font-size:14px;">${pl.name}</div>
             <div style="font-size:11.5px; color:var(--text-secondary);">${pl.songs?.length || 0} songs</div>
@@ -2012,100 +2483,194 @@ const UI = (() => {
       `).join('');
     },
 
+    renderPlaylistPicker(playlists = [], song = null) {
+      const container = document.getElementById('dialog-playlists-list');
+      if (!container) return;
+
+      if (!playlists || playlists.length === 0) {
+        container.innerHTML = `
+          <div style="padding:20px; text-align:center; color:var(--text-secondary); font-size:13px;">
+            No playlists found. Create your first playlist above!
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = playlists.map(pl => `
+        <div class="playlist-picker-item" onclick="App.addSongToSpecificPlaylist ? App.addSongToSpecificPlaylist('${pl.id}') : App.addSongToPlaylist('${pl.id}')" style="display:flex; align-items:center; gap:12px; padding:10px 12px; border-radius:10px; background:rgba(255,255,255,0.03); margin-bottom:6px; cursor:pointer;">
+          <span class="material-symbols-outlined" style="color:var(--accent); font-size:22px;">queue_music</span>
+          <div style="flex:1; min-width:0;">
+            <div style="font-size:13px; font-weight:600; color:#FFFFFF; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(pl.name || 'Playlist')}</div>
+            <div style="font-size:11px; color:var(--text-secondary);">${(pl.songs || []).length} songs</div>
+          </div>
+          <span class="material-symbols-outlined" style="color:var(--text-secondary); font-size:18px;">add</span>
+        </div>
+      `).join('');
+    },
+
+    renderQualityOptions(currentQuality = '320kbps') {
+      const container = document.getElementById('quality-options-list');
+      if (!container) return;
+
+      const options = [
+        { key: '320kbps', label: 'Lossless / High Quality (320 kbps)', desc: 'Best audio fidelity with maximum detail' },
+        { key: '160kbps', label: 'Standard Quality (160 kbps)', desc: 'Balanced sound quality and low data usage' },
+        { key: '96kbps', label: 'Data Saver (96 kbps)', desc: 'Minimal data consumption for slower connections' }
+      ];
+
+      const cleanCurr = String(currentQuality).toLowerCase();
+
+      container.innerHTML = options.map(opt => {
+        const isSelected = cleanCurr === opt.key.toLowerCase() || (cleanCurr === '320' && opt.key === '320kbps') || (cleanCurr === '160' && opt.key === '160kbps') || (cleanCurr === '96' && opt.key === '96kbps');
+        return `
+          <div class="quality-option-row ${isSelected ? 'selected' : ''}" onclick="App.selectQuality('${opt.key}')" style="display:flex; align-items:center; justify-content:space-between; padding:12px 14px; border-radius:12px; margin-bottom:8px; background:${isSelected ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.02)'}; border:1px solid ${isSelected ? 'var(--accent)' : 'rgba(255,255,255,0.06)'}; cursor:pointer;">
+            <div>
+              <div style="font-size:14px; font-weight:700; color:${isSelected ? 'var(--accent)' : '#FFFFFF'};">${opt.label}</div>
+              <div style="font-size:11px; color:var(--text-secondary); margin-top:2px;">${opt.desc}</div>
+            </div>
+            ${isSelected ? '<span class="material-symbols-outlined" style="color:var(--accent); font-size:20px; font-weight:bold;">check_circle</span>' : '<span class="material-symbols-outlined" style="color:var(--text-secondary); font-size:20px;">radio_button_unchecked</span>'}
+          </div>
+        `;
+      }).join('');
+    },
+
     renderSettingsSheet() {
       const nameVal = document.getElementById('settings-name-val');
       const qualityVal = document.getElementById('settings-quality-val');
       const perfVal = document.getElementById('settings-perf-val');
-      const glowSwitch = document.getElementById('settings-glow-switch');
-      const avatarImg = document.getElementById('settings-avatar-img');
-      const langSummary = document.getElementById('settings-languages-summary');
+      const smartDlSwitch = document.getElementById('settings-smart-dl-switch');
+      const autoCleanSelect = document.getElementById('settings-auto-cleanup-select');
+      const dlLimitSelect = document.getElementById('settings-dl-limit-select');
 
-      if (nameVal) nameVal.textContent = Storage.getUserName();
-      if (qualityVal) qualityVal.textContent = Storage.getAudioQuality();
-      if (avatarImg) avatarImg.src = Storage.getUserAvatar();
-      if (langSummary) {
-        const langs = Storage.getLanguages();
-        langSummary.textContent = langs.map(l => l.charAt(0).toUpperCase() + l.slice(1)).join(', ');
+      const prof = (typeof Storage !== 'undefined' && Storage.getUserProfile) ? Storage.getUserProfile() : { name: 'MusicFlow Listener' };
+      const quality = (typeof Storage !== 'undefined' && Storage.getStreamingQuality) ? Storage.getStreamingQuality() : '320';
+      const perf = (typeof Storage !== 'undefined' && Storage.isPerformanceMode) ? Storage.isPerformanceMode() : false;
+
+      if (nameVal) nameVal.textContent = prof.name || 'MusicFlow Listener';
+      if (qualityVal) qualityVal.textContent = quality === '320' ? 'Lossless / 320 kbps High' : (quality === '160' ? 'Standard 160 kbps' : 'Data Saver 96 kbps');
+      if (perfVal) perfVal.textContent = perf ? 'ON (Minimal UI Animations)' : 'OFF (Smooth 60fps)';
+
+      if (smartDlSwitch && typeof Storage !== 'undefined') {
+        smartDlSwitch.checked = Storage.isSmartDownloadsEnabled ? Storage.isSmartDownloadsEnabled() : false;
       }
-      if (perfVal) {
-        const mode = Storage.getPerformanceMode();
-        perfVal.textContent = mode === 'lite' ? 'Lite (Fast & Smooth)' : (mode === 'high' ? 'High 120fps' : 'Auto (60fps)');
+      if (autoCleanSelect && typeof Storage !== 'undefined') {
+        autoCleanSelect.value = String(Storage.getAutoCleanupDays ? Storage.getAutoCleanupDays() : 30);
       }
-      if (glowSwitch) glowSwitch.checked = Storage.getAmbientLighting();
+      if (dlLimitSelect && typeof Storage !== 'undefined') {
+        dlLimitSelect.value = String(Storage.getStorageLimitMb ? Storage.getStorageLimitMb() : 2048);
+      }
+    },
+
+    renderThemePicker() {
+      const container = document.getElementById('theme-presets-container');
+      const activeTheme = (typeof ThemeManager !== 'undefined' && ThemeManager.getTheme) ? ThemeManager.getTheme() : { id: 'red', color: '#FF1744' };
+      const presets = (typeof ThemeManager !== 'undefined' && ThemeManager.getPresets) ? ThemeManager.getPresets() : [
+        { id: 'red', name: 'MusicFlow Red', color: '#FF1744' },
+        { id: 'ocean_blue', name: 'Ocean Blue', color: '#007AFF' },
+        { id: 'emerald', name: 'Emerald', color: '#10B981' },
+        { id: 'purple', name: 'Royal Purple', color: '#8B5CF6' },
+        { id: 'sunset', name: 'Sunset Orange', color: '#FF5722' },
+        { id: 'rose', name: 'Rose Pink', color: '#EC4899' },
+        { id: 'gold', name: 'Gold Amber', color: '#F59E0B' },
+        { id: 'cyan', name: 'Cyan', color: '#06B6D4' }
+      ];
+
+      if (container) {
+        container.innerHTML = presets.map(p => {
+          const isMatch = (activeTheme.id === p.id) || (String(activeTheme.color).toLowerCase() === String(p.color).toLowerCase());
+          return `
+            <div class="theme-preset-card ${isMatch ? 'active' : ''}" onclick="App.selectThemePreset('${p.id}')" data-theme-id="${p.id}" data-color="${p.color}" style="display:flex; flex-direction:column; align-items:center; gap:6px; padding:10px; border-radius:12px; background:${isMatch ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.02)'}; border:1px solid ${isMatch ? 'var(--accent)' : 'rgba(255,255,255,0.06)'}; cursor:pointer;">
+              <div class="theme-swatch-circle" style="width:36px; height:36px; border-radius:50%; background:${p.color}; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 10px ${p.color}40;">
+                ${isMatch ? '<span class="material-symbols-outlined" style="color:#FFFFFF; font-size:20px; font-weight:bold;">check</span>' : ''}
+              </div>
+              <span class="theme-preset-name" style="font-size:11px; font-weight:600; color:${isMatch ? 'var(--accent)' : 'var(--text-secondary)'}; text-align:center;">${p.name}</span>
+            </div>
+          `;
+        }).join('');
+      }
+
+      this.renderThemePreview(activeTheme);
+    },
+
+    renderThemePreview(theme) {
+      const customInput = document.getElementById('theme-custom-color-input');
+      const current = theme || (typeof ThemeManager !== 'undefined' ? ThemeManager.getTheme() : { id: 'red', color: '#FF1744' });
+
+      const presetCards = document.querySelectorAll('.theme-preset-card');
+      presetCards.forEach(card => {
+        const id = card.dataset.themeId;
+        const color = card.dataset.color;
+        const isMatch = (id && id === current.id) || (color && color.toLowerCase() === current.color.toLowerCase());
+        card.classList.toggle('active', isMatch);
+        card.style.border = isMatch ? '1px solid var(--accent)' : '1px solid rgba(255,255,255,0.06)';
+        card.style.background = isMatch ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.02)';
+      });
+
+      if (customInput && current.color) {
+        customInput.value = current.color;
+      }
     },
 
     renderSleepTimerDialog(state) {
-      const container = document.getElementById('dialog-sleep-timer-body');
+      const container = document.getElementById('dialog-sleep-timer-body') || document.getElementById('sleep-timer-dialog-content');
       if (!container) return;
 
       const timerState = state || (typeof Player !== 'undefined' && Player.getSleepTimerState ? Player.getSleepTimerState() : { active: false });
 
+      const presets = [
+        { label: '15 Minutes', mins: 15 },
+        { label: '30 Minutes', mins: 30 },
+        { label: '45 Minutes', mins: 45 },
+        { label: '60 Minutes', mins: 60 },
+        { label: 'End of Track', mode: 'end_of_track' }
+      ];
+
+      const chipsHtml = presets.map(p => {
+        const isSelected = timerState.active && (p.mode ? timerState.mode === p.mode : timerState.totalSeconds === p.mins * 60);
+        const clickCall = p.mode ? `App.setSleepTimerEndOfTrack()` : `App.setSleepTimerMinutes(${p.mins})`;
+        return `
+          <button class="sleep-chip-btn ${isSelected ? 'active' : ''}" onclick="${clickCall}" style="padding:10px 14px; border-radius:10px; font-weight:600; font-size:13px; cursor:pointer; background:${isSelected ? 'var(--accent)' : 'rgba(255,255,255,0.05)'}; color:${isSelected ? 'var(--accent-text, #fff)' : '#fff'}; border:1px solid ${isSelected ? 'var(--accent)' : 'rgba(255,255,255,0.1)'};">
+            ${p.label}
+          </button>
+        `;
+      }).join('');
+
       let activeBannerHtml = '';
       if (timerState.active) {
         activeBannerHtml = `
-          <div class="sleep-active-banner">
-            <div class="sleep-active-left">
-              <span class="material-symbols-outlined sleep-pulse-icon">bedtime</span>
+          <div class="sleep-active-banner" style="display:flex; justify-content:space-between; align-items:center; padding:12px 16px; border-radius:12px; background:rgba(255,255,255,0.06); border:1px solid var(--accent); margin-bottom:16px;">
+            <div class="sleep-active-left" style="display:flex; align-items:center; gap:12px;">
+              <span class="material-symbols-outlined sleep-pulse-icon" style="color:var(--accent); font-size:24px;">timer</span>
               <div class="sleep-active-info">
-                <div class="sleep-time-left" id="sleep-timer-live-remaining">${timerState.formattedRemaining}</div>
-                <div class="sleep-sub">${timerState.mode === 'end_of_track' ? 'Playback stops after current song finishes' : 'Remaining until music pauses'}</div>
+                <div class="sleep-time-left" id="sleep-timer-live-remaining" style="font-size:16px; font-weight:800; color:#FFFFFF;">${timerState.formattedRemaining || '0:00'}</div>
+                <div class="sleep-sub" style="font-size:11px; color:var(--text-secondary);">${timerState.mode === 'end_of_track' ? 'Stopping after this track' : 'Sleep timer active'}</div>
               </div>
             </div>
-            <div class="sleep-active-actions">
-              ${timerState.mode === 'duration' ? `<button class="sleep-action-btn-pill" onclick="App.addSleepMinutes(15)">+15 min</button>` : ''}
-              <button class="sleep-action-btn-pill cancel" onclick="App.cancelSleepTimer()">Turn Off</button>
+            <div class="sleep-active-actions" style="display:flex; gap:8px;">
+              <button class="sleep-action-btn-pill" onclick="App.extendSleepTimer(5)" style="padding:6px 12px; border-radius:8px; background:rgba(255,255,255,0.1); border:none; color:#fff; font-size:12px; font-weight:700; cursor:pointer;">+5m</button>
+              <button class="sleep-action-btn-pill cancel" onclick="App.cancelSleepTimer()" style="padding:6px 12px; border-radius:8px; background:rgba(255,23,68,0.2); border:none; color:#FF1744; font-size:12px; font-weight:700; cursor:pointer;">Cancel</button>
             </div>
           </div>
         `;
       }
 
-      const presets = [
-        { label: '15 Minutes', value: 15 },
-        { label: '30 Minutes', value: 30 },
-        { label: '45 Minutes', value: 45 },
-        { label: '60 Minutes', value: 60 },
-        { label: '90 Minutes', value: 90 },
-        { label: 'End of Song', value: 'end' }
-      ];
-
-      const chipsHtml = presets.map(p => {
-        const isSelected = timerState.active && (
-          (p.value === 'end' && timerState.mode === 'end_of_track') ||
-          (typeof p.value === 'number' && timerState.mode === 'duration' && timerState.durationMinutes === p.value)
-        );
-        return `
-          <button class="sleep-chip-btn ${isSelected ? 'active' : ''}" onclick="App.setSleepPreset(${typeof p.value === 'string' ? `'${p.value}'` : p.value})">
-            ${isSelected ? '<span class="material-symbols-outlined" style="font-size:16px; margin-right:4px;">check</span>' : ''}
-            <span>${p.label}</span>
-          </button>
-        `;
-      }).join('');
-
       container.innerHTML = `
         ${activeBannerHtml}
-        <div class="sleep-section-title">Presets</div>
-        <div class="sleep-chips-grid">
+        <div class="sleep-section-title" style="font-size:12px; font-weight:700; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; margin-bottom:10px;">Select Timer Duration</div>
+        <div class="sleep-chips-grid" style="display:grid; grid-template-columns:repeat(2, 1fr); gap:10px; margin-bottom:12px;">
           ${chipsHtml}
         </div>
-        <div class="sleep-section-title" style="margin-top:12px;">Custom Duration</div>
-        <div class="sleep-custom-wrap">
+        <div class="sleep-section-title" style="font-size:12px; font-weight:700; color:var(--text-secondary); text-transform:uppercase; letter-spacing:0.5px; margin-top:12px; margin-bottom:8px;">Custom Duration</div>
+        <div class="sleep-custom-wrap" style="padding:12px; border-radius:12px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06);">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
             <span style="font-size:12px; color:var(--text-secondary);">Set timer (5 – 180 min)</span>
-            <span id="sleep-custom-val" style="font-size:13px; font-weight:800; color:#FF2A4D;">45 min</span>
+            <span id="sleep-custom-val" style="font-size:13px; font-weight:800; color:var(--accent);">45 min</span>
           </div>
           <div style="display:flex; align-items:center; gap:10px;">
-            <input type="range" class="player-seek-slider" id="sleep-custom-slider" min="5" max="180" step="5" value="45" oninput="App.onCustomSleepInput(this.value)" style="flex:1;">
-            <button class="sleep-chip-btn primary" onclick="App.setCustomSleepTimer()" style="padding:6px 14px; font-size:12px; font-weight:700;">Set</button>
+            <input type="range" class="player-seek-slider" id="sleep-custom-slider" min="5" max="180" step="5" value="45" oninput="App.onCustomSleepInput(this.value)" style="flex:1; accent-color:var(--accent);">
+            <button class="sleep-chip-btn primary" onclick="App.setCustomSleepTimer()" style="padding:6px 14px; font-size:12px; font-weight:700; border-radius:8px; background:var(--accent); color:var(--accent-text, #fff); border:none; cursor:pointer;">Set</button>
           </div>
         </div>
-        ${timerState.active ? `
-          <div style="margin-top:12px; text-align:center;">
-            <button class="sleep-turn-off-btn" onclick="App.cancelSleepTimer()">
-              <span class="material-symbols-outlined" style="font-size:18px;">timer_off</span>
-              <span>Cancel Active Timer</span>
-            </button>
-          </div>
-        ` : ''}
       `;
     },
 
@@ -2123,7 +2688,7 @@ const UI = (() => {
           const displayText = timerState.mode === 'end_of_track' ? 'End Song' : (timerState.formattedRemaining || 'Active');
           label.textContent = displayText;
           btn.setAttribute('aria-label', `Sleep timer active, ${displayText} remaining`);
-          if (icon) icon.style.color = '#FF2A4D';
+          if (icon) icon.style.color = 'var(--accent)';
         } else {
           btn.classList.remove('active');
           label.textContent = 'Timer';
@@ -2137,9 +2702,349 @@ const UI = (() => {
       if (liveEl) {
         liveEl.textContent = timerState.formattedRemaining || '0:00';
       }
+    },
+
+    // ========================================================================
+    // IN-APP UPDATE UI METHODS
+    // ========================================================================
+    showUpdateDialog(updateData, isMandatory = false) {
+      const dialog = document.getElementById('modal-update-dialog');
+      if (!dialog) return;
+
+      const titleEl = document.getElementById('update-dialog-title');
+      const badgeEl = document.getElementById('update-dialog-badge');
+      const currVerEl = document.getElementById('update-curr-version');
+      const newVerEl = document.getElementById('update-new-version');
+      const notesListEl = document.getElementById('update-notes-list');
+      const laterBtn = document.getElementById('btn-update-later');
+      const updateNowBtn = document.getElementById('btn-update-now');
+      const updateNowText = document.getElementById('btn-update-now-text');
+
+      const currVer = (typeof UpdateManager !== 'undefined') ? UpdateManager.VERSION : '2.6.0';
+      const latestVer = updateData.latestVersion || currVer;
+
+      if (titleEl) titleEl.textContent = updateData.title || `MusicFlow ${latestVer}`;
+      if (currVerEl) currVerEl.textContent = `v${currVer}`;
+      if (newVerEl) newVerEl.textContent = `v${latestVer}`;
+
+      if (badgeEl) {
+        if (isMandatory) {
+          badgeEl.textContent = 'Update Required';
+          badgeEl.style.color = 'var(--accent)';
+          badgeEl.style.background = 'var(--accent-soft)';
+        } else {
+          badgeEl.textContent = 'Update Available';
+          badgeEl.style.color = '#00F2FE';
+          badgeEl.style.background = 'rgba(0, 242, 254, 0.12)';
+        }
+      }
+
+      if (notesListEl) {
+        notesListEl.innerHTML = '';
+        const notes = Array.isArray(updateData.releaseNotes) && updateData.releaseNotes.length > 0
+          ? updateData.releaseNotes
+          : ['Performance, recommendation quality, and playback stability improvements.'];
+        notes.forEach(note => {
+          const li = document.createElement('li');
+          li.textContent = note;
+          notesListEl.appendChild(li);
+        });
+      }
+
+      if (laterBtn) {
+        laterBtn.style.display = isMandatory ? 'none' : 'block';
+      }
+
+      if (updateNowBtn) {
+        const isAssetAvailable = updateData.assetAvailable !== false;
+        if (!isAssetAvailable) {
+          updateNowBtn.style.opacity = '0.6';
+          if (updateNowText) updateNowText.textContent = 'Temporarily Unavailable';
+        } else {
+          updateNowBtn.style.opacity = '1';
+          if (updateNowText) updateNowText.textContent = isMandatory ? 'Update MusicFlow' : 'Update Now';
+        }
+      }
+
+      dialog.style.display = 'flex';
+      dialog.classList.add('active');
+    },
+
+    hideUpdateDialog() {
+      const dialog = document.getElementById('modal-update-dialog');
+      if (dialog) {
+        dialog.style.display = 'none';
+        dialog.classList.remove('active');
+      }
+    },
+
+    showUpdateBanner(updateData) {
+      const banner = document.getElementById('update-banner');
+      if (!banner) return;
+
+      const titleEl = document.getElementById('update-banner-title');
+      const subEl = document.getElementById('update-banner-sub');
+
+      const latestVer = updateData.latestVersion || 'New Version';
+      if (titleEl) titleEl.textContent = `MusicFlow v${latestVer} is available`;
+      if (subEl) subEl.textContent = updateData.message || 'Tap to download the latest sideloaded build.';
+
+      banner.style.display = 'flex';
+    },
+
+    hideUpdateBanner() {
+      const banner = document.getElementById('update-banner');
+      if (banner) {
+        banner.style.display = 'none';
+      }
+    },
+
+    renderAboutSettings(state) {
+      const versionVal = document.getElementById('settings-version-val');
+      const statusSub = document.getElementById('settings-update-status');
+      const timeEl = document.getElementById('settings-update-time');
+      const spinIcon = document.getElementById('icon-update-spin');
+      const btnText = document.getElementById('text-update-btn');
+
+      const appVer = (typeof UpdateManager !== 'undefined') ? UpdateManager.VERSION : '2.6.0';
+      if (versionVal) versionVal.textContent = `v${appVer}`;
+
+      if (state && state.isChecking) {
+        if (statusSub) statusSub.textContent = 'Checking GitHub Releases...';
+        if (spinIcon) spinIcon.classList.add('spin-icon-fast');
+        if (btnText) btnText.textContent = 'Checking...';
+        return;
+      }
+
+      if (spinIcon) spinIcon.classList.remove('spin-icon-fast');
+      if (btnText) btnText.textContent = 'Check';
+
+      if (state && state.updateAvailable) {
+        const latest = (state.updateData && state.updateData.latestVersion) || 'New';
+        if (statusSub) {
+          statusSub.textContent = `MusicFlow v${latest} available!`;
+          statusSub.style.color = '#00F2FE';
+        }
+        if (btnText) btnText.textContent = 'Update';
+      } else if (state && state.error) {
+        if (statusSub) {
+          statusSub.textContent = 'Could not reach update server';
+          statusSub.style.color = 'var(--text-secondary)';
+        }
+      } else {
+        if (statusSub) {
+          statusSub.textContent = "✓ You're up to date";
+          statusSub.style.color = 'var(--text-secondary)';
+        }
+      }
+
+      if (timeEl) {
+        const lastChecked = state && state.lastChecked ? state.lastChecked : 0;
+        if (!lastChecked) {
+          timeEl.textContent = 'Last checked: Never';
+        } else {
+          const d = new Date(lastChecked);
+          const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          const dateStr = d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+          timeEl.textContent = `Last checked: ${dateStr}, ${timeStr}`;
+        }
+      }
+    },
+
+    // ========================================================================
+    // UNIFIED MUSICFLOW MODAL SYSTEM (REPLACES ALERT / CONFIRM / PROMPT)
+    // ========================================================================
+    _confirmCallback: null,
+    _promptCallback: null,
+
+    showConfirmModal({ title = 'Confirm Action', message = 'Are you sure you want to proceed?', icon = 'help_outline', confirmText = 'Confirm', cancelText = 'Cancel', isDestructive = false, onConfirm = null }) {
+      this._confirmCallback = onConfirm;
+      const modal = document.getElementById('modal-confirm-dialog');
+      if (!modal) {
+        if (onConfirm) onConfirm();
+        return;
+      }
+
+      const titleEl = document.getElementById('modal-confirm-title');
+      const msgEl = document.getElementById('modal-confirm-msg');
+      const iconEl = document.getElementById('modal-confirm-icon');
+      const badgeEl = document.getElementById('modal-confirm-badge');
+      const okBtn = document.getElementById('btn-modal-confirm-ok');
+      const cancelBtn = document.getElementById('btn-modal-confirm-cancel');
+
+      if (titleEl) titleEl.textContent = title;
+      if (msgEl) msgEl.textContent = message;
+      if (iconEl) iconEl.textContent = icon || (isDestructive ? 'delete' : 'help_outline');
+      if (badgeEl) {
+        badgeEl.className = isDestructive ? 'mf-modal-icon-badge destructive' : 'mf-modal-icon-badge';
+      }
+      if (okBtn) {
+        okBtn.textContent = confirmText;
+        okBtn.className = isDestructive ? 'btn-mf-modal-confirm destructive' : 'btn-mf-modal-confirm';
+      }
+      if (cancelBtn) cancelBtn.textContent = cancelText;
+
+      modal.style.display = 'flex';
+      modal.classList.add('active');
+    },
+
+    closeConfirmModal(isConfirmed = false) {
+      const modal = document.getElementById('modal-confirm-dialog');
+      if (modal) {
+        modal.style.display = 'none';
+        modal.classList.remove('active');
+      }
+      const cb = this._confirmCallback;
+      this._confirmCallback = null;
+      if (isConfirmed && typeof cb === 'function') {
+        cb();
+      }
+    },
+
+    showPromptModal({ title = 'Edit Name', subtitle = '', placeholder = 'Enter name...', defaultValue = '', confirmText = 'Save', cancelText = 'Cancel', onConfirm = null }) {
+      this._promptCallback = onConfirm;
+      const modal = document.getElementById('modal-prompt-dialog');
+      if (!modal) {
+        const res = defaultValue || '';
+        if (onConfirm) onConfirm(res);
+        return;
+      }
+
+      const titleEl = document.getElementById('modal-prompt-title');
+      const msgEl = document.getElementById('modal-prompt-msg');
+      const inputEl = document.getElementById('modal-prompt-input');
+      const okBtn = document.getElementById('btn-modal-prompt-ok');
+      const cancelBtn = document.getElementById('btn-modal-prompt-cancel');
+
+      if (titleEl) titleEl.textContent = title;
+      if (msgEl) {
+        msgEl.textContent = subtitle;
+        msgEl.style.display = subtitle ? 'block' : 'none';
+      }
+      if (inputEl) {
+        inputEl.placeholder = placeholder;
+        inputEl.value = defaultValue || '';
+      }
+      if (okBtn) okBtn.textContent = confirmText;
+      if (cancelBtn) cancelBtn.textContent = cancelText;
+
+      modal.style.display = 'flex';
+      modal.classList.add('active');
+
+      setTimeout(() => {
+        if (inputEl) {
+          inputEl.focus();
+          inputEl.select();
+        }
+      }, 100);
+    },
+
+    submitPromptModal() {
+      const inputEl = document.getElementById('modal-prompt-input');
+      const val = inputEl ? inputEl.value.trim() : '';
+      this.closePromptModal(val);
+    },
+
+    closePromptModal(resultVal = null) {
+      const modal = document.getElementById('modal-prompt-dialog');
+      if (modal) {
+        modal.style.display = 'none';
+        modal.classList.remove('active');
+      }
+      const cb = this._promptCallback;
+      this._promptCallback = null;
+      if (resultVal !== null && typeof cb === 'function') {
+        cb(resultVal);
+      }
+    },
+
+    // ========================================================================
+    // 3D SWIPE DISCOVERY CARDS ("DISCOVER FOR YOU")
+    // ========================================================================
+    renderSwipeDiscovery(songs = []) {
+      const stack = document.getElementById('swipe-card-stack');
+      if (!stack) return;
+
+      if (!songs || songs.length === 0) {
+        stack.innerHTML = `
+          <div class="swipe-card" style="transform:none; z-index:1; display:flex; align-items:center; justify-content:center; text-align:center; padding:28px;">
+            <div style="color:var(--text-secondary);">
+              <span class="material-symbols-outlined" style="font-size:44px; color:var(--accent); margin-bottom:10px;">sync</span>
+              <div style="font-size:16px; font-weight:800; color:#FFFFFF;">Finding more songs…</div>
+              <div style="font-size:12.5px; margin-top:4px; margin-bottom:16px;">Loading your personalized discovery feed</div>
+              <button class="lib-action-pill-btn" onclick="App.refreshDiscoveryFeed()" style="padding:8px 18px; font-size:13px; font-weight:700; background:var(--accent); color:var(--accent-text); border:none; margin:0 auto; display:inline-flex; align-items:center; gap:6px;">
+                <span class="material-symbols-outlined" style="font-size:16px;">refresh</span>
+                <span>Retry</span>
+              </button>
+            </div>
+          </div>
+        `;
+        return;
+      }
+
+      const visibleCards = songs.slice(0, 3);
+      stack.innerHTML = visibleCards.map((song, idx) => {
+        const title = (typeof DataNormalizer !== 'undefined') ? DataNormalizer.getTrackTitle(song) : (song.name || song.title || 'Track');
+        const artist = (typeof DataNormalizer !== 'undefined') ? DataNormalizer.getArtistString(song) : (song.artists || song.primaryArtist || 'Artist');
+        const img = (typeof DataNormalizer !== 'undefined') ? DataNormalizer.getImageUrl(song) : (song.image || 'assets/logo.png');
+        const tag = song.tag || (idx === 0 ? 'RECOMMENDED' : (song.language && song.language !== 'unknown' ? song.language.toUpperCase() : 'FOR YOU'));
+
+        return `
+          <div class="swipe-card" id="swipe-card-${idx}" data-index="${idx}" data-id="${song.id}" style="${idx === 0 ? 'z-index: 3;' : (idx === 1 ? 'z-index: 2;' : 'z-index: 1;')}">
+            <img class="swipe-card-art" src="${img}" onerror="this.src='assets/logo.png'" alt="${title}">
+            <div class="swipe-card-gradient"></div>
+            
+            <div class="swipe-card-badge swipe-badge-like">SAVE ❤️</div>
+            <div class="swipe-card-badge swipe-badge-nope">PASS ✕</div>
+            <div class="swipe-card-badge swipe-badge-play">PLAY ▶</div>
+
+            <div class="swipe-card-info">
+              <span class="swipe-card-tag">${tag}</span>
+              <h3 class="swipe-card-title">${escapeHtml(title)}</h3>
+              <div class="swipe-card-artist">${escapeHtml(artist)}</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    },
+
+    // ========================================================================
+    // MULTI-ARTIST SELECTION SHEET
+    // ========================================================================
+    renderArtistPicker(artists = [], song = null) {
+      const listContainer = document.getElementById('artist-picker-list');
+      if (!listContainer) return;
+
+      if (!artists || artists.length === 0) {
+        listContainer.innerHTML = `
+          <div style="text-align:center; padding:20px; color:var(--text-secondary);">
+            No artist details found.
+          </div>
+        `;
+        return;
+      }
+
+      listContainer.innerHTML = artists.map(art => {
+        const name = art.name || 'Artist';
+        const id = art.providerId || art.id || name;
+        const role = art.role ? `<span style="font-size:11px; color:var(--text-secondary); margin-left:6px;">(${art.role})</span>` : '';
+        return `
+          <button class="sheet-action-item" onclick="App.selectArtistFromPicker('${escapeHtml(name)}', '${escapeHtml(id)}')" style="width:100%; justify-content:space-between; padding:12px 14px;">
+            <div style="display:flex; align-items:center; gap:10px;">
+              <span class="material-symbols-outlined" style="font-size:20px; color:var(--text-secondary);">person</span>
+              <span style="font-weight:600; font-size:14px; color:#FFFFFF;">${escapeHtml(name)}${role}</span>
+            </div>
+            <span class="material-symbols-outlined" style="font-size:18px; color:var(--text-secondary);">chevron_right</span>
+          </button>
+        `;
+      }).join('');
     }
   };
 })();
+
+if (typeof window !== 'undefined') {
+  window.UI = UI;
+}
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = UI;

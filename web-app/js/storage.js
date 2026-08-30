@@ -20,7 +20,8 @@ const Storage = (() => {
     PROTECTED_DOWNLOADS: 'mf_protected_downloads',
     SELECTED_AUDIO_OUTPUT: 'mf_selected_audio_output',
     AUDIO_EFFECTS: 'mf_audio_effects_v2',
-    USER_PRESETS: 'mf_user_audio_presets'
+    USER_PRESETS: 'mf_user_audio_presets',
+    UPDATE_STATE: 'mf_update_state'
   };
 
   function getJSON(key, fallback = []) {
@@ -43,7 +44,11 @@ const Storage = (() => {
   return {
     // Favorites
     getFavorites() {
-      return getJSON(KEYS.FAVORITES, []);
+      const raw = getJSON(KEYS.FAVORITES, []);
+      if (typeof DataNormalizer !== 'undefined' && DataNormalizer.normalizeTrack) {
+        return raw.map(s => (s && typeof s === 'object' ? (DataNormalizer.normalizeTrack(s) || s) : s));
+      }
+      return raw;
     },
 
     isFavorite(songOrId) {
@@ -51,13 +56,13 @@ const Storage = (() => {
       const favs = this.getFavorites();
       if (typeof songOrId === 'object') {
         const id = String(songOrId.id || songOrId.songId || songOrId._id || '').trim();
-        const title = (songOrId.name || '').toLowerCase().trim();
-        const artist = (songOrId.artists || songOrId.primaryArtist || '').toLowerCase().trim();
+        const title = (songOrId.name || songOrId.title || '').toLowerCase().trim();
+        const artist = (typeof DataNormalizer !== 'undefined' ? DataNormalizer.getArtistString(songOrId) : String(songOrId.artists || songOrId.primaryArtist || '')).toLowerCase().trim();
         return favs.some(s => {
           const sId = String(s.id || s.songId || s._id || '').trim();
           if (id && sId && id === sId) return true;
-          const sTitle = (s.name || '').toLowerCase().trim();
-          const sArtist = (s.artists || s.primaryArtist || '').toLowerCase().trim();
+          const sTitle = (s.name || s.title || '').toLowerCase().trim();
+          const sArtist = (typeof DataNormalizer !== 'undefined' ? DataNormalizer.getArtistString(s) : String(s.artists || s.primaryArtist || '')).toLowerCase().trim();
           if (title && sTitle && title === sTitle) {
             if (!artist || !sArtist || artist.includes(sArtist) || sArtist.includes(artist)) return true;
           }
@@ -67,7 +72,7 @@ const Storage = (() => {
       const target = String(songOrId).trim().toLowerCase();
       return favs.some(s => {
         const sId = String(s.id || s.songId || s._id || '').trim().toLowerCase();
-        const sTitle = (s.name || '').toLowerCase().trim();
+        const sTitle = (s.name || s.title || '').toLowerCase().trim();
         return sId === target || sTitle === target;
       });
     },
@@ -76,14 +81,14 @@ const Storage = (() => {
       if (!song) return false;
       const favs = this.getFavorites();
       const id = String(song.id || song.songId || song._id || '').trim();
-      const title = (song.name || '').toLowerCase().trim();
-      const artist = (song.artists || song.primaryArtist || '').toLowerCase().trim();
+      const title = (song.name || song.title || '').toLowerCase().trim();
+      const artist = (typeof DataNormalizer !== 'undefined' ? DataNormalizer.getArtistString(song) : String(song.artists || song.primaryArtist || '')).toLowerCase().trim();
 
       const idx = favs.findIndex(s => {
         const sId = String(s.id || s.songId || s._id || '').trim();
         if (id && sId && id === sId) return true;
-        const sTitle = (s.name || '').toLowerCase().trim();
-        const sArtist = (s.artists || s.primaryArtist || '').toLowerCase().trim();
+        const sTitle = (s.name || s.title || '').toLowerCase().trim();
+        const sArtist = (typeof DataNormalizer !== 'undefined' ? DataNormalizer.getArtistString(s) : String(s.artists || s.primaryArtist || '')).toLowerCase().trim();
         if (title && sTitle && title === sTitle) {
           if (!artist || !sArtist || artist.includes(sArtist) || sArtist.includes(artist)) return true;
         }
@@ -95,7 +100,8 @@ const Storage = (() => {
         favs.splice(idx, 1);
         isFav = false;
       } else {
-        favs.unshift({ ...song });
+        const normalized = (typeof DataNormalizer !== 'undefined' && DataNormalizer.normalizeTrack) ? (DataNormalizer.normalizeTrack(song) || song) : { ...song };
+        favs.unshift(normalized);
         isFav = true;
       }
 
@@ -111,6 +117,14 @@ const Storage = (() => {
       return true;
     },
 
+    addToFavorites(song) {
+      return this.addFavorite(song);
+    },
+
+    saveToFavorites(song) {
+      return this.addFavorite(song);
+    },
+
     removeFavorite(songId) {
       if (!songId) return false;
       const favs = this.getFavorites();
@@ -122,16 +136,29 @@ const Storage = (() => {
       return false;
     },
 
+    removeFromFavorites(songId) {
+      return this.removeFavorite(songId);
+    },
+
+    deleteFavorite(songId) {
+      return this.removeFavorite(songId);
+    },
+
     // Listening History
     getHistory() {
-      return getJSON(KEYS.HISTORY, []);
+      const raw = getJSON(KEYS.HISTORY, []);
+      if (typeof DataNormalizer !== 'undefined' && DataNormalizer.normalizeTrack) {
+        return raw.map(s => (s && typeof s === 'object' ? (DataNormalizer.normalizeTrack(s) || s) : s));
+      }
+      return raw;
     },
 
     addToHistory(song) {
       if (!song || !song.id) return;
+      const normalized = (typeof DataNormalizer !== 'undefined' && DataNormalizer.normalizeTrack) ? (DataNormalizer.normalizeTrack(song) || song) : song;
       let history = this.getHistory();
       history = history.filter(s => String(s.id) !== String(song.id));
-      history.unshift(song);
+      history.unshift(normalized);
       if (history.length > 50) history = history.slice(0, 50);
       setJSON(KEYS.HISTORY, history);
     },
@@ -322,6 +349,10 @@ const Storage = (() => {
       return false;
     },
 
+    addSongToPlaylist(playlistId, song) {
+      return this.addToPlaylist(playlistId, song);
+    },
+
     removeFromPlaylist(playlistId, songId) {
       if (!playlistId || !songId) return false;
       if (playlistId === 'favorites_pl') {
@@ -440,10 +471,10 @@ const Storage = (() => {
       const artistMap = new Map();
 
       for (const s of allSongs) {
-        const rawArtist = s.primaryArtist || s.artists || '';
-        if (!rawArtist) continue;
-        const mainArtist = rawArtist.split(/[,&/]/)[0].trim();
-        if (!mainArtist || mainArtist.toLowerCase() === 'various artists') continue;
+        const mainArtist = (typeof DataNormalizer !== 'undefined')
+          ? DataNormalizer.getPrimaryArtist(s)
+          : String(s.primaryArtist || s.artists || '').split(/[,&/]/)[0].trim();
+        if (!mainArtist || mainArtist.toLowerCase() === 'various artists' || mainArtist.toLowerCase() === 'unknown artist') continue;
 
         if (!artistMap.has(mainArtist)) {
           artistMap.set(mainArtist, {
@@ -809,8 +840,9 @@ const Storage = (() => {
       const songs = this.getLocalSongs();
       const artistMap = new Map();
       songs.forEach(s => {
-        const rawArtist = s.artists || s.primaryArtist || 'Unknown Artist';
-        const first = rawArtist.split(/[,&/]/)[0].trim() || 'Unknown Artist';
+        const first = (typeof DataNormalizer !== 'undefined')
+          ? DataNormalizer.getPrimaryArtist(s)
+          : (String(s.primaryArtist || s.artists || '').split(/[,&/]/)[0].trim() || 'Unknown Artist');
         const key = first.toLowerCase();
         if (!artistMap.has(key)) {
           artistMap.set(key, {
@@ -919,16 +951,21 @@ const Storage = (() => {
 
     recordSkip(song) {
       if (!song || !song.id) return;
-      const skips = getJSON('mf_skips', []);
-      skips.unshift({
-        id: String(song.id),
-        artist: (song.artists || song.primaryArtist || '').toLowerCase(),
-        name: song.name || '',
-        language: song.language || '',
-        skippedAt: Date.now()
-      });
-      // Keep last 100 skips
-      setJSON('mf_skips', skips.slice(0, 100));
+      try {
+        const skips = getJSON('mf_skips', []);
+        const artStr = (typeof DataNormalizer !== 'undefined' ? DataNormalizer.getArtistString(song) : String(song.artists || song.primaryArtist || '')).toLowerCase();
+        skips.unshift({
+          id: String(song.id),
+          artist: artStr,
+          name: song.name || song.title || '',
+          language: song.language || '',
+          skippedAt: Date.now()
+        });
+        // Keep last 100 skips
+        setJSON('mf_skips', skips.slice(0, 100));
+      } catch (err) {
+        console.warn('[Storage] recordSkip non-critical error:', err);
+      }
     },
 
     getSkips() {
@@ -962,10 +999,12 @@ const Storage = (() => {
 
       // 1. Liked songs (+1.5 per like)
       favorites.forEach(s => {
-        const art = (s.artists || s.primaryArtist || '').split(/[,&/]/)[0].trim().toLowerCase();
-        if (art) artistScores[art] = (artistScores[art] || 0) + 1.5;
+        const art = (typeof DataNormalizer !== 'undefined')
+          ? DataNormalizer.getPrimaryArtist(s).toLowerCase()
+          : String(s.primaryArtist || s.artists || '').split(/[,&/]/)[0].trim().toLowerCase();
+        if (art && art !== 'unknown artist') artistScores[art] = (artistScores[art] || 0) + 1.5;
         if (s.language) {
-          const l = s.language.toLowerCase();
+          const l = String(s.language).toLowerCase();
           languageScores[l] = (languageScores[l] || 0) + 1.5;
         }
       });
@@ -973,16 +1012,18 @@ const Storage = (() => {
       // 2. Play history with time decay (recent plays weighted higher)
       const now = Date.now();
       history.slice(0, 40).forEach((s, idx) => {
-        const art = (s.artists || s.primaryArtist || '').split(/[,&/]/)[0].trim().toLowerCase();
+        const art = (typeof DataNormalizer !== 'undefined')
+          ? DataNormalizer.getPrimaryArtist(s).toLowerCase()
+          : String(s.primaryArtist || s.artists || '').split(/[,&/]/)[0].trim().toLowerCase();
         // Time decay: 1.0 down to 0.4
         const decay = Math.max(0.4, 1.0 - (idx * 0.015));
         const milestoneData = milestones[String(s.id)];
         const completionBonus = (milestoneData && milestoneData.completions > 0) ? 1.3 : 0.8;
         const weight = decay * completionBonus;
 
-        if (art) artistScores[art] = (artistScores[art] || 0) + weight;
+        if (art && art !== 'unknown artist') artistScores[art] = (artistScores[art] || 0) + weight;
         if (s.language) {
-          const l = s.language.toLowerCase();
+          const l = String(s.language).toLowerCase();
           languageScores[l] = (languageScores[l] || 0) + weight;
         }
       });
@@ -990,8 +1031,10 @@ const Storage = (() => {
       // 3. Playlists (+1.2 per playlist track)
       playlists.forEach(pl => {
         (pl.songs || []).forEach(s => {
-          const art = (s.artists || s.primaryArtist || '').split(/[,&/]/)[0].trim().toLowerCase();
-          if (art) artistScores[art] = (artistScores[art] || 0) + 1.2;
+          const art = (typeof DataNormalizer !== 'undefined')
+            ? DataNormalizer.getPrimaryArtist(s).toLowerCase()
+            : String(s.primaryArtist || s.artists || '').split(/[,&/]/)[0].trim().toLowerCase();
+          if (art && art !== 'unknown artist') artistScores[art] = (artistScores[art] || 0) + 1.2;
         });
       });
 
@@ -1192,6 +1235,165 @@ const Storage = (() => {
 
     restoreSession() {
       return getJSON(KEYS.LAST_SESSION, null);
+    },
+
+    // In-App Update System State
+    getUpdateState() {
+      return getJSON(KEYS.UPDATE_STATE, {
+        lastChecked: 0,
+        lastResult: null,
+        dismissedVersion: null
+      });
+    },
+
+    setUpdateState(data) {
+      const current = this.getUpdateState();
+      setJSON(KEYS.UPDATE_STATE, { ...current, ...data });
+    },
+
+    getDismissedVersion() {
+      const state = this.getUpdateState();
+      return state.dismissedVersion || null;
+    },
+
+    setDismissedVersion(ver) {
+      this.setUpdateState({ dismissedVersion: ver ? String(ver).trim() : null });
+    },
+
+    setLastUpdateCheck(timestamp, result) {
+      this.setUpdateState({
+        lastChecked: timestamp || Date.now(),
+        lastResult: result || null
+      });
+    },
+
+    getTheme() {
+      return getJSON('mf_user_theme', { id: 'red', name: 'MusicFlow Red', color: '#FF1744', isDefault: true });
+    },
+
+    setTheme(theme) {
+      setJSON('mf_user_theme', theme);
+    },
+
+    getItem(key, fallback = null) {
+      return getJSON(key, fallback);
+    },
+
+    setItem(key, val) {
+      setJSON(key, val);
+    },
+
+    removeItem(key) {
+      try {
+        if (typeof localStorage !== 'undefined') localStorage.removeItem(key);
+      } catch (_) {}
+    },
+
+    getStreamingQuality() {
+      return this.getAudioQuality ? this.getAudioQuality() : '320';
+    },
+
+    isPerformanceMode() {
+      const mode = this.getPerformanceMode ? this.getPerformanceMode() : 'auto';
+      return mode === 'high' || mode === 'lite' || mode === true;
+    },
+
+    getAutoCleanupDays() {
+      const s = getJSON(KEYS.SMART_DOWNLOADS_SETTINGS, {});
+      return s.autoCleanupDays !== undefined ? Number(s.autoCleanupDays) : 30;
+    },
+
+    getStorageLimitMb() {
+      const s = getJSON(KEYS.SMART_DOWNLOADS_SETTINGS, {});
+      return s.storageLimitMb !== undefined ? Number(s.storageLimitMb) : 2048;
+    },
+
+    recordTasteSignal(signal) {
+      if (this.recordTasteSignals) {
+        return this.recordTasteSignals(signal);
+      }
+      return null;
+    },
+
+    async saveDownloadedAudio(trackId, blob) {
+      if (typeof IndexedDbStorage !== 'undefined' && IndexedDbStorage.saveAudioBlob) {
+        return IndexedDbStorage.saveAudioBlob(trackId, blob);
+      }
+      return null;
+    },
+
+    async saveAudioBlob(trackId, blob) {
+      return this.saveDownloadedAudio(trackId, blob);
+    },
+
+    async getDownloadedAudio(trackId) {
+      if (typeof IndexedDbStorage !== 'undefined' && IndexedDbStorage.getAudioBlob) {
+        return IndexedDbStorage.getAudioBlob(trackId);
+      }
+      return null;
+    },
+
+    async getAudioBlob(trackId) {
+      return this.getDownloadedAudio(trackId);
+    },
+
+    async deleteDownloadedAudio(trackId) {
+      if (typeof IndexedDbStorage !== 'undefined' && IndexedDbStorage.deleteAudioBlob) {
+        return IndexedDbStorage.deleteAudioBlob(trackId);
+      }
+      return null;
+    },
+
+    async deleteAudioBlob(trackId) {
+      return this.deleteDownloadedAudio(trackId);
+    },
+
+    async clearAllDownloadedAudio() {
+      if (typeof IndexedDbStorage !== 'undefined' && IndexedDbStorage.clearAllAudioBlobs) {
+        return IndexedDbStorage.clearAllAudioBlobs();
+      }
+      return null;
+    },
+
+    async clearAllAudioBlobs() {
+      return this.clearAllDownloadedAudio();
+    },
+
+    saveLocalTrack(track) {
+      if (!track || !track.id) return;
+      const tracks = getJSON('mf_local_tracks', []);
+      const idx = tracks.findIndex(t => String(t.id) === String(track.id));
+      if (idx >= 0) tracks[idx] = track;
+      else tracks.unshift(track);
+      setJSON('mf_local_tracks', tracks);
+    },
+
+    removeLocalTrack(trackId) {
+      if (!trackId) return;
+      const tracks = getJSON('mf_local_tracks', []).filter(t => String(t.id) !== String(trackId));
+      setJSON('mf_local_tracks', tracks);
+    },
+
+    clearAllLocalTracks() {
+      setJSON('mf_local_tracks', []);
+    },
+
+    removeDownloadTask(trackId) {
+      if (this.removeDownload) {
+        return this.removeDownload(trackId);
+      }
+    },
+
+    clear() {
+      this.clearAllData();
+    },
+
+    clearAllData() {
+      try {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.clear();
+        }
+      } catch (_) {}
     }
   };
 })();

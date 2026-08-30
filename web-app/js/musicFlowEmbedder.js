@@ -17,7 +17,8 @@ const MusicFlowEmbedder = (() => {
     const hasRealAudio = features && features.source === 'REAL_AUDIO';
     const lang = (song.language || 'english').toLowerCase().trim();
     const genre = (song.genre || lang || 'pop').toLowerCase().trim();
-    const artist = (song.artists || song.primaryArtist || '').toLowerCase().trim();
+    const artStr = (typeof DataNormalizer !== 'undefined' ? DataNormalizer.getArtistString(song) : (typeof song.artists === 'string' ? song.artists : (song.artists?.name || song.primaryArtist || '')));
+    const artist = String(artStr || '').toLowerCase().trim();
     const year = parseInt(song.year || 2020, 10);
     const popularity = (song.popularity ? Number(song.popularity) : 70) / 100.0;
 
@@ -112,6 +113,10 @@ const MusicFlowEmbedder = (() => {
     cosineSimilarity
   };
 })();
+
+if (typeof window !== 'undefined') {
+  window.MusicFlowEmbedder = MusicFlowEmbedder;
+}
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = MusicFlowEmbedder;

@@ -14,7 +14,10 @@ const TypesenseClient = (() => {
 
   // Dynamically load search-only credentials from trusted server if running in browser
   if (typeof window !== 'undefined' && typeof fetch === 'function') {
-    fetch('/api/typesense/config')
+    const configUrl = (typeof ApiConfig !== 'undefined' && typeof ApiConfig.buildUrl === 'function')
+      ? ApiConfig.buildUrl('/api/typesense/config')
+      : '/api/typesense/config';
+    fetch(configUrl)
       .then(res => res.json())
       .then(cfg => {
         if (cfg) {
@@ -40,6 +43,16 @@ const TypesenseClient = (() => {
       return isServerHealthy;
     }
 
+    // In production mobile app or remote host without custom Typesense endpoint, disable direct localhost health check
+    const isMobileOrProd = (typeof ApiConfig !== 'undefined' && typeof ApiConfig.isProduction === 'function' && ApiConfig.isProduction());
+    const isLocalHostConfig = (Config.host === 'localhost' || Config.host === '127.0.0.1');
+
+    if (isMobileOrProd && isLocalHostConfig) {
+      isServerHealthy = false;
+      lastHealthCheck = now;
+      return false;
+    }
+
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 1200);
@@ -59,7 +72,10 @@ const TypesenseClient = (() => {
   // Request trusted backend to initialize collections using server-side admin key
   async function initCollections() {
     try {
-      const res = await fetch('/api/typesense/init-collections', { method: 'POST' });
+      const initUrl = (typeof ApiConfig !== 'undefined' && typeof ApiConfig.buildUrl === 'function')
+        ? ApiConfig.buildUrl('/api/typesense/init-collections')
+        : '/api/typesense/init-collections';
+      const res = await fetch(initUrl, { method: 'POST' });
       return res.ok;
     } catch (_) {
       return false;
@@ -265,12 +281,17 @@ const TypesenseClient = (() => {
     if (!song || !song.id) return;
 
     try {
+      const songTitle = (typeof DataNormalizer !== 'undefined') ? DataNormalizer.getTrackTitle(song) : (song.name || song.title || '');
+      const songArtists = (typeof DataNormalizer !== 'undefined') ? DataNormalizer.getArtistName(song) : (song.artists || song.primaryArtist || 'Unknown Artist');
+      const primaryArtist = (typeof DataNormalizer !== 'undefined') ? DataNormalizer.getPrimaryArtist(song) : (song.primaryArtist || songArtists.split(',')[0].trim());
+      const songAlbum = (typeof DataNormalizer !== 'undefined') ? DataNormalizer.getAlbumName(song.album || song) : (song.album || '');
+
       const doc = {
         id: String(song.id),
-        title: song.name || song.title || '',
-        artist: song.artists || song.primaryArtist || 'Unknown Artist',
-        primary_artist: song.primaryArtist || (song.artists || '').split(',')[0].trim(),
-        album: song.album || '',
+        title: songTitle,
+        artist: songArtists,
+        primary_artist: primaryArtist,
+        album: songAlbum,
         year: parseInt(song.year || '2024', 10) || 2024,
         duration: parseInt(song.duration || '200', 10) || 200,
         popularity: song.hasLyrics ? 95 : 80,
@@ -280,12 +301,15 @@ const TypesenseClient = (() => {
         has_lyrics: Boolean(song.hasLyrics),
         language: song.language || 'hindi',
         provider: song.provider || 'JioSaavn',
-        normalized_title: (typeof QueryNormalizer !== 'undefined') ? QueryNormalizer.normalize(song.name) : (song.name || '').toLowerCase(),
-        normalized_artist: (typeof QueryNormalizer !== 'undefined') ? QueryNormalizer.normalize(song.artists || song.primaryArtist) : (song.artists || '').toLowerCase(),
-        normalized_album: (typeof QueryNormalizer !== 'undefined') ? QueryNormalizer.normalize(song.album) : (song.album || '').toLowerCase()
+        normalized_title: (typeof QueryNormalizer !== 'undefined') ? QueryNormalizer.normalize(songTitle) : songTitle.toLowerCase(),
+        normalized_artist: (typeof QueryNormalizer !== 'undefined') ? QueryNormalizer.normalize(songArtists) : songArtists.toLowerCase(),
+        normalized_album: (typeof QueryNormalizer !== 'undefined') ? QueryNormalizer.normalize(songAlbum) : songAlbum.toLowerCase()
       };
 
-      fetch('/api/typesense/sync-track', {
+      const syncUrl = (typeof ApiConfig !== 'undefined' && typeof ApiConfig.buildUrl === 'function')
+        ? ApiConfig.buildUrl('/api/typesense/sync-track')
+        : '/api/typesense/sync-track';
+      fetch(syncUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ doc })

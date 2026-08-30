@@ -1,7 +1,8 @@
 // ============================================================================
-// MUSICFLOW — HOME DATA LAYER & AGGREGATOR (Phase 6)
+// MUSICFLOW — HOME DATA LAYER & AGGREGATOR (Phase 8)
 // Personalization Lifecycle, Continue Listening Progress, Dynamic Section
-// Assembly, Stale-While-Revalidate Caching & Cross-Section Deduplication.
+// Assembly, Stale-While-Revalidate Caching, Song-First Quick Picks (12-20 tracks),
+// Personalized Daily Mixes, and Cross-Section Deduplication.
 // ============================================================================
 
 const HomeDataLayer = (() => {
@@ -103,7 +104,6 @@ const HomeDataLayer = (() => {
   function buildDiscoverNew(candidatePool = [], history = [], favorites = []) {
     if (!candidatePool || candidatePool.length === 0) return [];
     const knownIds = new Set([...history, ...favorites].map(s => String(s.id)));
-    const RE = (typeof RecommendationEngine !== 'undefined') ? RecommendationEngine : (typeof require !== 'undefined' ? require('./recommendationEngine.js') : null);
     const TD = (typeof TrackDeduplicator !== 'undefined') ? TrackDeduplicator : { cleanArtistName: (a) => a, deduplicate: (arr) => arr };
 
     const unplayedCandidates = candidatePool.filter(c => !knownIds.has(String(c.id)));
@@ -216,11 +216,12 @@ const HomeDataLayer = (() => {
     const userSignals = StorageClient ? (StorageClient.getUserTasteSignals() || {}) : {};
     const milestones = userSignals.milestones || {};
     const profileState = getProfileState(history, favorites, userSignals);
+    const activeMood = options.mood || 'all';
+    const langs = (StorageClient && typeof StorageClient.getLanguages === 'function') ? (StorageClient.getLanguages() || []) : (options.selectedLanguages || ['hindi', 'english']);
 
     // Fetch Base Catalog Feed
     let catalogFeed = null;
     try {
-      const langs = StorageClient ? StorageClient.getLanguages() : ['hindi', 'english'];
       catalogFeed = await APIClient.getHomeFeed(langs);
     } catch (err) {
       console.warn('[HomeDataLayer] Base catalog feed fetch warning:', err);
@@ -248,8 +249,14 @@ const HomeDataLayer = (() => {
       }
     }
 
-    // SECTION 2: Quick Picks (START RADIO FROM A SONG)
-    const quickPicksItems = rawQuickPicks.length > 0 ? rawQuickPicks.slice(0, 16) : trendingSongs.slice(0, 16);
+    // SECTION 2: Quick Picks (12-20 Song-First Quality Tracks, 0% Playlist Contamination)
+    let quickPicksItems = [];
+    if (RecEngine && candidatePool.length > 0) {
+      quickPicksItems = RecEngine.buildQuickPicks(history, favorites, candidatePool, activeMood, 16, { selectedLanguages: langs });
+    } else {
+      quickPicksItems = rawQuickPicks.length > 0 ? rawQuickPicks.slice(0, 16) : trendingSongs.slice(0, 16);
+    }
+
     if (quickPicksItems.length > 0) {
       sections.push({
         id: 'quick_picks',
@@ -260,9 +267,9 @@ const HomeDataLayer = (() => {
       });
     }
 
-    // SECTION 3: Made For You (Phase 5.2 Personalized Ranker)
+    // SECTION 3: Made For You (Personalized Hybrid Ranker)
     if (profileState === PROFILE_STATE.ESTABLISHED && RecEngine && candidatePool.length > 0) {
-      const personalized = RecEngine.getPersonalizedRecommendations(history, favorites, candidatePool, { limit: 12 });
+      const personalized = RecEngine.getPersonalizedRecommendations(history, favorites, candidatePool, { limit: 12, mood: activeMood, selectedLanguages: langs });
       if (personalized.length > 0) {
         sections.push({
           id: 'made_for_you',
@@ -277,12 +284,14 @@ const HomeDataLayer = (() => {
     // SECTION 4: Because You Listened To [Seed Artist / Song]
     const seedTrack = history[0] || favorites[0] || null;
     if (seedTrack && RecEngine && candidatePool.length > 0) {
-      const seedArtist = seedTrack.primaryArtist || seedTrack.artists;
+      const seedArtist = (typeof DataNormalizer !== 'undefined')
+        ? DataNormalizer.getPrimaryArtist(seedTrack)
+        : (seedTrack.primaryArtist || seedTrack.artists || 'Artist');
       const similarTracks = RecEngine.getSimilarTracks(seedTrack, candidatePool, 10);
       if (similarTracks.length > 0) {
         sections.push({
           id: 'because_you_listened',
-          title: `Because you listened to ${seedArtist || seedTrack.name}`,
+          title: `Because you listened to ${seedArtist || seedTrack.name || 'this track'}`,
           tag: 'SIMILAR STYLE',
           type: 'horizontal_cards',
           seedTrack: seedTrack,

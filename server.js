@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const handleUpdateRequest = require('./api/update.js');
 
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'web-app');
 
 // ============================================================================
@@ -603,6 +603,12 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (urlPath === '/api/providers/ytmusic/import-playlist') {
+    const handleImportPlaylist = require('./api/providers/ytmusic/import-playlist.js');
+    handleImportPlaylist(req, res);
+    return;
+  }
+
   if (urlPath === '/api/providers/health') {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Content-Type', 'application/json');
@@ -612,34 +618,36 @@ const server = http.createServer((req, res) => {
       return;
     }
 
-    let saavnStatus = 'AVAILABLE';
-    try {
-      const saavnRes = await fetch('https://spoton-trpn.vercel.app/api/search/songs?query=test&limit=1', {
-        signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(4000) : undefined
-      });
-      if (!saavnRes.ok) saavnStatus = 'SAAVN_PROVIDER_UNAVAILABLE';
-    } catch (_) {
-      saavnStatus = 'SAAVN_PROVIDER_UNAVAILABLE';
-    }
-
-    let tsStatus = 'UNAVAILABLE';
-    try {
-      const tsRes = await fetch(`${TYPESENSE_BASE_URL}/health`, {
-        signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(1000) : undefined
-      });
-      if (tsRes.ok) tsStatus = 'AVAILABLE';
-    } catch (_) {}
-
-    res.writeHead(200);
-    res.end(JSON.stringify({
-      status: 'OK',
-      timestamp: Date.now(),
-      providers: {
-        jiosaavn: { status: saavnStatus },
-        youtube_music: { status: 'AVAILABLE' },
-        typesense: { status: tsStatus }
+    (async () => {
+      let saavnStatus = 'AVAILABLE';
+      try {
+        const saavnRes = await fetch('https://spoton-trpn.vercel.app/api/search/songs?query=test&limit=1', {
+          signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(4000) : undefined
+        });
+        if (!saavnRes.ok) saavnStatus = 'SAAVN_PROVIDER_UNAVAILABLE';
+      } catch (_) {
+        saavnStatus = 'SAAVN_PROVIDER_UNAVAILABLE';
       }
-    }));
+
+      let tsStatus = 'UNAVAILABLE';
+      try {
+        const tsRes = await fetch(`${TYPESENSE_BASE_URL}/health`, {
+          signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(1000) : undefined
+        });
+        if (tsRes.ok) tsStatus = 'AVAILABLE';
+      } catch (_) {}
+
+      res.writeHead(200);
+      res.end(JSON.stringify({
+        status: 'OK',
+        timestamp: Date.now(),
+        providers: {
+          jiosaavn: { status: saavnStatus },
+          youtube_music: { status: 'AVAILABLE' },
+          typesense: { status: tsStatus }
+        }
+      }));
+    })();
     return;
   }
 

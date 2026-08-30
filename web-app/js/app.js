@@ -3852,8 +3852,17 @@ const App = (() => {
 
       if (!resData || resData.success === false) {
         const errorMsg = resData?.error?.message || resData?.error || 'Could not import the specified YouTube link. Please verify the URL and try again.';
+        console.error(`[YTImport] URL: ${url}`);
+        console.error(`[YTImport] Method: POST`);
+        console.error(`[YTImport] Status: ${resData?.status || 500}`);
+        console.error(`[YTImport] Response:`, resData);
         throw new Error(errorMsg);
       }
+
+      console.log(`[YTImport] URL: ${url}`);
+      console.log(`[YTImport] Method: POST`);
+      console.log(`[YTImport] Status: 200`);
+      console.log(`[YTImport] Response:`, resData);
 
       let data = resData;
 

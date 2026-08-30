@@ -100,11 +100,31 @@ async function callInnertube(endpoint, body) {
     ...body
   };
 
+  // If running in Android APK, route through native OkHttp to bypass all WebView CORS/origin restrictions
+  if (typeof window !== 'undefined' && window.AndroidMediaBridge && typeof window.AndroidMediaBridge.executeHttpRequest === 'function') {
+    try {
+      const resStr = window.AndroidMediaBridge.executeHttpRequest(
+        url,
+        'POST',
+        JSON.stringify(YTM_HEADERS),
+        JSON.stringify(payload)
+      );
+      const resObj = JSON.parse(resStr || '{}');
+      if (resObj.success && resObj.data) {
+        return JSON.parse(resObj.data);
+      } else if (resObj.status && resObj.status !== 200) {
+        console.warn(`[YouTubeMusicService] Native OkHttp returned status ${resObj.status}`);
+      }
+    } catch (bridgeErr) {
+      console.warn('[YouTubeMusicService] Native bridge fetch fallback:', bridgeErr.message);
+    }
+  }
+
   const res = await fetch(url, {
     method: 'POST',
     headers: YTM_HEADERS,
     body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(9000)
+    signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(9000) : undefined
   });
 
   if (!res.ok) {
@@ -456,8 +476,19 @@ const YouTubeMusicService = {
       const description = header?.description?.runs?.[0]?.text || '';
       const thumbs = header?.thumbnail?.croppedMusicThumbnailRenderer?.thumbnail?.thumbnails || [];
 
-      const shelf = data.contents?.twoColumnBrowseResultsRenderer?.secondaryContents?.sectionListRenderer?.contents?.[0]?.musicPlaylistShelfRenderer;
-      const items = shelf?.contents || [];
+      const sections = data.contents?.twoColumnBrowseResultsRenderer?.secondaryContents?.sectionListRenderer?.contents
+        || data.contents?.singleColumnBrowseResultsRenderer?.tabs?.[0]?.tabRenderer?.content?.sectionListRenderer?.contents
+        || data.contents?.sectionListRenderer?.contents
+        || [];
+
+      let items = [];
+      for (const sec of sections) {
+        const shelf = sec.musicPlaylistShelfRenderer || sec.musicShelfRenderer;
+        if (shelf && shelf.contents) {
+          items = shelf.contents;
+          break;
+        }
+      }
 
       const songs = [];
       for (const it of items) {

@@ -113,6 +113,8 @@ fun WebMusicFlowScreen(
                         safeBrowsingEnabled = false
                     }
                     mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                    allowUniversalAccessFromFileURLs = true
+                    allowFileAccessFromFileURLs = true
                 }
 
                 setLayerType(View.LAYER_TYPE_HARDWARE, null)

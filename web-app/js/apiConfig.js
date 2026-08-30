@@ -111,6 +111,9 @@ const ApiConfig = (() => {
 
 if (typeof window !== 'undefined') {
   window.ApiConfig = ApiConfig;
+  try {
+    console.log('[MusicFlow] YTMUSIC API BASE:', ApiConfig.getYouTubeMusicApiBase());
+  } catch (_) {}
 }
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = ApiConfig;

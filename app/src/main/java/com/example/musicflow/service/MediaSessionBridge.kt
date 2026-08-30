@@ -96,6 +96,58 @@ class MediaSessionBridge(
         currentTrackInfo = null
     }
 
+    @JavascriptInterface
+    fun executeHttpRequest(url: String, method: String, headersJson: String, bodyStr: String): String {
+        return try {
+            val client = okhttp3.OkHttpClient.Builder()
+                .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+
+            val requestBuilder = okhttp3.Request.Builder().url(url)
+
+            if (headersJson.isNotEmpty() && headersJson != "{}") {
+                try {
+                    val headersObj = JSONObject(headersJson)
+                    val keys = headersObj.keys()
+                    while (keys.hasNext()) {
+                        val key = keys.next()
+                        val value = headersObj.optString(key)
+                        if (value.isNotEmpty()) {
+                            requestBuilder.header(key, value)
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+
+            if (method.equals("POST", ignoreCase = true)) {
+                val mediaType = okhttp3.MediaType.parse("application/json; charset=utf-8")
+                val reqBody = okhttp3.RequestBody.create(mediaType, if (bodyStr.isEmpty()) "{}" else bodyStr)
+                requestBuilder.post(reqBody)
+            } else {
+                requestBuilder.get()
+            }
+
+            val response = client.newCall(requestBuilder.build()).execute()
+            val responseBody = response.body()?.string() ?: ""
+            val resObj = JSONObject().apply {
+                put("status", response.code())
+                put("success", response.isSuccessful)
+                put("data", responseBody)
+            }
+            resObj.toString()
+        } catch (e: Exception) {
+            android.util.Log.e("MediaSessionBridge", "executeHttpRequest failed for $url", e)
+            val errObj = JSONObject().apply {
+                put("status", 500)
+                put("success", false)
+                put("error", e.message ?: "Network request failed")
+                put("data", "")
+            }
+            errObj.toString()
+        }
+    }
+
     data class TrackMetadata(
         val id: String,
         val title: String,

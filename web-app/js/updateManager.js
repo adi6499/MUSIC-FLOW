@@ -135,31 +135,78 @@ const UpdateManager = (() => {
 
     try {
       const updatePath = `/api/update?platform=${encodeURIComponent(platform)}&version=${encodeURIComponent(APP_VERSION)}${manual ? '&force=true' : ''}`;
-      const apiUrl = (typeof ApiConfig !== 'undefined' && typeof ApiConfig.buildUrl === 'function')
+      const primaryUrl = (typeof ApiConfig !== 'undefined' && typeof ApiConfig.buildUrl === 'function')
         ? ApiConfig.buildUrl(updatePath)
-        : updatePath;
-      const response = await fetch(apiUrl, {
-        method: 'GET',
-        headers: { 'Accept': 'application/json' },
-        signal: controller ? controller.signal : undefined
-      });
+        : (typeof ApiConfig !== 'undefined' && ApiConfig.PRODUCTION_UPDATE_API_URL) || updatePath;
+
+      let response = null;
+      try {
+        response = await fetch(primaryUrl, {
+          method: 'GET',
+          headers: { 'Accept': 'application/json' },
+          signal: controller ? controller.signal : undefined
+        });
+      } catch (netErr) {
+        // Fallback to raw GitHub raw content endpoint if primary CDN network error occurs
+        const fallbackUrl = (typeof ApiConfig !== 'undefined' && typeof ApiConfig.getUpdateApiFallback === 'function')
+          ? ApiConfig.getUpdateApiFallback()
+          : null;
+        if (fallbackUrl && fallbackUrl !== primaryUrl) {
+          try {
+            response = await fetch(fallbackUrl, {
+              method: 'GET',
+              headers: { 'Accept': 'application/json' },
+              signal: controller ? controller.signal : undefined
+            });
+          } catch (_) {
+            throw netErr;
+          }
+        } else {
+          throw netErr;
+        }
+      }
 
       if (timeoutId) clearTimeout(timeoutId);
 
-      if (!response.ok) {
-        throw new Error(`Update check failed with HTTP ${response.status}`);
+      if (!response || !response.ok) {
+        // If 404 or bad response, try fallback URL
+        const fallbackUrl = (typeof ApiConfig !== 'undefined' && typeof ApiConfig.getUpdateApiFallback === 'function')
+          ? ApiConfig.getUpdateApiFallback()
+          : null;
+        if (fallbackUrl && fallbackUrl !== primaryUrl) {
+          try {
+            response = await fetch(fallbackUrl, {
+              method: 'GET',
+              headers: { 'Accept': 'application/json' }
+            });
+          } catch (_) {}
+        }
+      }
+
+      if (!response || !response.ok) {
+        throw new Error(`Update check failed with HTTP ${response ? response.status : 'offline'}`);
       }
 
       const contentType = (response.headers && typeof response.headers.get === 'function')
         ? (response.headers.get('content-type') || '')
         : (response.headers?.['content-type'] || 'application/json');
 
-      if (contentType && !contentType.includes('application/json') && (contentType.includes('text/html') || contentType.includes('text/plain'))) {
-        throw new Error(`Invalid response format (received non-JSON "${contentType}")`);
+      if (contentType && contentType.includes('text/html')) {
+        throw new Error(`Invalid response format (received HTML error page "${contentType}")`);
       }
 
-      const data = await response.json();
-      const latestVer = data.latestVersion || APP_VERSION;
+      let data;
+      try {
+        data = await response.json();
+      } catch (parseErr) {
+        throw new Error(`Failed to parse update JSON: ${parseErr.message}`);
+      }
+
+      if (!data || typeof data !== 'object') {
+        throw new Error('Malformed update payload');
+      }
+
+      const latestVer = data.latestVersion || data.version || (data.android && data.android.version) || APP_VERSION;
       const minVer = data.minimumVersion || '1.0.0';
 
       const isUpdateAvailable = compareVersions(latestVer, APP_VERSION) > 0;
@@ -218,7 +265,7 @@ const UpdateManager = (() => {
       notify('stateChange', updateState);
 
       if (manual && typeof UI !== 'undefined' && UI.showToast) {
-        UI.showToast('Could not check for updates. Check connection.');
+        UI.showToast("Couldn't check for updates right now. Please try again later.");
       }
 
       return updateState;

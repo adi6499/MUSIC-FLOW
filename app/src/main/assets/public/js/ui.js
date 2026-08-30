@@ -2868,7 +2868,7 @@ const UI = (() => {
         if (btnText) btnText.textContent = 'Update';
       } else if (state && state.error) {
         if (statusSub) {
-          statusSub.textContent = 'Could not reach update server';
+          statusSub.textContent = "Couldn't check for updates right now";
           statusSub.style.color = 'var(--text-secondary)';
         }
       } else {

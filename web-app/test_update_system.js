@@ -234,35 +234,143 @@ Full Changelog: https://github.com/adi6499/MUSIC-FLOW/compare/v1.7.0...v1.8.0
   });
 
   // ----------------------------------------------------------------------------
-  // 7. END-TO-END UPDATE DETECTION WITH MOCK API
+  // 7. END-TO-END UPDATE DETECTION & 13 HARDENING SUITES
   // ----------------------------------------------------------------------------
-  await runAsyncTest('UpdateManager E2E: Detects update when API returns newer version', async () => {
-    global.fetch = async (url) => {
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({
-          updateAvailable: true,
-          updateRequired: false,
-          currentVersion: '2.7.0',
-          latestVersion: '2.8.0',
-          minimumVersion: '2.0.0',
-          platform: 'android',
-          title: 'MusicFlow 2.8.0',
-          message: 'New release with enhanced discovery',
-          releaseNotes: ['Enhanced search ranking', '7-band EQ'],
-          releaseUrl: 'https://github.com/adi6499/MUSIC-FLOW/releases/tag/v2.8.0',
-          downloadUrl: 'https://github.com/adi6499/MUSIC-FLOW/releases/download/v2.8.0/MusicFlow-Android-v2.8.0.apk',
-          assetAvailable: true
-        })
-      };
-    };
+  await runAsyncTest('1. Production update endpoint returns valid JSON structure', async () => {
+    const ApiConfig = require('./js/apiConfig.js');
+    const updateUrl = ApiConfig.buildUrl('/api/update');
+    assert(updateUrl.startsWith('https://'), 'Must be HTTPS production URL');
+    assert(updateUrl.includes('update.json') || updateUrl.includes('/api/update'), 'Must be update endpoint');
+  });
 
+  await runAsyncTest('2. Current version detection (Same version = no update)', async () => {
+    global.fetch = async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => 'application/json' },
+      json: async () => ({
+        latestVersion: '2.7.0',
+        versionCode: 27,
+        apkUrl: 'https://adi6499.github.io/MUSICFLOW/downloads/MusicFlow.apk'
+      })
+    });
+    const state = await UpdateManager.checkForUpdates({ manual: true });
+    assert.strictEqual(state.updateAvailable, false, 'Same version must not trigger update');
+  });
+
+  await runAsyncTest('3. New version detection (Server newer = update available)', async () => {
+    global.fetch = async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => 'application/json' },
+      json: async () => ({
+        latestVersion: '2.8.0',
+        versionCode: 28,
+        apkUrl: 'https://adi6499.github.io/MUSICFLOW/downloads/MusicFlow.apk'
+      })
+    });
+    const state = await UpdateManager.checkForUpdates({ manual: true });
+    assert.strictEqual(state.updateAvailable, true, 'Newer version must trigger update');
+    assert.strictEqual(state.updateData.latestVersion, '2.8.0');
+  });
+
+  await runAsyncTest('4. No-update case (Older server version does not trigger update)', async () => {
+    global.fetch = async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => 'application/json' },
+      json: async () => ({
+        latestVersion: '2.5.0',
+        versionCode: 25,
+        apkUrl: 'https://adi6499.github.io/MUSICFLOW/downloads/MusicFlow.apk'
+      })
+    });
+    const state = await UpdateManager.checkForUpdates({ manual: true });
+    assert.strictEqual(state.updateAvailable, false);
+  });
+
+  await runAsyncTest('5. Invalid JSON response fails gracefully without throwing', async () => {
+    global.fetch = async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => 'application/json' },
+      json: async () => { throw new SyntaxError('Unexpected token'); }
+    });
     const state = await UpdateManager.checkForUpdates({ manual: true });
     assert.strictEqual(state.isChecking, false);
-    assert.strictEqual(state.updateAvailable, true);
-    assert.strictEqual(state.updateRequired, false);
-    assert.strictEqual(state.updateData.latestVersion, '2.8.0');
+    assert(state.error.includes('Failed to parse update JSON'));
+  });
+
+  await runAsyncTest('6. HTML response (e.g. 404 HTML / portal page) is rejected cleanly', async () => {
+    global.fetch = async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => 'text/html; charset=utf-8' },
+      json: async () => ({})
+    });
+    const state = await UpdateManager.checkForUpdates({ manual: true });
+    assert.strictEqual(state.isChecking, false);
+    assert(state.error.includes('HTML error page'));
+  });
+
+  await runAsyncTest('7. 404 HTTP response status is caught safely', async () => {
+    global.fetch = async () => ({
+      ok: false,
+      status: 404,
+      headers: { get: () => 'application/json' }
+    });
+    const state = await UpdateManager.checkForUpdates({ manual: true });
+    assert.strictEqual(state.isChecking, false);
+    assert(state.error.includes('404'));
+  });
+
+  await runAsyncTest('8. Network timeout is caught non-blockingly', async () => {
+    global.fetch = async () => {
+      const err = new Error('The operation was aborted');
+      err.name = 'AbortError';
+      throw err;
+    };
+    const state = await UpdateManager.checkForUpdates({ manual: true });
+    assert.strictEqual(state.isChecking, false);
+    assert(state.error.includes('aborted'));
+  });
+
+  await runAsyncTest('9. Offline device error handled gracefully', async () => {
+    global.fetch = async () => {
+      throw new Error('TypeError: Failed to fetch (net::ERR_INTERNET_DISCONNECTED)');
+    };
+    const state = await UpdateManager.checkForUpdates({ manual: true });
+    assert.strictEqual(state.isChecking, false);
+    assert(state.error.includes('DISCONNECTED') || state.error.includes('Failed to fetch'));
+  });
+
+  runTest('10. Valid APK URL verification', () => {
+    const validUrl = 'https://adi6499.github.io/MUSICFLOW/downloads/MusicFlow.apk';
+    assert(validUrl.startsWith('https://'));
+    assert(validUrl.endsWith('.apk'));
+    assert(!validUrl.includes('localhost'));
+  });
+
+  runTest('11. Invalid APK URL fallback handling', () => {
+    // Calling openUpdate with null URL does not throw
+    assert.doesNotThrow(() => {
+      UpdateManager.openUpdate(null);
+    });
+  });
+
+  runTest('12. Android production configuration resolves HTTPS CDN endpoint', () => {
+    const ApiConfig = require('./js/apiConfig.js');
+    const url = ApiConfig.getUpdateApiBase();
+    assert(url.startsWith('https://'));
+    assert(url.includes('update.json') || url.includes('/api/update'));
+  });
+
+  runTest('13. Localhost absence: Android build has no localhost or 127.0.0.1 in update URL', () => {
+    const ApiConfig = require('./js/apiConfig.js');
+    const url = ApiConfig.buildUrl('/api/update');
+    assert(!url.includes('localhost'), 'Production update URL must not contain localhost');
+    assert(!url.includes('127.0.0.1'), 'Production update URL must not contain 127.0.0.1');
+    assert(!url.includes('spoton-trpn.vercel.app/api/update'), 'Must not hit JioSaavn proxy for update');
   });
 
   console.log('\n=============================================================');

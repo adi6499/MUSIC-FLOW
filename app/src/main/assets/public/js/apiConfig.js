@@ -17,8 +17,8 @@ const ApiConfig = (() => {
    * Detects if the app is currently running inside an Android APK / WebView environment
    */
   function isRunningInAndroid() {
-    if (typeof window === 'undefined') return false;
-    const protocol = window.location.protocol;
+    if (typeof window === 'undefined' || !window.location) return false;
+    const protocol = window.location.protocol || '';
     const href = window.location.href || '';
     const userAgent = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
     return (
@@ -33,8 +33,8 @@ const ApiConfig = (() => {
    * Detects if the app is currently running inside an iOS App / Capacitor environment
    */
   function isRunningInIOS() {
-    if (typeof window === 'undefined') return false;
-    const protocol = window.location.protocol;
+    if (typeof window === 'undefined' || !window.location) return false;
+    const protocol = window.location.protocol || '';
     const href = window.location.href || '';
     const userAgent = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
     const isCapacitor = typeof window.Capacitor !== 'undefined' || protocol === 'capacitor:';
@@ -58,16 +58,17 @@ const ApiConfig = (() => {
    * Detects if running in a local developer workstation browser
    */
   function isLocalDevelopment() {
-    if (typeof window === 'undefined') return true;
-    if (isNativeApp()) return false; // Native mobile apps are NEVER local workstation servers
-    const hostname = window.location.hostname;
-    const protocol = window.location.protocol;
-    if (protocol === 'file:' || protocol === 'capacitor:') return false;
+    if (isNativeApp()) return false;
+    if (typeof window === 'undefined' || !window.location) return false;
+    const hostname = window.location.hostname || '';
+    const href = window.location.href || '';
     return (
       hostname === 'localhost' ||
       hostname === '127.0.0.1' ||
-      hostname === '0.0.0.0' ||
-      hostname.endsWith('.local')
+      hostname.startsWith('192.168.') ||
+      hostname.startsWith('10.') ||
+      href.startsWith('http://localhost') ||
+      href.startsWith('http://127.0.0.1')
     );
   }
 
@@ -96,6 +97,10 @@ const ApiConfig = (() => {
       : PRODUCTION_API_BASE;
   }
 
+  // Production Update Metadata Endpoint (Instant High-Availability GitHub Raw CDN & Pages Fallback)
+  const PRODUCTION_UPDATE_API_URL = 'https://raw.githubusercontent.com/adi6499/MUSICFLOW/main/api/update.json';
+  const PRODUCTION_UPDATE_API_FALLBACK = 'https://adi6499.github.io/MUSICFLOW/api/update.json';
+
   /**
    * Returns JioSaavn API endpoint base URL (always the live Saavn service host)
    */
@@ -111,6 +116,23 @@ const ApiConfig = (() => {
   }
 
   /**
+   * Returns production Update API endpoint URL
+   */
+  function getUpdateApiBase() {
+    if (isLocalDevelopment()) {
+      return `${DEV_API_BASE}/api/update`;
+    }
+    return PRODUCTION_UPDATE_API_URL;
+  }
+
+  /**
+   * Returns fallback update URL in case of primary CDN failure
+   */
+  function getUpdateApiFallback() {
+    return PRODUCTION_UPDATE_API_FALLBACK;
+  }
+
+  /**
    * Constructs full URL from relative path
    */
   function buildUrl(endpoint) {
@@ -119,12 +141,22 @@ const ApiConfig = (() => {
       return endpoint;
     }
     const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+    if (cleanEndpoint.startsWith('/api/update')) {
+      if (isLocalDevelopment()) {
+        return `${DEV_API_BASE}${cleanEndpoint}`;
+      }
+      const hasForce = cleanEndpoint.includes('force=true');
+      const timestamp = hasForce ? `?t=${Date.now()}` : '';
+      return `${PRODUCTION_UPDATE_API_URL}${timestamp}`;
+    }
     return `${getApiBaseUrl()}${cleanEndpoint}`;
   }
 
   return {
     PRODUCTION_API_BASE,
     PRODUCTION_JIOSAAVN_API_BASE,
+    PRODUCTION_UPDATE_API_URL,
+    PRODUCTION_UPDATE_API_FALLBACK,
     DEV_API_BASE,
     isRunningInAndroid,
     isRunningInIOS,
@@ -133,6 +165,8 @@ const ApiConfig = (() => {
     getApiBaseUrl,
     getJioSaavnApiBase,
     getYouTubeMusicApiBase,
+    getUpdateApiBase,
+    getUpdateApiFallback,
     buildUrl
   };
 })();

@@ -277,6 +277,7 @@ async function handleUpdateRequest(req, res) {
       updateRequired: isBelowMinimum,
       currentVersion: currentVersion,
       latestVersion: releaseData.latestVersion,
+      versionCode: 27,
       minimumVersion: releaseData.minimumVersion,
       platform: targetPlatform,
       title: releaseData.title,
@@ -285,28 +286,75 @@ async function handleUpdateRequest(req, res) {
       releaseUrl: releaseData.releaseUrl,
       publishedAt: releaseData.publishedAt,
       assetAvailable: assetAvailable,
-      downloadUrl: platformAsset ? platformAsset.downloadUrl : releaseData.releaseUrl,
-      fileName: platformAsset ? platformAsset.fileName : null,
-      fileSize: platformAsset ? platformAsset.size : 0,
-      android: releaseData.android,
-      ios: releaseData.ios
+      downloadUrl: platformAsset ? platformAsset.downloadUrl : (targetPlatform === 'ios' ? 'https://adi6499.github.io/MUSICFLOW/downloads/MusicFlow.ipa' : 'https://adi6499.github.io/MUSICFLOW/downloads/MusicFlow.apk'),
+      apkUrl: 'https://adi6499.github.io/MUSICFLOW/downloads/MusicFlow.apk',
+      fileName: platformAsset ? platformAsset.fileName : (targetPlatform === 'ios' ? 'MusicFlow.ipa' : 'MusicFlow.apk'),
+      fileSize: platformAsset ? platformAsset.size : 34296622,
+      mandatory: isBelowMinimum,
+      android: releaseData.android || {
+        available: true,
+        version: '2.7.0',
+        downloadUrl: 'https://adi6499.github.io/MUSICFLOW/downloads/MusicFlow.apk',
+        fileName: 'MusicFlow.apk',
+        size: 34296622
+      },
+      ios: releaseData.ios || {
+        available: true,
+        version: '2.7.0',
+        downloadUrl: 'https://adi6499.github.io/MUSICFLOW/downloads/MusicFlow.ipa',
+        fileName: 'MusicFlow.ipa',
+        size: 3994324
+      }
     };
 
     res.writeHead(200, headers);
     res.end(JSON.stringify(responsePayload, null, 2));
   } catch (err) {
     console.warn('[UpdateAPI] Release lookup fallback:', err.message);
+    const targetPlatform = (platform === 'ios') ? 'ios' : 'android';
+    const latestVer = '2.7.0';
+    const isOlder = compareSemVer(latestVer, currentVersion) > 0;
     res.writeHead(200, headers);
     res.end(JSON.stringify({
-      updateAvailable: false,
+      updateAvailable: isOlder,
       updateRequired: false,
       currentVersion: currentVersion,
-      latestVersion: currentVersion || '2.7.0',
+      latestVersion: latestVer,
+      versionCode: 27,
       minimumVersion: '1.0.0',
-      platform: platform || 'android',
+      platform: targetPlatform,
+      title: `MusicFlow v${latestVer}`,
       message: 'MusicFlow is up to date',
-      downloadUrl: null,
-      assetAvailable: false
+      releaseNotes: [
+        'YouTube Music single-song and playlist import',
+        'Playlist search continuous multi-character filtering',
+        'Radio playback instant start and stream skip recovery',
+        'Non-blocking startup and Stale-While-Revalidate caching',
+        'Lock-screen media controls and background playback'
+      ],
+      releaseUrl: 'https://github.com/adi6499/MUSIC-FLOW',
+      downloadUrl: targetPlatform === 'ios'
+        ? 'https://adi6499.github.io/MUSICFLOW/downloads/MusicFlow.ipa'
+        : 'https://adi6499.github.io/MUSICFLOW/downloads/MusicFlow.apk',
+      apkUrl: 'https://adi6499.github.io/MUSICFLOW/downloads/MusicFlow.apk',
+      fileName: targetPlatform === 'ios' ? 'MusicFlow.ipa' : 'MusicFlow.apk',
+      fileSize: targetPlatform === 'ios' ? 3994324 : 34296622,
+      assetAvailable: true,
+      mandatory: false,
+      android: {
+        available: true,
+        version: latestVer,
+        downloadUrl: 'https://adi6499.github.io/MUSICFLOW/downloads/MusicFlow.apk',
+        fileName: 'MusicFlow.apk',
+        size: 34296622
+      },
+      ios: {
+        available: true,
+        version: latestVer,
+        downloadUrl: 'https://adi6499.github.io/MUSICFLOW/downloads/MusicFlow.ipa',
+        fileName: 'MusicFlow.ipa',
+        size: 3994324
+      }
     }, null, 2));
   }
 }

@@ -658,10 +658,22 @@ const Player = (() => {
     };
   }
 
+  function safeArtistString(song) {
+    if (!song) return '';
+    if (typeof song.primaryArtist === 'string' && song.primaryArtist) return song.primaryArtist;
+    if (typeof song.artists === 'string') return song.artists;
+    if (Array.isArray(song.artists)) {
+      return song.artists.map(a => (typeof a === 'object' ? a.name : a)).filter(Boolean).join(', ');
+    }
+    return '';
+  }
+
   // Play Track at Index with Generation Protection against Race Conditions ("Latest Request Wins")
   async function requestTrackPlayback(index, options = {}) {
     const { autoPlay = true, force = false, source = 'user' } = options;
     if (index < 0 || index >= queue.length) return;
+
+    const isRadio = (queueContext.source === 'radio' || queueContext.mode === 'radio');
 
     // Abort any in-flight fetch request
     if (activeAbortController) {
@@ -688,6 +700,10 @@ const Player = (() => {
     updateMediaSession(song);
     transitionTo(PlaybackState.LOADING);
 
+    if (isRadio) {
+      console.log(`[Radio] Requesting playback: index ${currentIndex} ("${song.name}" by "${safeArtistString(song)}")`);
+    }
+
     try {
       const resolved = await resolvePlaybackSource(song, { signal: activeAbortController?.signal });
 
@@ -697,7 +713,16 @@ const Player = (() => {
         return;
       }
 
+      if (isRadio) {
+        console.log(`[Radio] Resolved source: ${resolved.uri ? (resolved.uri.substring(0, 70) + '...') : 'NONE'}`);
+        console.log(`[Radio] Source type: ${resolved.type || 'UNKNOWN'}`);
+        console.log(`[Radio] Valid stream: ${Boolean(resolved.uri && !resolved.error)}`);
+      }
+
       if (resolved.error || !resolved.uri) {
+        if (isRadio) {
+          console.error(`[Radio] Resolver failure for "${song.name}":`, resolved.message || resolved.error);
+        }
         throw new Error(resolved.message || 'No valid audio stream URL available');
       }
 
@@ -710,14 +735,18 @@ const Player = (() => {
       audio.load();
 
       if (autoPlay) {
+        if (isRadio) console.log(`[Radio] Calling audio.play()`);
         const playPromise = audio.play();
         if (playPromise !== undefined) {
-          await playPromise.catch(err => {
+          await playPromise.then(() => {
+            if (isRadio) console.log(`[Radio] Playback started: "${song.name}" at index ${currentIndex}`);
+          }).catch(err => {
             if (err.name === 'AbortError') {
               console.log('[Player] Play request superseded/aborted cleanly');
               return;
             }
             console.warn('[Player] Autoplay interrupted/prevented:', err.message);
+            if (isRadio) console.error(`[Radio] Playback exception on audio.play():`, err.message);
           });
         }
       }
@@ -731,7 +760,7 @@ const Player = (() => {
       }
 
       // Auto-populate continuous queue when near queue end
-      if (queue.length - currentIndex <= 3 && autoPlay) {
+      if (queue.length - currentIndex <= 3 && autoPlay && !isRadio) {
         autoPopulateContinuousQueue(song);
       }
     } catch (err) {
@@ -740,16 +769,20 @@ const Player = (() => {
         console.log('[Player] Request aborted by newer playback action');
         return;
       }
+      song.isPlayable = false;
       lastError = { code: ErrorCode.SOURCE_UNAVAILABLE, message: err.message, track: song };
       console.warn('[Player] play error:', err.message);
       notify('error', lastError);
       transitionTo(PlaybackState.ERROR, { error: lastError });
 
-      // Auto-advance if offline error and more songs in queue
-      if (queue.length > 1) {
+      // Auto-advance if track is unavailable and more songs in queue
+      if (queue.length > 1 && (currentIndex + 1 < queue.length)) {
+        if (isRadio) {
+          console.log(`[Radio] Track unavailable; auto-skipping "${song.name}" and advancing to next playable recommendation at index ${currentIndex + 1}`);
+        }
         setTimeout(() => {
           if (currentReqGen === playbackGeneration) next();
-        }, 1500);
+        }, isRadio ? 300 : 1200);
       }
     }
   }
@@ -842,22 +875,44 @@ const Player = (() => {
     const activeTrack = getCurrentTrack();
     const isSameActiveTrack = activeTrack && (String(activeTrack.id) === String(currentSong.id));
 
-    // If currentSong is the active playing track in the queue:
-    // Keep history intact, keep active track in place at currentIndex, and replace all future upcoming tracks!
     if (isSameActiveTrack) {
       const pastTracks = queue.slice(0, currentIndex);
       queue = [...pastTracks, activeTrack, ...cleanRelated];
       unShuffledQueue = [...queue];
       notify('queueChange', queue);
+      if (typeof NativeMedia !== 'undefined') {
+        NativeMedia.setQueue(queue, currentIndex);
+      }
+      console.log(`[Radio] Starting radio from: "${activeTrack.name}" (${activeTrack.id})`);
+      console.log(`[Radio] Queue size: ${queue.length}`);
+      console.log(`[Radio] Active index: ${currentIndex}`);
+      console.log(`[Radio] Active track: "${activeTrack.name}"`);
       console.log(`[Player] Radio queue populated: ${queue.length} total tracks (${cleanRelated.length} upcoming) preserving active track "${activeTrack.name}" at index ${currentIndex}`);
+
+      // If audio is not already actively playing, start/resume playback immediately!
+      const isActivelyPlaying = audio && !audio.paused && audio.currentTime > 0 && (playbackState === PlaybackState.PLAYING);
+      if (!isActivelyPlaying) {
+        console.log(`[Radio] Active track "${activeTrack.name}" is not currently playing; starting playback at index ${currentIndex}`);
+        playTrackAtIndex(currentIndex, true);
+      } else {
+        console.log(`[Radio] Active track "${activeTrack.name}" is already playing; continuing playback seamlessly`);
+      }
       return;
     }
 
-    // Otherwise, set new queue with currentSong at index 0
+    // Otherwise, set new queue with currentSong at index 0 and start playback immediately!
     queue = [currentSong, ...cleanRelated];
     unShuffledQueue = [...queue];
     currentIndex = 0;
     notify('queueChange', queue);
+    if (typeof NativeMedia !== 'undefined') {
+      NativeMedia.setQueue(queue, currentIndex);
+    }
+    console.log(`[Radio] Starting radio from: "${currentSong.name}" (${currentSong.id})`);
+    console.log(`[Radio] Queue size: ${queue.length}`);
+    console.log(`[Radio] Active index: 0`);
+    console.log(`[Radio] Active track: "${currentSong.name}"`);
+    console.log(`[Radio] Requesting playback: index 0`);
     playTrackAtIndex(0, true);
   }
 

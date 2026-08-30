@@ -941,14 +941,15 @@ const App = (() => {
 
       const cardWidth = front ? (front.offsetWidth || 300) : 300;
       const distanceThreshold = Math.max(60, cardWidth * 0.25);
+      const SWIPE_THRESHOLD = distanceThreshold;
       const isFastFlick = Math.abs(velocityX) > 0.45;
 
-      // Swipe Left -> Next Track
-      if (deltaX < -distanceThreshold || (deltaX < -30 && velocityX < -0.45)) {
+      // Swipe Left -> Next Track (delegates to Player.next())
+      if (deltaX < -SWIPE_THRESHOLD || (deltaX < -30 && velocityX < -0.45)) {
         transitionToNext();
       }
-      // Swipe Right -> Previous Track
-      else if (deltaX > distanceThreshold || (deltaX > 30 && velocityX > 0.45)) {
+      // Swipe Right -> Previous Track (delegates to Player.previous())
+      else if (deltaX > SWIPE_THRESHOLD || (deltaX > 30 && velocityX > 0.45)) {
         transitionToPrevious();
       }
       // Cancelled Swipe -> Spring smoothly back to center without changing audio/queue
@@ -3801,14 +3802,14 @@ const App = (() => {
 
     const isSingleTrack = parsedYt && parsedYt.type === 'track';
     const endpoint = isSingleTrack ? '/api/providers/ytmusic/import-track' : '/api/providers/ytmusic/import-playlist';
-    const isMobileAndroid = (typeof ApiConfig !== 'undefined' && typeof ApiConfig.isRunningInAndroid === 'function' && ApiConfig.isRunningInAndroid());
+    const isNativeMobile = (typeof ApiConfig !== 'undefined' && typeof ApiConfig.isNativeApp === 'function' && ApiConfig.isNativeApp());
     const fullUrl = (typeof ApiConfig !== 'undefined') ? ApiConfig.buildUrl(endpoint) : endpoint;
 
     try {
       let resData = null;
 
-      // In local development, try local Node server; in Android or remote Saavn host, use direct adapter
-      if (!isMobileAndroid && !fullUrl.includes('spoton-trpn.vercel.app')) {
+      // In local development, try local Node server; in native mobile apps (Android/iOS) or remote Saavn host, use direct adapter
+      if (!isNativeMobile && !fullUrl.includes('spoton-trpn.vercel.app')) {
         try {
           const fetchSignal = (typeof AbortSignal !== 'undefined' && AbortSignal.timeout)
             ? AbortSignal.timeout(6000)

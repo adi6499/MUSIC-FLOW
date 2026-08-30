@@ -475,6 +475,10 @@ runTest('7.1 Sleep timer sets duration, counts down, and formats remaining time'
 });
 
 runTest('7.2 MediaSession sets up previous, play/pause, next track handlers without skip icons', () => {
+  const NativeMedia = require('./js/nativeMedia.js');
+  if (NativeMedia && NativeMedia.setupBrowserMediaActions) {
+    NativeMedia.setupBrowserMediaActions();
+  }
   const handlers = global.mediaHandlers || {};
   assert.ok(typeof handlers['previoustrack'] === 'function', 'previoustrack handler must be registered');
   assert.ok(typeof handlers['nexttrack'] === 'function', 'nexttrack handler must be registered');

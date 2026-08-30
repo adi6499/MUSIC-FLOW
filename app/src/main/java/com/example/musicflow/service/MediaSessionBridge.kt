@@ -6,6 +6,8 @@ import android.os.Handler
 import android.os.Looper
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.lang.ref.WeakReference
 
@@ -121,17 +123,17 @@ class MediaSessionBridge(
             }
 
             if (method.equals("POST", ignoreCase = true)) {
-                val mediaType = okhttp3.MediaType.parse("application/json; charset=utf-8")
-                val reqBody = okhttp3.RequestBody.create(mediaType, if (bodyStr.isEmpty()) "{}" else bodyStr)
+                val mediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
+                val reqBody = (if (bodyStr.isEmpty()) "{}" else bodyStr).toRequestBody(mediaType)
                 requestBuilder.post(reqBody)
             } else {
                 requestBuilder.get()
             }
 
             val response = client.newCall(requestBuilder.build()).execute()
-            val responseBody = response.body()?.string() ?: ""
+            val responseBody = response.body?.string() ?: ""
             val resObj = JSONObject().apply {
-                put("status", response.code())
+                put("status", response.code)
                 put("success", response.isSuccessful)
                 put("data", responseBody)
             }

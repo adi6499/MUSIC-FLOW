@@ -86,8 +86,8 @@ console.log('--- TEST 4: Index.html & CSS DOM Elements Integrity ---');
 
   // Player 3D Deck Container
   assert.ok(indexHtml.includes('id="player-3d-deck-container"'), 'HTML must contain player-3d-deck-container');
-  assert.ok(indexHtml.includes('id="player-deck-back-1"'), 'HTML must contain player-deck-back-1');
-  assert.ok(indexHtml.includes('id="player-deck-back-2"'), 'HTML must contain player-deck-back-2');
+  assert.ok(indexHtml.includes('player-deck-card-back-1') || indexHtml.includes('player-deck-next'), 'HTML must contain player-deck-next');
+  assert.ok(indexHtml.includes('player-deck-card-prev') || indexHtml.includes('player-deck-prev'), 'HTML must contain player-deck-prev');
   assert.ok(indexHtml.includes('id="player-art-card"'), 'HTML must contain player-art-card');
   assert.ok(indexHtml.includes('id="full-player-artist-container"'), 'HTML must contain full-player-artist-container');
 

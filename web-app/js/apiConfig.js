@@ -30,13 +30,39 @@ const ApiConfig = (() => {
   }
 
   /**
+   * Detects if the app is currently running inside an iOS App / Capacitor environment
+   */
+  function isRunningInIOS() {
+    if (typeof window === 'undefined') return false;
+    const protocol = window.location.protocol;
+    const href = window.location.href || '';
+    const userAgent = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
+    const isCapacitor = typeof window.Capacitor !== 'undefined' || protocol === 'capacitor:';
+    const isIOSDevice = /iPhone|iPad|iPod/i.test(userAgent) || (typeof navigator !== 'undefined' && navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    return (
+      (isCapacitor && isIOSDevice) ||
+      protocol === 'capacitor:' ||
+      protocol === 'ionic:' ||
+      (isIOSDevice && typeof window.webkit !== 'undefined' && href.includes('localhost'))
+    );
+  }
+
+  /**
+   * Detects if running inside any native mobile container (Android APK or iOS App)
+   */
+  function isNativeApp() {
+    return isRunningInAndroid() || isRunningInIOS();
+  }
+
+  /**
    * Detects if running in a local developer workstation browser
    */
   function isLocalDevelopment() {
     if (typeof window === 'undefined') return true;
+    if (isNativeApp()) return false; // Native mobile apps are NEVER local workstation servers
     const hostname = window.location.hostname;
     const protocol = window.location.protocol;
-    if (protocol === 'file:') return false; // Android file protocol is not local workstation server
+    if (protocol === 'file:' || protocol === 'capacitor:') return false;
     return (
       hostname === 'localhost' ||
       hostname === '127.0.0.1' ||
@@ -56,8 +82,8 @@ const ApiConfig = (() => {
     if (window.MUSICFLOW_API_BASE && typeof window.MUSICFLOW_API_BASE === 'string') {
       return window.MUSICFLOW_API_BASE.replace(/\/+$/, '');
     }
-    // Android App / WebView -> strictly production host (never localhost)
-    if (isRunningInAndroid()) {
+    // Native Mobile App (Android APK or iOS App) -> strictly production host (never localhost)
+    if (isNativeApp()) {
       return PRODUCTION_API_BASE;
     }
     // Local development browser -> local node server on port 3000
@@ -101,6 +127,8 @@ const ApiConfig = (() => {
     PRODUCTION_JIOSAAVN_API_BASE,
     DEV_API_BASE,
     isRunningInAndroid,
+    isRunningInIOS,
+    isNativeApp,
     isLocalDevelopment,
     getApiBaseUrl,
     getJioSaavnApiBase,

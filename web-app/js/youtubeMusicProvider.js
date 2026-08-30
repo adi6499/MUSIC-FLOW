@@ -45,7 +45,7 @@ class YouTubeMusicProvider extends MusicProvider {
   async postToBackend(endpoint, body = {}, signal) {
     const base = this.getBaseUrl();
     // Do not dispatch YouTube provider requests to external Saavn-only host
-    if (!base || base.includes('spoton-trpn.vercel.app') || (typeof ApiConfig !== 'undefined' && ApiConfig.isRunningInAndroid && ApiConfig.isRunningInAndroid())) {
+    if (!base || base.includes('spoton-trpn.vercel.app') || (typeof ApiConfig !== 'undefined' && typeof ApiConfig.isNativeApp === 'function' && ApiConfig.isNativeApp())) {
       throw new Error('DIRECT_CLIENT_ADAPTER');
     }
     const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;

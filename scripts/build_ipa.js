@@ -18,8 +18,8 @@ const BASE_IPA = path.join(ROOT_DIR, 'website', 'downloads', 'MusicFlow.ipa');
 const OUTPUT_IPA_BUILD = path.join(BUILD_DIR, 'MusicFlow.ipa');
 const OUTPUT_IPA_WEBSITE = path.join(ROOT_DIR, 'website', 'downloads', 'MusicFlow.ipa');
 
-const VERSION_NAME = '2.6.0';
-const VERSION_CODE = '26';
+const VERSION_NAME = '2.7.1';
+const VERSION_CODE = '28';
 
 console.log('====================================================');
 console.log(`🎵 MUSICFLOW iOS IPA BUILD ENGINE — v${VERSION_NAME} (Build ${VERSION_CODE})`);

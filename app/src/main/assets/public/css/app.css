@@ -4004,7 +4004,41 @@ html, body {
   margin-top: 2px;
 }
 
-/* Lite Performance Mode for low-end phones (Samsung Galaxy M21 / Exynos 9611) */
+/* ==========================================================================
+   PERFORMANCE MODES (120 FPS Ultra Smooth, 60 FPS Smooth, 30 FPS Saver, Auto)
+   ========================================================================== */
+
+/* 120 FPS Ultra Smooth Mode: Ultra-high responsive motion tokens & GPU compositing */
+body.perf-120fps {
+  --motion-fast: 100ms;
+  --motion-std: 180ms;
+  --motion-emphasis: 280ms;
+}
+
+body.perf-120fps .player-deck-card,
+body.perf-120fps .mini-player-dock,
+body.perf-120fps .screen,
+body.perf-120fps .vertical-track-row {
+  transform: translateZ(0);
+  will-change: transform, opacity;
+}
+
+/* 60 FPS Smooth Mode: Standard balanced motion profile */
+body.perf-60fps {
+  --motion-fast: 150ms;
+  --motion-std: 250ms;
+  --motion-emphasis: 380ms;
+}
+
+/* 30 FPS / Lite Battery Saver Mode */
+body.perf-30fps,
+body.perf-lite {
+  --motion-fast: 120ms;
+  --motion-std: 200ms;
+  --motion-emphasis: 300ms;
+}
+
+body.perf-30fps *,
 body.perf-lite * {
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
@@ -4012,10 +4046,14 @@ body.perf-lite * {
   text-shadow: none !important;
 }
 
+body.perf-30fps #dynamic-bg,
 body.perf-lite #dynamic-bg {
   display: none !important;
 }
 
+body.perf-30fps .floating-bottom-nav,
+body.perf-30fps .mini-player-dock,
+body.perf-30fps .bottom-sheet-backdrop,
 body.perf-lite .floating-bottom-nav,
 body.perf-lite .mini-player-dock,
 body.perf-lite .bottom-sheet-backdrop {

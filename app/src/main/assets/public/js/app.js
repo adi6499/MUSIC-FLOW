@@ -139,12 +139,18 @@ const App = (() => {
   }
 
   function applyPreferences() {
-    // 1. Performance Mode
-    const mode = Storage.getPerformanceMode();
-    document.body.classList.toggle('perf-lite', mode === 'lite');
+    // 1. Performance Mode (Auto, 120 FPS Ultra, 60 FPS Smooth, 30 FPS Saver)
+    if (typeof PerformanceManager !== 'undefined' && typeof PerformanceManager.apply === 'function') {
+      PerformanceManager.apply();
+    } else if (typeof Storage !== 'undefined' && typeof Storage.getPerformanceMode === 'function') {
+      const mode = Storage.getPerformanceMode();
+      document.body.classList.toggle('perf-lite', mode === '30fps' || mode === 'lite');
+    }
 
     // 2. Ambient Glow
-    const glow = Storage.getAmbientLighting();
+    const glow = (typeof Storage !== 'undefined' && typeof Storage.getAmbientLighting === 'function')
+      ? Storage.getAmbientLighting()
+      : true;
     const bg = document.getElementById('dynamic-bg');
     if (bg) bg.style.display = glow ? 'block' : 'none';
 
@@ -2401,8 +2407,13 @@ const App = (() => {
     const el = document.getElementById(sheetId);
     if (el) {
       el.classList.add('active');
-      if (sheetId === 'sheet-settings' && typeof UpdateManager !== 'undefined' && typeof UI !== 'undefined' && UI.renderAboutSettings) {
-        UI.renderAboutSettings(UpdateManager.getState());
+      if (sheetId === 'sheet-settings') {
+        if (typeof PerformanceManager !== 'undefined' && typeof PerformanceManager.apply === 'function') {
+          PerformanceManager.apply();
+        }
+        if (typeof UpdateManager !== 'undefined' && typeof UI !== 'undefined' && UI.renderAboutSettings) {
+          UI.renderAboutSettings(UpdateManager.getState());
+        }
       }
     }
   }
@@ -2949,11 +2960,39 @@ const App = (() => {
   }
 
   function cyclePerformanceMode() {
-    const current = Storage.getPerformanceMode();
-    const nextMode = current === 'auto' ? 'high' : (current === 'high' ? 'lite' : 'auto');
-    Storage.setPerformanceMode(nextMode);
+    const nextMode = (typeof PerformanceManager !== 'undefined' && typeof PerformanceManager.cycleMode === 'function')
+      ? PerformanceManager.cycleMode()
+      : (() => {
+          const current = Storage.getPerformanceMode();
+          const next = current === 'auto' ? '120fps' : (current === '120fps' ? '60fps' : (current === '60fps' ? '30fps' : 'auto'));
+          Storage.setPerformanceMode(next);
+          return next;
+        })();
+
     applyPreferences();
-    UI.renderSettingsSheet();
+
+    const label = (typeof PerformanceManager !== 'undefined' && typeof PerformanceManager.getDisplayLabel === 'function')
+      ? PerformanceManager.getDisplayLabel(nextMode)
+      : nextMode;
+
+    const badge = document.getElementById('settings-perf-val');
+    if (badge) badge.textContent = label;
+
+    UI.showToast(`Performance: ${label} ⚡`);
+  }
+
+  function setPerformanceMode(mode) {
+    if (typeof PerformanceManager !== 'undefined' && typeof PerformanceManager.setMode === 'function') {
+      PerformanceManager.setMode(mode);
+    } else {
+      Storage.setPerformanceMode(mode);
+    }
+    applyPreferences();
+    const label = (typeof PerformanceManager !== 'undefined' && typeof PerformanceManager.getDisplayLabel === 'function')
+      ? PerformanceManager.getDisplayLabel(mode)
+      : mode;
+    const badge = document.getElementById('settings-perf-val');
+    if (badge) badge.textContent = label;
   }
 
   function toggleAmbientGlow(enabled) {
@@ -4449,6 +4488,7 @@ const App = (() => {
     promptChangeName,
     promptChangeAvatar,
     cyclePerformanceMode,
+    setPerformanceMode,
     toggleAmbientGlow,
     clearListeningHistory,
     openLikedSongs,

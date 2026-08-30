@@ -221,7 +221,7 @@ async function runAllTests() {
 
     const mockReq = {
       headers: { host: 'localhost:3000' },
-      url: '/api/update?platform=android&version=2.6.0',
+      url: '/api/update?platform=android&version=2.7.0',
       method: 'GET'
     };
 

@@ -124,7 +124,7 @@ it('2.3 ApiConfig selects https://spoton-trpn.vercel.app in Android WebView buil
       href: 'file:///android_asset/public/index.html'
     }
   };
-  global.navigator = { userAgent: 'Mozilla/5.0 (Linux; U; Android 14; Mobile; MusicFlowApp/2.6.0; wv) AppleWebKit/537.36' };
+  global.navigator = { userAgent: 'Mozilla/5.0 (Linux; U; Android 14; Mobile; MusicFlowApp/2.7.0; wv) AppleWebKit/537.36' };
 
   assert.strictEqual(ApiConfig.isRunningInAndroid(), true);
   assert.strictEqual(ApiConfig.isLocalDevelopment(), false);

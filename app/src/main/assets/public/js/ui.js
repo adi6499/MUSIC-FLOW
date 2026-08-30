@@ -2760,7 +2760,7 @@ const UI = (() => {
       const updateNowBtn = document.getElementById('btn-update-now');
       const updateNowText = document.getElementById('btn-update-now-text');
 
-      const currVer = (typeof UpdateManager !== 'undefined') ? UpdateManager.VERSION : '2.6.0';
+      const currVer = (typeof UpdateManager !== 'undefined') ? UpdateManager.VERSION : '2.7.0';
       const latestVer = updateData.latestVersion || currVer;
 
       if (titleEl) titleEl.textContent = updateData.title || `MusicFlow ${latestVer}`;
@@ -2846,7 +2846,7 @@ const UI = (() => {
       const spinIcon = document.getElementById('icon-update-spin');
       const btnText = document.getElementById('text-update-btn');
 
-      const appVer = (typeof UpdateManager !== 'undefined') ? UpdateManager.VERSION : '2.6.0';
+      const appVer = (typeof UpdateManager !== 'undefined') ? UpdateManager.VERSION : '2.7.0';
       if (versionVal) versionVal.textContent = `v${appVer}`;
 
       if (state && state.isChecking) {

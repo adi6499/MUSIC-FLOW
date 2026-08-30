@@ -1,6 +1,6 @@
 // ============================================================================
 // MUSICFLOW — VERCEL SERVERLESS UPDATE API & GITHUB RELEASES INTEGRATION
-// Endpoint: GET /api/update?platform=android&version=2.6.0
+// Endpoint: GET /api/update?platform=android&version=2.7.0
 // Normalized in-app update information for sideloaded Android APK & iOS IPA builds
 // ============================================================================
 
@@ -301,7 +301,7 @@ async function handleUpdateRequest(req, res) {
       updateAvailable: false,
       updateRequired: false,
       currentVersion: currentVersion,
-      latestVersion: currentVersion || '2.6.0',
+      latestVersion: currentVersion || '2.7.0',
       minimumVersion: '1.0.0',
       platform: platform || 'android',
       message: 'MusicFlow is up to date',

@@ -216,7 +216,7 @@ Full Changelog: https://github.com/adi6499/MUSIC-FLOW/compare/v1.7.0...v1.8.0
   // ----------------------------------------------------------------------------
   runTest('UpdateManager: Exports single version source and platform detection', () => {
     assert.strictEqual(typeof UpdateManager.VERSION, 'string');
-    assert.strictEqual(UpdateManager.VERSION, '2.6.0');
+    assert.strictEqual(UpdateManager.VERSION, '2.7.0');
     assert.strictEqual(typeof UpdateManager.getPlatform(), 'string');
     assert(['android', 'ios', 'web'].includes(UpdateManager.getPlatform()));
   });
@@ -244,15 +244,15 @@ Full Changelog: https://github.com/adi6499/MUSIC-FLOW/compare/v1.7.0...v1.8.0
         json: async () => ({
           updateAvailable: true,
           updateRequired: false,
-          currentVersion: '2.6.0',
-          latestVersion: '2.7.0',
+          currentVersion: '2.7.0',
+          latestVersion: '2.8.0',
           minimumVersion: '2.0.0',
           platform: 'android',
-          title: 'MusicFlow 2.7.0',
+          title: 'MusicFlow 2.8.0',
           message: 'New release with enhanced discovery',
           releaseNotes: ['Enhanced search ranking', '7-band EQ'],
-          releaseUrl: 'https://github.com/adi6499/MUSIC-FLOW/releases/tag/v2.7.0',
-          downloadUrl: 'https://github.com/adi6499/MUSIC-FLOW/releases/download/v2.7.0/MusicFlow-Android-v2.7.0.apk',
+          releaseUrl: 'https://github.com/adi6499/MUSIC-FLOW/releases/tag/v2.8.0',
+          downloadUrl: 'https://github.com/adi6499/MUSIC-FLOW/releases/download/v2.8.0/MusicFlow-Android-v2.8.0.apk',
           assetAvailable: true
         })
       };
@@ -262,7 +262,7 @@ Full Changelog: https://github.com/adi6499/MUSIC-FLOW/compare/v1.7.0...v1.8.0
     assert.strictEqual(state.isChecking, false);
     assert.strictEqual(state.updateAvailable, true);
     assert.strictEqual(state.updateRequired, false);
-    assert.strictEqual(state.updateData.latestVersion, '2.7.0');
+    assert.strictEqual(state.updateData.latestVersion, '2.8.0');
   });
 
   console.log('\n=============================================================');

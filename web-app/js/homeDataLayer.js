@@ -137,11 +137,13 @@ const HomeDataLayer = (() => {
     let history = [];
     let favorites = [];
 
-    if (typeof Storage !== 'undefined') {
-      history = Storage.getHistory() || [];
-      favorites = Storage.getFavorites() || [];
-      localSongs = Storage.getLocalSongs() || [];
-      downloads = Storage.getDownloads() || [];
+    const StorageClient = (typeof Storage !== 'undefined') ? Storage : (typeof require !== 'undefined' ? require('./storage.js') : null);
+
+    if (StorageClient) {
+      history = (typeof StorageClient.getHistory === 'function') ? (StorageClient.getHistory() || []) : [];
+      favorites = (typeof StorageClient.getFavorites === 'function') ? (StorageClient.getFavorites() || []) : [];
+      localSongs = (typeof StorageClient.getLocalSongs === 'function') ? (StorageClient.getLocalSongs() || []) : [];
+      downloads = (typeof StorageClient.getDownloads === 'function') ? (StorageClient.getDownloads() || []) : [];
     }
 
     const sections = [];
@@ -374,21 +376,34 @@ const HomeDataLayer = (() => {
 
   // Stale-While-Revalidate Caching Pipeline
   async function loadHome(onDataReady, options = {}) {
-    // 1. Return cached data immediately if available
+    let hasRenderedCache = false;
     let cached = null;
+
+    // 1. Immediately return cached data synchronously if available
     if (typeof localStorage !== 'undefined') {
       try {
         const raw = localStorage.getItem(CACHE_KEY);
         if (raw) {
           cached = JSON.parse(raw);
-          if (cached && cached.sections && (Date.now() - cached.generatedAt < CACHE_TTL_MS)) {
+          if (cached && cached.sections && Array.isArray(cached.sections) && cached.sections.length > 0) {
             onDataReady(cached, true); // true = from cache
+            hasRenderedCache = true;
           }
         }
       } catch (_) {}
     }
 
-    // 2. Fetch fresh data in the background / foreground
+    // 2. If no cache exists, immediately render local offline state so UI is never blank
+    if (!hasRenderedCache) {
+      try {
+        const localOffline = await buildOfflineHome();
+        if (localOffline && localOffline.sections && localOffline.sections.length > 0) {
+          onDataReady(localOffline, true);
+        }
+      } catch (_) {}
+    }
+
+    // 3. Fetch fresh data in the background and update UI
     try {
       const freshData = await aggregateHomeFeed(options);
       if (freshData && freshData.sections && freshData.sections.length > 0) {
@@ -401,7 +416,7 @@ const HomeDataLayer = (() => {
       }
     } catch (e) {
       console.warn('[HomeDataLayer] Fresh home load error:', e);
-      if (!cached) {
+      if (!hasRenderedCache) {
         const offlineFallback = await buildOfflineHome();
         onDataReady(offlineFallback, false);
       }

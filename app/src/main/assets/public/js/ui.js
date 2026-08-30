@@ -181,7 +181,7 @@ const UI = (() => {
         <div class="quick-picks-column">
           ${col.map(song => `
             <div class="quick-pick-item" onclick="App.playSongWithQueue('${song.id}')">
-              <img class="quick-pick-thumb" src="${song.image}" onerror="this.src='assets/logo.png'" alt="${song.name}">
+              <img class="quick-pick-thumb" src="${song.image}" loading="lazy" decoding="async" onerror="this.src='assets/logo.png'" alt="${song.name}">
               <div class="quick-pick-info">
                 <div class="quick-pick-title">${song.name}</div>
                 <div class="quick-pick-artist">${song.artists}</div>
@@ -211,7 +211,7 @@ const UI = (() => {
         return `
           <div class="music-square-card" onclick="App.playSongWithQueue('${song.id}')">
             <div class="square-card-art-wrap">
-              <img src="${song.image}" onerror="this.src='assets/logo.png'" alt="${song.name}">
+              <img src="${song.image}" loading="lazy" decoding="async" onerror="this.src='assets/logo.png'" alt="${song.name}">
               <div class="square-card-play-overlay">
                 <span class="material-symbols-outlined fill-icon" style="font-size: 20px;">play_arrow</span>
               </div>
@@ -242,7 +242,7 @@ const UI = (() => {
       container.innerHTML = songs.map(song => `
         <div class="music-square-card" onclick="App.playSongWithQueue('${song.id}')">
           <div class="square-card-art-wrap">
-            <img src="${song.image}" onerror="this.src='assets/logo.png'" alt="${song.name}">
+            <img src="${song.image}" loading="lazy" decoding="async" onerror="this.src='assets/logo.png'" alt="${song.name}">
             <div class="square-card-play-overlay">
               <span class="material-symbols-outlined fill-icon" style="font-size: 20px;">play_arrow</span>
             </div>
@@ -272,7 +272,7 @@ const UI = (() => {
       container.innerHTML = songs.map(song => `
         <div class="music-square-card" onclick="App.playSongWithQueue('${song.id}')">
           <div class="square-card-art-wrap">
-            <img src="${song.image}" onerror="this.src='assets/logo.png'" alt="${song.name}">
+            <img src="${song.image}" loading="lazy" decoding="async" onerror="this.src='assets/logo.png'" alt="${song.name}">
             <div class="square-card-play-overlay">
               <span class="material-symbols-outlined fill-icon" style="font-size: 20px;">play_arrow</span>
             </div>
@@ -300,7 +300,7 @@ const UI = (() => {
         return `
           <div class="artist-circle-card" onclick="App.openArtist('${name.replace(/'/g, "\\'")}')">
             <div class="artist-circle-img-wrap">
-              <img src="${img}" onerror="this.src='assets/logo.png'" alt="${name}">
+              <img src="${img}" loading="lazy" decoding="async" onerror="this.src='assets/logo.png'" alt="${name}">
             </div>
             <div class="artist-circle-name">${name}</div>
             <div class="artist-circle-sub">Artist</div>
@@ -323,7 +323,7 @@ const UI = (() => {
       container.innerHTML = songs.map(song => `
         <div class="music-square-card" onclick="App.playSongWithQueue('${song.id}')">
           <div class="square-card-art-wrap">
-            <img src="${song.image}" onerror="this.src='assets/logo.png'" alt="${song.name}">
+            <img src="${song.image}" loading="lazy" decoding="async" onerror="this.src='assets/logo.png'" alt="${song.name}">
             <div class="square-card-play-overlay">
               <span class="material-symbols-outlined fill-icon" style="font-size: 20px;">play_arrow</span>
             </div>
@@ -348,7 +348,7 @@ const UI = (() => {
       container.innerHTML = songs.map(song => `
         <div class="music-square-card" onclick="App.playSongWithQueue('${song.id}')">
           <div class="square-card-art-wrap">
-            <img src="${song.image}" onerror="this.src='assets/logo.png'" alt="${song.name}">
+            <img src="${song.image}" loading="lazy" decoding="async" onerror="this.src='assets/logo.png'" alt="${song.name}">
             <div class="square-card-play-overlay">
               <span class="material-symbols-outlined fill-icon" style="font-size: 20px;">play_arrow</span>
             </div>
@@ -366,7 +366,7 @@ const UI = (() => {
       container.innerHTML = songs.map(song => `
         <div class="music-square-card" onclick="App.playSongWithQueue('${song.id}')">
           <div class="square-card-art-wrap">
-            <img src="${song.image}" onerror="this.src='assets/logo.png'" alt="${song.name}">
+            <img src="${song.image}" loading="lazy" decoding="async" onerror="this.src='assets/logo.png'" alt="${song.name}">
             <div class="square-card-play-overlay">
               <span class="material-symbols-outlined fill-icon" style="font-size: 20px;">play_arrow</span>
             </div>
@@ -389,7 +389,7 @@ const UI = (() => {
 
       container.innerHTML = displayList.map(song => `
         <div class="vertical-track-row" onclick="App.playSongWithQueue('${song.id}')">
-          <img class="vertical-track-img" src="${song.image}" onerror="this.src='assets/logo.png'" alt="${song.name}">
+          <img class="vertical-track-img" src="${song.image}" loading="lazy" decoding="async" onerror="this.src='assets/logo.png'" alt="${song.name}">
           <div class="vertical-track-info">
             <div class="vertical-track-title">${song.name}</div>
             <div class="vertical-track-artist">${song.artists}</div>
@@ -408,7 +408,7 @@ const UI = (() => {
       container.innerHTML = charts.map(item => `
         <div class="music-square-card" onclick="App.openAlbumOrPlaylist('${item.id}', '${item.type || 'playlist'}')">
           <div class="square-card-art-wrap">
-            <img src="${API.getImageUrl(item)}" onerror="this.src='assets/logo.png'" alt="${item.title || item.name}">
+            <img src="${API.getImageUrl(item)}" loading="lazy" decoding="async" onerror="this.src='assets/logo.png'" alt="${item.title || item.name}">
             <div class="square-card-play-overlay">
               <span class="material-symbols-outlined fill-icon" style="font-size: 20px;">play_arrow</span>
             </div>
@@ -426,7 +426,7 @@ const UI = (() => {
       container.innerHTML = albums.map(item => `
         <div class="music-square-card" onclick="App.openAlbumOrPlaylist('${item.id}', 'album')">
           <div class="square-card-art-wrap">
-            <img src="${API.getImageUrl(item)}" onerror="this.src='assets/logo.png'" alt="${item.title || item.name}">
+            <img src="${API.getImageUrl(item)}" loading="lazy" decoding="async" onerror="this.src='assets/logo.png'" alt="${item.title || item.name}">
             <div class="square-card-play-overlay">
               <span class="material-symbols-outlined fill-icon" style="font-size: 20px;">play_arrow</span>
             </div>

@@ -614,12 +614,24 @@ const API = (() => {
       }
     },
 
+    // In-memory lyrics cache (positive & negative with TTL)
+    _lyricsCache: new Map(),
+
     // Fetch Synchronized Karaoke Lyrics via LRCLib
     async getLyrics(songTitle, artistName, durationSec = 0) {
-      try {
-        const cleanTitle = songTitle.replace(/\([^)]*\)|\[[^\]]*\]|- .*/g, '').trim();
-        const cleanArtist = (artistName || '').split(',')[0].split(';')[0].trim();
+      if (!songTitle) return null;
+      const cleanTitle = songTitle.replace(/\([^)]*\)|\[[^\]]*\]|- .*/g, '').trim();
+      const cleanArtist = (artistName || '').split(',')[0].split(';')[0].trim();
+      const cacheKey = `${cleanTitle.toLowerCase()}___${cleanArtist.toLowerCase()}`;
 
+      if (!this._lyricsCache) this._lyricsCache = new Map();
+      const cached = this._lyricsCache.get(cacheKey);
+      if (cached && (Date.now() - cached.timestamp < 3600000)) {
+        return cached.data;
+      }
+
+      let result = null;
+      try {
         const params = new URLSearchParams({
           track_name: cleanTitle,
           artist_name: cleanArtist
@@ -627,39 +639,43 @@ const API = (() => {
         if (durationSec > 0) params.append('duration', Math.round(durationSec));
 
         const res = await fetch(`https://lrclib.net/api/get?${params.toString()}`, {
-          signal: AbortSignal.timeout(6000)
+          signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(4000) : undefined
         });
 
         if (res.ok) {
           const data = await res.json();
           if (data && (data.syncedLyrics || data.plainLyrics)) {
-            return {
+            result = {
               synced: data.syncedLyrics || null,
               plain: data.plainLyrics || null
             };
           }
-        }
-      } catch (_) {}
-
-      // Fallback search endpoint on LRCLib
-      try {
-        const cleanTitle = songTitle.replace(/\([^)]*\)|\[[^\]]*\]/g, '').trim();
-        const res = await fetch(`https://lrclib.net/api/search?q=${encodeURIComponent(cleanTitle + ' ' + (artistName || ''))}`, {
-          signal: AbortSignal.timeout(6000)
-        });
-        if (res.ok) {
-          const results = await res.json();
-          if (Array.isArray(results) && results.length > 0) {
-            const best = results.find(r => r.syncedLyrics) || results[0];
-            return {
-              synced: best.syncedLyrics || null,
-              plain: best.plainLyrics || null
-            };
+        } else if (res.status !== 404 && res.status !== 429) {
+          // If not 404 or rate-limited, try fallback search
+          const searchRes = await fetch(`https://lrclib.net/api/search?q=${encodeURIComponent(cleanTitle + ' ' + cleanArtist)}`, {
+            signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(4000) : undefined
+          });
+          if (searchRes.ok) {
+            const results = await searchRes.json();
+            if (Array.isArray(results) && results.length > 0) {
+              const best = results.find(r => r.syncedLyrics) || results[0];
+              result = {
+                synced: best.syncedLyrics || null,
+                plain: best.plainLyrics || null
+              };
+            }
           }
         }
       } catch (_) {}
 
-      return null;
+      // Cache result (even if null, to prevent hammering LRCLib on repeated failures)
+      this._lyricsCache.set(cacheKey, { data: result, timestamp: Date.now() });
+      if (this._lyricsCache.size > 100) {
+        const oldest = this._lyricsCache.keys().next().value;
+        this._lyricsCache.delete(oldest);
+      }
+
+      return result;
     },
 
     // --- Embeat Recommendation Engine APIs ---

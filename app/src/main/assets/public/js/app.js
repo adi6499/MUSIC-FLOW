@@ -55,64 +55,85 @@ const App = (() => {
   let localUploadedSongs = [];
 
   async function init() {
-    console.log('[MusicFlow] Starting clean 100% Android Replica...');
+    const t0 = (typeof performance !== 'undefined') ? performance.now() : Date.now();
+    console.log('[PERF] app start');
+
     if (typeof ThemeManager !== 'undefined') {
       ThemeManager.apply();
     }
-    showLoader(true);
 
+    // 1. Initialize Player core immediately
     Player.init();
-    if (typeof OfflineManager !== 'undefined') {
-      OfflineManager.init();
-      OfflineManager.on('networkChange', (state) => {
-        if (state === 'ONLINE') {
-          UI.showToast('Back online 🌐');
-          loadHomeFeed();
-        } else {
-          UI.showToast('You are offline ✈️');
-          loadHomeFeed();
-        }
-      });
-    }
-    if (typeof SmartDownloadManager !== 'undefined') {
-      SmartDownloadManager.init();
-    }
+
+    // 2. Setup listeners and apply local preferences
     setupPlayerEventListeners();
     setupDOMEventListeners();
     applyPreferences();
+
+    // 3. Render immediate UI shell from local data / cache (P0)
     UI.renderHomeGreeting();
     UI.renderRecentSearchChips();
     UI.renderLibraryTab('playlists');
+    console.log(`[PERF] shell rendered in ${(performance.now() - t0).toFixed(1)}ms`);
 
-    // Load Initial Home Page Feed with user languages
-    await loadHomeFeed();
-
-    // Initialize Audio Output & Bluetooth/Cast Engine
-    if (typeof AudioOutputManager !== 'undefined' && AudioOutputManager.init) {
-      AudioOutputManager.init();
-    }
-
-    // Initialize In-App Update Manager (Android APK / iOS IPA Sideloaded)
-    if (typeof UpdateManager !== 'undefined' && UpdateManager.init) {
-      UpdateManager.init();
-      UpdateManager.on('stateChange', (state) => {
-        if (typeof UI !== 'undefined' && UI.renderAboutSettings) {
-          UI.renderAboutSettings(state);
-        }
-      });
-      if (typeof UI !== 'undefined' && UI.renderAboutSettings) {
-        UI.renderAboutSettings(UpdateManager.getState());
+    // 4. Restore last session in paused state immediately (0ms synchronous)
+    try {
+      const last = Storage.restoreSession();
+      if (last && last.queue && last.queue.length > 0) {
+        Player.setQueue(last.queue, last.currentIndex || 0, false);
+        Player.pause();
       }
-    }
+    } catch (_) {}
+    console.log(`[PERF] local state restored in ${(performance.now() - t0).toFixed(1)}ms`);
 
-    // Check last session (restore queue and metadata in paused state without autoplaying)
-    const last = Storage.restoreSession();
-    if (last && last.queue && last.queue.length > 0) {
-      Player.setQueue(last.queue, last.currentIndex || 0, false);
-      Player.pause();
-    }
-
+    // 5. Hide blocking loader immediately so user has interactive UI
     showLoader(false);
+    console.log(`[PERF] startup complete in ${(performance.now() - t0).toFixed(1)}ms`);
+
+    // 6. Asynchronously trigger Home Feed (Stale-While-Revalidate will render cache first, then update)
+    loadHomeFeed();
+
+    // 7. Initialize background services asynchronously (using requestIdleCallback / setTimeout)
+    const runBackgroundInit = () => {
+      if (typeof OfflineManager !== 'undefined') {
+        OfflineManager.init();
+        OfflineManager.on('networkChange', (state) => {
+          if (state === 'ONLINE') {
+            UI.showToast('Back online 🌐');
+            loadHomeFeed();
+          } else {
+            UI.showToast('You are offline ✈️');
+            loadHomeFeed();
+          }
+        });
+      }
+
+      if (typeof SmartDownloadManager !== 'undefined') {
+        SmartDownloadManager.init();
+      }
+
+      if (typeof AudioOutputManager !== 'undefined' && AudioOutputManager.init) {
+        AudioOutputManager.init();
+      }
+
+      if (typeof UpdateManager !== 'undefined' && UpdateManager.init) {
+        UpdateManager.init();
+        UpdateManager.on('stateChange', (state) => {
+          if (typeof UI !== 'undefined' && UI.renderAboutSettings) {
+            UI.renderAboutSettings(state);
+          }
+        });
+        if (typeof UI !== 'undefined' && UI.renderAboutSettings) {
+          UI.renderAboutSettings(UpdateManager.getState());
+        }
+      }
+    };
+
+    if (typeof requestIdleCallback !== 'undefined') {
+      requestIdleCallback(runBackgroundInit, { timeout: 1000 });
+    } else {
+      setTimeout(runBackgroundInit, 50);
+    }
   }
 
   function applyPreferences() {

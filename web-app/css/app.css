@@ -2322,10 +2322,12 @@ html, body {
 /* Floating Bottom Navigation Bar (FloatingNavBar in MainActivity.kt) */
 .floating-bottom-nav {
   position: fixed;
-  bottom: max(6px, calc(env(safe-area-inset-bottom, 0px) - 18px));
+  bottom: max(8px, env(safe-area-inset-bottom, 8px));
   left: 12px;
   right: 12px;
-  height: 58px;
+  max-width: 600px;
+  margin: 0 auto;
+  height: 56px;
   border-radius: var(--radius-pill);
   background: var(--bg-glass);
   backdrop-filter: blur(32px);
@@ -2387,7 +2389,7 @@ html, body {
    ========================================================================== */
 .mini-player-dock {
   position: fixed;
-  bottom: calc(68px + env(safe-area-inset-bottom, 12px));
+  bottom: calc(max(8px, env(safe-area-inset-bottom, 8px)) + 56px + 6px);
   left: 12px;
   right: 12px;
   max-width: 600px;

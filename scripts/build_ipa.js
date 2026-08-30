@@ -83,6 +83,18 @@ async function main() {
     console.log('   Copying native Mach-O executable and iOS frameworks...');
     copyDirRecursive(baseAppSource, APP_DIR);
 
+    // Copy high-resolution AppIcons into App root and Assets
+    console.log('   Injecting native iOS AppIcon assets into App bundle...');
+    const appIconSourceDir = path.join(ROOT_DIR, 'ios', 'App', 'App', 'Assets.xcassets', 'AppIcon.appiconset');
+    if (fs.existsSync(appIconSourceDir)) {
+      const iconEntries = fs.readdirSync(appIconSourceDir);
+      for (const iconFile of iconEntries) {
+        if (iconFile.endsWith('.png')) {
+          fs.copyFileSync(path.join(appIconSourceDir, iconFile), path.join(APP_DIR, iconFile));
+        }
+      }
+    }
+
     // 3. Inject latest Web Application assets into App bundle
     console.log('\n📦 [3/6] Ingesting Updated Web-App Assets...');
     const appPublicDir = path.join(APP_DIR, 'public');
@@ -100,9 +112,10 @@ async function main() {
 
     // 4. Update Info.plist
     console.log('\n📦 [4/6] Configuring Info.plist Metadata & Background Audio...');
-    const plistPath = path.join(APP_DIR, 'Info.plist');
-    if (fs.existsSync(plistPath)) {
-      let plistContent = fs.readFileSync(plistPath, 'utf8');
+    const plistSourcePath = path.join(ROOT_DIR, 'ios', 'App', 'App', 'Info.plist');
+    const plistDestPath = path.join(APP_DIR, 'Info.plist');
+    if (fs.existsSync(plistSourcePath)) {
+      let plistContent = fs.readFileSync(plistSourcePath, 'utf8');
       
       // Update CFBundleShortVersionString
       plistContent = plistContent.replace(
@@ -128,8 +141,8 @@ async function main() {
         `<key>CFBundleDisplayName</key>\n\t<string>MusicFlow</string>`
       );
 
-      fs.writeFileSync(plistPath, plistContent, 'utf8');
-      console.log(`   Updated Info.plist to Version ${VERSION_NAME} (Build ${VERSION_CODE})`);
+      fs.writeFileSync(plistDestPath, plistContent, 'utf8');
+      console.log(`   Updated Info.plist to Version ${VERSION_NAME} (Build ${VERSION_CODE}) with Background Audio & Icon Sets`);
     }
 
     // 5. Package into .IPA Archive
@@ -220,6 +233,27 @@ if ($infoPlist) {
     Write-Host "  [PASS] Info.plist: Present"
 } else {
     Write-Host "  [FAIL] Info.plist: MISSING"
+}
+
+$appIcon3x = $entries | Where-Object { $_.FullName -eq 'Payload/MusicFlow.app/AppIcon60x60@3x.png' -or $_.FullName -eq 'Payload/MusicFlow.app/AppIcon-60@3x.png' }
+if ($appIcon3x) {
+    Write-Host ("  [PASS] iPhone @3x AppIcon: Present (" + $appIcon3x[0].Length + " bytes)")
+} else {
+    Write-Host "  [FAIL] iPhone @3x AppIcon: MISSING"
+}
+
+$appIcon2x = $entries | Where-Object { $_.FullName -eq 'Payload/MusicFlow.app/AppIcon60x60@2x.png' -or $_.FullName -eq 'Payload/MusicFlow.app/AppIcon-60@2x.png' }
+if ($appIcon2x) {
+    Write-Host ("  [PASS] iPhone @2x AppIcon: Present (" + $appIcon2x[0].Length + " bytes)")
+} else {
+    Write-Host "  [FAIL] iPhone @2x AppIcon: MISSING"
+}
+
+$perfManager = $entries | Where-Object { $_.FullName -eq 'Payload/MusicFlow.app/public/js/performanceManager.js' }
+if ($perfManager) {
+    Write-Host "  [PASS] Performance Manager: Present"
+} else {
+    Write-Host "  [FAIL] Performance Manager: MISSING"
 }
 
 $zip.Dispose()

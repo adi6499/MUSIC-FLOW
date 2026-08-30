@@ -1428,6 +1428,8 @@ const UI = (() => {
     // ========================================================================
     // PLAYLIST DETAIL SCREEN (PlaylistDetail.kt — Premium Redesign)
     // ========================================================================
+    // PLAYLIST DETAIL VIEW (With Stable Mounted Search Input)
+    // ========================================================================
     renderPlaylistDetail(playlistId, searchQuery = '', sortMode = 'custom') {
       const pl = Storage.getPlaylistById(playlistId);
       if (!pl) return;
@@ -1460,13 +1462,91 @@ const UI = (() => {
       const q = (searchQuery || '').toLowerCase().trim();
       let filtered = [...songs];
       if (q) {
-        filtered = filtered.filter(s => (s.name || s.title || '').toLowerCase().includes(q) || (typeof DataNormalizer !== 'undefined' ? DataNormalizer.getArtistString(s) : String(s.artists || s.primaryArtist || '')).toLowerCase().includes(q));
+        filtered = filtered.filter(s => {
+          const title = (s.name || s.title || '').toLowerCase();
+          const artistStr = (typeof DataNormalizer !== 'undefined' ? DataNormalizer.getArtistString(s) : String(s.artists || s.primaryArtist || '')).toLowerCase();
+          const albumStr = String(s.album || s.albumTitle || '').toLowerCase();
+          return title.includes(q) || artistStr.includes(q) || albumStr.includes(q);
+        });
       }
 
       // Sort
       filtered = Storage.sortPlaylistTracks(filtered, sortMode);
 
-      let html = `
+      // Render Tracks or Empty State HTML
+      let tracksHtml = '';
+      if (filtered.length === 0) {
+        tracksHtml = `
+          <div class="library-empty-state" style="padding:40px 10px;">
+            <span class="material-symbols-outlined library-empty-icon">queue_music</span>
+            <h4 class="library-empty-title">${q ? 'No matching tracks' : 'Playlist is empty'}</h4>
+            <p class="library-empty-sub">${q ? 'Try a different search term.' : 'Discover music to add to this playlist.'}</p>
+            <button class="library-empty-cta-btn" onclick="App.navigate('explore')">
+              <span class="material-symbols-outlined" style="font-size:18px;">explore</span>
+              <span>Discover Music</span>
+            </button>
+          </div>
+        `;
+      } else {
+        tracksHtml += `<div class="playlist-tracks-list">`;
+        filtered.forEach((song, idx) => {
+          const actualIdx = songs.findIndex(s => String(s.id) === String(song.id));
+          const isCurrentlyPlaying = (typeof Player !== 'undefined' && Player.getCurrentTrack()?.id === song.id);
+          const trackNum = String(actualIdx + 1).padStart(2, '0');
+          const artistLinks = renderArtistLinks(song);
+          const dur = (song.duration && !isNaN(song.duration) && song.duration > 0) ? formatTime(song.duration) : '';
+
+          tracksHtml += `
+            <div class="vertical-track-row ${isCurrentlyPlaying ? 'playing' : ''}" draggable="true" ondragstart="App.handlePlaylistDragStart(event, ${actualIdx})" ondragover="App.handlePlaylistDragOver(event)" ondrop="App.handlePlaylistDrop(event, '${pl.id}', ${actualIdx})" onclick="App.playCustomPlaylistTrack('${pl.id}', ${actualIdx})">
+              <span class="track-index-num" style="width:24px; font-size:13px; color:${isCurrentlyPlaying ? 'var(--color-primary)' : 'var(--text-secondary)'}; font-weight:700;">
+                ${isCurrentlyPlaying ? '<span class="material-symbols-outlined fill-icon playing-eq-indicator">equalizer</span>' : trackNum}
+              </span>
+              <img class="vertical-track-img" src="${song.image || 'assets/logo.png'}" onerror="this.src='assets/logo.png'" alt="${escapeAttr(song.name)}">
+              <div class="vertical-track-info">
+                <div class="vertical-track-title ${isCurrentlyPlaying ? 'text-primary' : ''}">${escapeHtml(song.name)}</div>
+                <div class="vertical-track-artist">${artistLinks}</div>
+              </div>
+              <span class="vertical-track-duration" style="font-size:12px; color:var(--text-secondary); margin-right:4px;">${dur}</span>
+              <div style="display:flex; align-items:center; gap:2px;">
+                <button class="queue-delete-btn" onclick="event.stopPropagation(); App.removeTrackFromCustomPlaylist('${pl.id}', '${song.id}');" title="Remove from Playlist">
+                  <span class="material-symbols-outlined" style="font-size:18px;">close</span>
+                </button>
+                <button class="vertical-track-more" onclick="event.stopPropagation(); App.openSongMenu('${song.id}', '${pl.id}');" aria-label="More">
+                  <span class="material-symbols-outlined">more_vert</span>
+                </button>
+              </div>
+            </div>
+          `;
+        });
+        tracksHtml += `</div>`;
+      }
+
+      if (!container) return;
+
+      const searchInputEl = document.getElementById('playlist-detail-search-input');
+      const resultsContainer = document.getElementById('playlist-tracks-results');
+      const isAlreadyMountedForThisPlaylist = (container.dataset && container.dataset.renderedPlaylistId === String(pl.id)) && searchInputEl && resultsContainer;
+
+      if (isAlreadyMountedForThisPlaylist) {
+        // Fast-path: Only update the results list! Keep input DOM element mounted without recreating it
+        resultsContainer.innerHTML = tracksHtml;
+        const clearBtn = document.getElementById('btn-playlist-search-clear');
+        if (clearBtn) {
+          clearBtn.style.display = searchInputEl.value ? 'flex' : 'none';
+        }
+        return;
+      }
+
+      // Initial Mount: Render full actions bar, search box, and results container
+      if (container.dataset) {
+        container.dataset.renderedPlaylistId = String(pl.id);
+      }
+
+      const placeholderText = isImported
+        ? 'Search in YouTube Playlist...'
+        : `Search in ${escapeAttr(pl.name)}...`;
+
+      container.innerHTML = `
         <div class="detail-actions-bar">
           <button class="detail-play-btn" onclick="App.playCustomPlaylist('${pl.id}')" aria-label="Play All">
             <span class="material-symbols-outlined fill-icon" style="font-size:18px;">play_arrow</span>
@@ -1494,62 +1574,22 @@ const UI = (() => {
           </button>
         </div>
 
-        <!-- In-Playlist Search & Filter -->
+        <!-- In-Playlist Search & Filter with Persistent Mounted Input -->
         <div class="detail-search-wrap">
           <div class="detail-search-box">
             <span class="material-symbols-outlined" style="font-size:18px;">search</span>
-            <input type="text" placeholder="Search in ${escapeAttr(pl.name)}..." value="${escapeAttr(searchQuery)}" oninput="App.filterCurrentPlaylist(this.value)">
-          </div>
-        </div>
-      `;
-
-      if (filtered.length === 0) {
-        html += `
-          <div class="library-empty-state" style="padding:40px 10px;">
-            <span class="material-symbols-outlined library-empty-icon">queue_music</span>
-            <h4 class="library-empty-title">${q ? 'No matching tracks' : 'Playlist is empty'}</h4>
-            <p class="library-empty-sub">${q ? 'Try a different search term.' : 'Discover music to add to this playlist.'}</p>
-            <button class="library-empty-cta-btn" onclick="App.navigate('explore')">
-              <span class="material-symbols-outlined" style="font-size:18px;">explore</span>
-              <span>Discover Music</span>
+            <input type="text" id="playlist-detail-search-input" placeholder="${placeholderText}" value="${escapeAttr(searchQuery)}" oninput="App.filterCurrentPlaylist(this.value)" autocomplete="off" spellcheck="false">
+            <button class="icon-btn-mini" id="btn-playlist-search-clear" style="display:${searchQuery ? 'flex' : 'none'}; background:transparent; border:none; cursor:pointer;" onclick="App.clearPlaylistSearch()">
+              <span class="material-symbols-outlined" style="font-size:16px;">close</span>
             </button>
           </div>
-        `;
-      } else {
-        html += `<div class="playlist-tracks-list">`;
-        filtered.forEach((song, idx) => {
-          const actualIdx = songs.findIndex(s => String(s.id) === String(song.id));
-          const isCurrentlyPlaying = (typeof Player !== 'undefined' && Player.getCurrentTrack()?.id === song.id);
-          const trackNum = String(actualIdx + 1).padStart(2, '0');
-          const artistLinks = renderArtistLinks(song);
-          const dur = (song.duration && !isNaN(song.duration) && song.duration > 0) ? formatTime(song.duration) : '';
+        </div>
 
-          html += `
-            <div class="vertical-track-row ${isCurrentlyPlaying ? 'playing' : ''}" draggable="true" ondragstart="App.handlePlaylistDragStart(event, ${actualIdx})" ondragover="App.handlePlaylistDragOver(event)" ondrop="App.handlePlaylistDrop(event, '${pl.id}', ${actualIdx})" onclick="App.playCustomPlaylistTrack('${pl.id}', ${actualIdx})">
-              <span class="track-index-num" style="width:24px; font-size:13px; color:${isCurrentlyPlaying ? 'var(--color-primary)' : 'var(--text-secondary)'}; font-weight:700;">
-                ${isCurrentlyPlaying ? '<span class="material-symbols-outlined fill-icon playing-eq-indicator">equalizer</span>' : trackNum}
-              </span>
-              <img class="vertical-track-img" src="${song.image || 'assets/logo.png'}" onerror="this.src='assets/logo.png'" alt="${escapeAttr(song.name)}">
-              <div class="vertical-track-info">
-                <div class="vertical-track-title ${isCurrentlyPlaying ? 'text-primary' : ''}">${escapeHtml(song.name)}</div>
-                <div class="vertical-track-artist">${artistLinks}</div>
-              </div>
-              <span class="vertical-track-duration" style="font-size:12px; color:var(--text-secondary); margin-right:4px;">${dur}</span>
-              <div style="display:flex; align-items:center; gap:2px;">
-                <button class="queue-delete-btn" onclick="event.stopPropagation(); App.removeTrackFromCustomPlaylist('${pl.id}', '${song.id}');" title="Remove from Playlist">
-                  <span class="material-symbols-outlined" style="font-size:18px;">close</span>
-                </button>
-                <button class="vertical-track-more" onclick="event.stopPropagation(); App.openSongMenu('${song.id}', '${pl.id}');" aria-label="More">
-                  <span class="material-symbols-outlined">more_vert</span>
-                </button>
-              </div>
-            </div>
-          `;
-        });
-        html += `</div>`;
-      }
-
-      if (container) container.innerHTML = html;
+        <!-- Dedicated Results Container (Preserves Input Node During Live Filtering) -->
+        <div id="playlist-tracks-results" class="playlist-tracks-results">
+          ${tracksHtml}
+        </div>
+      `;
     },
 
     // ========================================================================

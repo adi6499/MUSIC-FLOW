@@ -3367,6 +3367,15 @@ const App = (() => {
     }
   }
 
+  function clearPlaylistSearch() {
+    const input = document.getElementById('playlist-detail-search-input');
+    if (input) {
+      input.value = '';
+      input.focus();
+    }
+    filterCurrentPlaylist('');
+  }
+
   function removeTrackFromCustomPlaylist(playlistId, songId) {
     Storage.removeFromPlaylist(playlistId, songId);
     UI.showToast('Removed track from playlist');
@@ -4436,6 +4445,7 @@ const App = (() => {
     playCustomPlaylistTrack,
     startPlaylistRadio,
     filterCurrentPlaylist,
+    clearPlaylistSearch,
     removeTrackFromCustomPlaylist,
     handlePlaylistDragStart,
     handlePlaylistDragOver,

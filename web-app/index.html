@@ -36,31 +36,33 @@
       
       <!-- ================= 1. HOME SCREEN (HomeScreen.kt) ================= -->
       <section id="screen-home" class="screen active">
-        <!-- Top Bar: Avatar Left, Hi [Name] Center, Settings Right -->
-        <header class="home-top-bar">
-          <div class="user-avatar-wrap" id="btn-user-profile" title="Profile">
-            <img id="home-user-avatar" src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80" alt="Avatar">
-          </div>
-          <h1 class="home-greeting-text" id="home-greeting">Good morning</h1>
-          <div id="offline-pill-indicator" style="display:none; align-items:center; gap:4px; padding:3px 8px; border-radius:12px; background:var(--accent-soft); border:1px solid var(--accent-border); font-size:10.5px; font-weight:800; color:var(--accent); letter-spacing:0.5px; margin-left:auto; margin-right:8px;">
-            <span class="material-symbols-outlined" style="font-size:13px;">cloud_off</span>
-            <span>OFFLINE</span>
-          </div>
-          <button class="icon-btn-glass" id="btn-open-settings" aria-label="Settings" title="Settings">
-            <span class="material-symbols-outlined">settings</span>
-          </button>
-        </header>
+        <!-- Sticky Header Wrapper: Top Bar (Greeting & Settings) + Mood & Activity Filter Chips -->
+        <div class="home-sticky-header" id="home-sticky-header">
+          <header class="home-top-bar">
+            <div class="user-avatar-wrap" id="btn-user-profile" title="Profile">
+              <img id="home-user-avatar" src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80" alt="Avatar">
+            </div>
+            <h1 class="home-greeting-text" id="home-greeting">Good morning</h1>
+            <div id="offline-pill-indicator" style="display:none; align-items:center; gap:4px; padding:3px 8px; border-radius:12px; background:var(--accent-soft); border:1px solid var(--accent-border); font-size:10.5px; font-weight:800; color:var(--accent); letter-spacing:0.5px; margin-left:auto; margin-right:8px;">
+              <span class="material-symbols-outlined" style="font-size:13px;">cloud_off</span>
+              <span>OFFLINE</span>
+            </div>
+            <button class="icon-btn-glass" id="btn-open-settings" aria-label="Settings" title="Settings">
+              <span class="material-symbols-outlined">settings</span>
+            </button>
+          </header>
 
-        <!-- Sticky Mood & Activity Filter Chips Bar -->
-        <div class="mood-chips-scroll" id="mood-chips-container">
-          <button class="mood-chip active" data-mood="All">All</button>
-          <button class="mood-chip" data-mood="Energize">Energize</button>
-          <button class="mood-chip" data-mood="Relax">Relax</button>
-          <button class="mood-chip" data-mood="Workout">Workout</button>
-          <button class="mood-chip" data-mood="Focus">Focus</button>
-          <button class="mood-chip" data-mood="Party">Party</button>
-          <button class="mood-chip" data-mood="Romance">Romance</button>
-          <button class="mood-chip" data-mood="Sleep">Sleep</button>
+          <!-- Sticky Mood & Activity Filter Chips Bar -->
+          <div class="mood-chips-scroll" id="mood-chips-container">
+            <button class="mood-chip active" data-mood="All">All</button>
+            <button class="mood-chip" data-mood="Energize">Energize</button>
+            <button class="mood-chip" data-mood="Relax">Relax</button>
+            <button class="mood-chip" data-mood="Workout">Workout</button>
+            <button class="mood-chip" data-mood="Focus">Focus</button>
+            <button class="mood-chip" data-mood="Party">Party</button>
+            <button class="mood-chip" data-mood="Romance">Romance</button>
+            <button class="mood-chip" data-mood="Sleep">Sleep</button>
+          </div>
         </div>
 
         <div class="home-feed-sections" id="home-feed-sections">

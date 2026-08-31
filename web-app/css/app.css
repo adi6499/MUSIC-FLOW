@@ -175,11 +175,22 @@ html, body {
    1. HOME SCREEN (HomeScreen.kt)
    ========================================================================== */
 
+.home-sticky-header {
+  position: sticky;
+  top: 0;
+  z-index: 45;
+  background: rgba(10, 10, 12, 0.85);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  transition: background 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
 .home-top-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: max(16px, env(safe-area-inset-top, 16px)) 20px 8px 20px;
+  padding: max(14px, env(safe-area-inset-top, 14px)) 20px 4px 20px;
   gap: 12px;
 }
 

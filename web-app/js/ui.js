@@ -1853,6 +1853,7 @@ const UI = (() => {
       const dlIcon = document.getElementById('player-download-icon');
       const dlLabel = document.getElementById('player-download-label');
       const qualityBadge = document.getElementById('player-quality-badge');
+      const losslessBadge = document.getElementById('player-lossless-badge');
 
       if (fullArt) fullArt.src = song.image || 'assets/logo.png';
       if (fullTitle) {
@@ -1880,9 +1881,33 @@ const UI = (() => {
         curTime.textContent = formatTime(curPos);
       }
 
+      // Real Resolved Source Quality & Lossless Verification
+      const resolvedSource = (typeof Player !== 'undefined' && Player.getCurrentResolvedSource) ? Player.getCurrentResolvedSource() : null;
+      const isLossless = Boolean(resolvedSource?.isLossless || song.isLossless || (song.format && ['FLAC', 'WAV', 'ALAC'].includes(String(song.format).toUpperCase())));
+      
+      let actualBitrate = resolvedSource?.bitrate || song.quality || ((typeof Storage !== 'undefined' && Storage.getAudioQuality) ? Storage.getAudioQuality() : '320kbps');
+      if (resolvedSource?.provider === 'youtube_music' || song.provider === 'youtube_music' || String(song.id).startsWith('yt_')) {
+        actualBitrate = '160kbps';
+      }
+
       if (qualityBadge) {
-        const q = (typeof Storage !== 'undefined' && Storage.getAudioQuality) ? Storage.getAudioQuality() : '320kbps';
-        qualityBadge.textContent = q.toUpperCase().replace('KBPS', ' KBPS');
+        const cleanBitrate = String(actualBitrate).toUpperCase().replace('KBPS', ' KBPS').trim();
+        qualityBadge.textContent = cleanBitrate.includes(' ') ? cleanBitrate : `${cleanBitrate} KBPS`;
+      }
+
+      if (losslessBadge) {
+        if (isLossless) {
+          losslessBadge.style.display = 'inline-flex';
+          losslessBadge.innerHTML = '<span class="material-symbols-outlined" style="font-size:13px; margin-right:3px;">graphic_eq</span>LOSSLESS';
+          losslessBadge.style.color = '#10b981';
+          losslessBadge.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+        } else {
+          losslessBadge.style.display = 'inline-flex';
+          const is320 = String(actualBitrate).includes('320');
+          losslessBadge.innerHTML = `<span class="material-symbols-outlined" style="font-size:13px; margin-right:3px;">graphic_eq</span>${is320 ? 'HQ AUDIO' : 'STREAM'}`;
+          losslessBadge.style.color = 'var(--accent)';
+          losslessBadge.style.borderColor = 'var(--accent-border)';
+        }
       }
 
       if (contextTitle) {
@@ -2370,6 +2395,10 @@ const UI = (() => {
       const presetsContainer = document.getElementById('eq-presets-container');
       const bandsContainer = document.getElementById('eq-bands-container');
       const switchEl = document.getElementById('eq-switch');
+      const masterLabel = document.getElementById('eq-master-label');
+      const statusText = document.getElementById('eq-status-text');
+      const statusIcon = document.getElementById('eq-status-icon');
+      const statusBadge = document.getElementById('eq-status-badge');
       const spatialBadge = document.getElementById('eq-spatial-val-badge');
       const spatialButtons = document.querySelectorAll('#eq-spatial-levels .eq-seg-btn');
       const stereoMeter = document.getElementById('eq-stereo-meter');
@@ -2384,46 +2413,106 @@ const UI = (() => {
       const normSwitch = document.getElementById('eq-norm-switch');
       const crossfadeSelect = document.getElementById('eq-crossfade-select');
 
-      // Master switch
-      if (switchEl) switchEl.checked = eqData.enabled !== false;
+      const isEnabled = eqData.enabled === true;
+
+      // Master switch & Label
+      if (switchEl) switchEl.checked = isEnabled;
+      if (masterLabel) {
+        masterLabel.textContent = isEnabled ? 'ON' : 'OFF';
+        masterLabel.style.color = isEnabled ? 'var(--accent)' : 'var(--text-secondary)';
+      }
 
       // 3D Spatial Level
-      const spatialLevel = eqData.spatial || (eqData.virtualizer > 0 ? (eqData.virtualizer >= 60 ? 'HIGH' : 'MEDIUM') : 'OFF');
+      const spatialLevel = isEnabled ? (eqData.spatial || 'OFF') : 'OFF';
       if (spatialBadge) {
         spatialBadge.textContent = spatialLevel;
         spatialBadge.style.color = spatialLevel === 'OFF' ? 'var(--text-secondary)' : 'var(--accent)';
       }
       if (spatialButtons && spatialButtons.length > 0) {
         spatialButtons.forEach(btn => {
-          btn.classList.toggle('active', btn.dataset.level === spatialLevel);
+          btn.classList.toggle('active', btn.dataset.level === (eqData.spatial || 'OFF'));
         });
       }
       if (stereoMeter) {
-        if (spatialLevel === 'HIGH') stereoMeter.textContent = '◀◀────●────▶▶';
+        if (!isEnabled || spatialLevel === 'OFF') stereoMeter.textContent = '───●───';
+        else if (spatialLevel === 'HIGH') stereoMeter.textContent = '◀◀────●────▶▶';
         else if (spatialLevel === 'MEDIUM') stereoMeter.textContent = '◀───●───▶';
         else if (spatialLevel === 'LOW') stereoMeter.textContent = '◀──●──▶';
-        else stereoMeter.textContent = '───●───';
       }
 
       // Sound Enhancements
       const bassBoost = eqData.bassBoost !== undefined ? eqData.bassBoost : 0;
       if (bassSlider) bassSlider.value = bassBoost;
-      if (bassVal) bassVal.textContent = `${bassBoost > 0 ? '+' + bassBoost : bassBoost} dB`;
+      if (bassVal) {
+        bassVal.textContent = isEnabled ? (bassBoost > 0 ? `+${bassBoost} dB` : `${bassBoost} dB`) : 'OFF';
+        bassVal.style.color = (isEnabled && bassBoost > 0) ? 'var(--accent)' : 'var(--text-secondary)';
+      }
 
       const trebleBoost = eqData.trebleBoost !== undefined ? eqData.trebleBoost : 0;
       if (trebleSlider) trebleSlider.value = trebleBoost;
-      if (trebleVal) trebleVal.textContent = `${trebleBoost > 0 ? '+' + trebleBoost : trebleBoost} dB`;
+      if (trebleVal) {
+        trebleVal.textContent = isEnabled ? (trebleBoost > 0 ? `+${trebleBoost} dB` : `${trebleBoost} dB`) : '0 dB';
+        trebleVal.style.color = (isEnabled && trebleBoost !== 0) ? 'var(--accent)' : 'var(--text-secondary)';
+      }
 
       const vocalBoost = eqData.vocalBoost !== undefined ? eqData.vocalBoost : 0;
       if (vocalSlider) vocalSlider.value = vocalBoost;
-      if (vocalVal) vocalVal.textContent = `${vocalBoost > 0 ? '+' + vocalBoost : vocalBoost} dB`;
+      if (vocalVal) {
+        vocalVal.textContent = isEnabled ? (vocalBoost > 0 ? `+${vocalBoost} dB` : `${vocalBoost} dB`) : '0 dB';
+        vocalVal.style.color = (isEnabled && vocalBoost > 0) ? 'var(--accent)' : 'var(--text-secondary)';
+      }
 
-      if (normSwitch) normSwitch.checked = eqData.normalization !== false;
+      if (normSwitch) normSwitch.checked = eqData.normalization === true;
       if (crossfadeSelect) crossfadeSelect.value = String(eqData.crossfade || 0);
+
+      // Real-Time Status Indicator
+      if (statusText && statusIcon && statusBadge) {
+        if (!isEnabled) {
+          statusIcon.textContent = 'check_circle';
+          statusIcon.style.color = 'var(--text-secondary)';
+          statusText.textContent = 'Equalizer: OFF (Transparent bit-perfect original audio)';
+          statusText.style.color = 'var(--text-secondary)';
+          statusBadge.textContent = 'OFF';
+          statusBadge.style.color = 'var(--text-secondary)';
+          statusBadge.style.borderColor = 'rgba(255,255,255,0.15)';
+        } else if (eqData.preset === 'Flat' && bassBoost === 0 && trebleBoost === 0 && vocalBoost === 0 && spatialLevel === 'OFF' && (!Array.isArray(eqData.bands) || eqData.bands.every(b => b === 0))) {
+          statusIcon.textContent = 'check_circle';
+          statusIcon.style.color = 'var(--accent)';
+          statusText.textContent = 'Flat (✓ No audio processing applied)';
+          statusText.style.color = '#FFFFFF';
+          statusBadge.textContent = 'FLAT';
+          statusBadge.style.color = 'var(--accent)';
+          statusBadge.style.borderColor = 'var(--accent-border)';
+        } else if (bassBoost > 0) {
+          statusIcon.textContent = 'warning';
+          statusIcon.style.color = '#f59e0b';
+          statusText.textContent = `⚠ Bass Boost active (+${bassBoost} dB)`;
+          statusText.style.color = '#FFFFFF';
+          statusBadge.textContent = 'BASS BOOST';
+          statusBadge.style.color = '#f59e0b';
+          statusBadge.style.borderColor = 'rgba(245, 158, 11, 0.4)';
+        } else if (spatialLevel !== 'OFF') {
+          statusIcon.textContent = 'warning';
+          statusIcon.style.color = '#8b5cf6';
+          statusText.textContent = `⚠ 3D Spatial Audio active (${spatialLevel})`;
+          statusText.style.color = '#FFFFFF';
+          statusBadge.textContent = '3D SPATIAL';
+          statusBadge.style.color = '#8b5cf6';
+          statusBadge.style.borderColor = 'rgba(139, 92, 246, 0.4)';
+        } else {
+          statusIcon.textContent = 'graphic_eq';
+          statusIcon.style.color = 'var(--accent)';
+          statusText.textContent = `⚠ Preset "${eqData.preset || 'Custom'}" audio processing active`;
+          statusText.style.color = '#FFFFFF';
+          statusBadge.textContent = 'DSP ACTIVE';
+          statusBadge.style.color = 'var(--accent)';
+          statusBadge.style.borderColor = 'var(--accent-border)';
+        }
+      }
 
       // Presets (Built-in + User Saved)
       if (presetsContainer) {
-        const builtIn = ['Flat', 'Bass Boost', 'Treble', 'Vocal', 'Rock', 'Pop', 'Hip-Hop', 'Classical', 'Jazz', 'Electronic', 'Bollywood', 'Lo-Fi', 'Acoustic'];
+        const builtIn = ['Flat', 'Bose Clarity', 'Bose Deep Bass', 'Bass Boost', 'Treble', 'Vocal', 'Rock', 'Pop', 'Hip-Hop', 'Classical', 'Jazz', 'Electronic', 'Bollywood', 'Lo-Fi', 'Acoustic'];
         const userPresets = (typeof Storage !== 'undefined' && typeof Storage.getUserPresets === 'function') ? Object.keys(Storage.getUserPresets()) : [];
         const allPresets = [...builtIn, ...userPresets];
 
@@ -2456,7 +2545,7 @@ const UI = (() => {
           const val = Number(bands[idx]) || 0;
           return `
             <div class="eq-band-col" style="display:flex; flex-direction:column; align-items:center; gap:6px;">
-              <span class="eq-band-val" id="eq-val-${idx}" style="font-size:10px; font-weight:800; color:${val > 0 ? 'var(--accent)' : (val < 0 ? '#4da6ff' : 'var(--text-secondary)')};">${val > 0 ? '+' + val : val}dB</span>
+              <span class="eq-band-val" id="eq-val-${idx}" style="font-size:10px; font-weight:800; color:${isEnabled ? (val > 0 ? 'var(--accent)' : (val < 0 ? '#4da6ff' : 'var(--text-secondary)')) : 'var(--text-secondary)'};">${val > 0 ? '+' + val : val}dB</span>
               <input type="range" class="eq-band-slider" min="-12" max="12" step="1" value="${val}" oninput="App.updateEqBand(${idx}, this.value)" style="height:120px; writing-mode:vertical-lr; direction:rtl; width:24px; accent-color:var(--accent);">
               <span class="eq-band-label" style="font-size:9.5px; text-align:center; color:var(--text-secondary); line-height:1.2;">${lbl.replace('\n', '<br>')}</span>
             </div>

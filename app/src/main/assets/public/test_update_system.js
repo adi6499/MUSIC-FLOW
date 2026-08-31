@@ -367,7 +367,7 @@ Full Changelog: https://github.com/adi6499/MUSIC-FLOW/compare/v1.7.0...v1.8.0
 
   runTest('13. Localhost absence: Android build has no localhost or 127.0.0.1 in update URL', () => {
     const ApiConfig = require('./js/apiConfig.js');
-    const url = ApiConfig.buildUrl('/api/update');
+    const url = ApiConfig.getUpdateApiBase();
     assert(!url.includes('localhost'), 'Production update URL must not contain localhost');
     assert(!url.includes('127.0.0.1'), 'Production update URL must not contain 127.0.0.1');
     assert(!url.includes('spoton-trpn.vercel.app/api/update'), 'Must not hit JioSaavn proxy for update');

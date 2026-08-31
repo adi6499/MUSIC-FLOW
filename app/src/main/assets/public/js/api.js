@@ -87,15 +87,32 @@ const API = (() => {
   // Helper to extract highest quality download audio URL
   function getDownloadUrl(item, preferredBitrate = '320kbps') {
     if (!item) return '';
-    if (typeof item.streamUrl === 'string' && item.streamUrl) return item.streamUrl;
-    if (typeof item.audioUrl === 'string' && item.audioUrl) return item.audioUrl;
+    const targetBitrate = String(preferredBitrate || '320kbps').toLowerCase().trim();
+
     if (Array.isArray(item.downloadUrl) && item.downloadUrl.length > 0) {
-      const matched = item.downloadUrl.find(u => (u.quality || '').toLowerCase() === preferredBitrate.toLowerCase());
-      if (matched) return matched.url || matched.link;
-      const last = item.downloadUrl[item.downloadUrl.length - 1];
-      return last?.url || last?.link || '';
+      // 1. Direct exact quality match
+      const matched = item.downloadUrl.find(u => (u.quality || '').toLowerCase() === targetBitrate);
+      if (matched && (matched.url || matched.link)) return (matched.url || matched.link).trim();
+
+      // 2. If 320kbps requested, find 320k, then 160k, then highest
+      if (targetBitrate.includes('320')) {
+        const q320 = item.downloadUrl.find(u => (u.quality || '').includes('320'));
+        if (q320 && (q320.url || q320.link)) return (q320.url || q320.link).trim();
+      }
+
+      // 3. Pick highest quality available (last element or best quality)
+      const sorted = [...item.downloadUrl].sort((a, b) => {
+        const numA = parseInt((a.quality || '0').replace(/\D/g, ''), 10) || 0;
+        const numB = parseInt((b.quality || '0').replace(/\D/g, ''), 10) || 0;
+        return numB - numA;
+      });
+      const best = sorted[0];
+      if (best && (best.url || best.link)) return (best.url || best.link).trim();
     }
-    return item.url || '';
+
+    if (typeof item.audioUrl === 'string' && item.audioUrl.trim()) return item.audioUrl.trim();
+    if (typeof item.streamUrl === 'string' && item.streamUrl.trim()) return item.streamUrl.trim();
+    return (item.url && typeof item.url === 'string') ? item.url.trim() : '';
   }
 
   // Normalizes any song object into a standard schema matching Android Song.kt

@@ -39,6 +39,20 @@ const AudioEffectsEngine = (() => {
       vocalBoost: 0,
       spatial: 'OFF'
     },
+    'Bose Clarity': {
+      bands: [4, 2.5, -0.5, 1.5, 3, 3.5, 5],
+      bassBoost: 3,
+      trebleBoost: 4,
+      vocalBoost: 3,
+      spatial: 'MEDIUM'
+    },
+    'Bose Deep Bass': {
+      bands: [6, 4, 0, 1, 2, 3, 4],
+      bassBoost: 6,
+      trebleBoost: 3,
+      vocalBoost: 2,
+      spatial: 'LOW'
+    },
     'Bass Boost': {
       bands: [6, 5, 2, 0, 0, 0, 0],
       bassBoost: 8,
@@ -61,89 +75,89 @@ const AudioEffectsEngine = (() => {
       spatial: 'LOW'
     },
     'Rock': {
-      bands: [5, 3, -1, -2, 2, 5, 6],
+      bands: [5, 3, -1, 0, 2, 4, 5],
       bassBoost: 4,
       trebleBoost: 3,
-      vocalBoost: 0,
+      vocalBoost: 1,
       spatial: 'MEDIUM'
     },
     'Pop': {
-      bands: [-1, 2, 4, 5, 3, 0, 2],
+      bands: [3, 2, 1, 3, 4, 3, 4],
       bassBoost: 3,
-      trebleBoost: 2,
+      trebleBoost: 3,
       vocalBoost: 3,
       spatial: 'LOW'
     },
     'Hip-Hop': {
-      bands: [7, 5, 1, 2, -1, 3, 4],
-      bassBoost: 7,
+      bands: [7, 5, 0, 1, 2, 3, 4],
+      bassBoost: 6,
       trebleBoost: 2,
-      vocalBoost: 0,
+      vocalBoost: 1,
       spatial: 'MEDIUM'
     },
     'Classical': {
-      bands: [4, 3, 2, 0, 1, 3, 5],
+      bands: [4, 3, 1, 1, 2, 4, 6],
       bassBoost: 2,
-      trebleBoost: 3,
+      trebleBoost: 4,
       vocalBoost: 1,
       spatial: 'HIGH'
     },
     'Jazz': {
-      bands: [3, 2, 1, 2, -1, 2, 3],
+      bands: [3, 2, 1, 2, 2, 3, 4],
       bassBoost: 2,
-      trebleBoost: 1,
+      trebleBoost: 3,
       vocalBoost: 2,
       spatial: 'LOW'
     },
     'Electronic': {
-      bands: [6, 5, 1, -1, 2, 5, 6],
+      bands: [6, 4, 0, -1, 2, 5, 6],
       bassBoost: 6,
       trebleBoost: 4,
       vocalBoost: 0,
       spatial: 'HIGH'
     },
     'Bollywood': {
-      bands: [3, 2, 4, 5, 4, 2, 3],
+      bands: [4, 3, 1, 3, 4, 3, 4],
       bassBoost: 3,
-      trebleBoost: 2,
+      trebleBoost: 3,
       vocalBoost: 4,
       spatial: 'MEDIUM'
     },
     'Lo-Fi': {
-      bands: [4, 3, -1, -2, 1, -2, -6],
+      bands: [4, 3, -1, -2, 1, -1, -3],
       bassBoost: 4,
-      trebleBoost: -4,
+      trebleBoost: -2,
       vocalBoost: 1,
       spatial: 'LOW'
     },
     'Acoustic': {
-      bands: [3, 2, 1, 2, 3, 4, 3],
-      bassBoost: 1,
-      trebleBoost: 3,
-      vocalBoost: 3,
+      bands: [3, 2, 0, 2, 3, 4, 5],
+      bassBoost: 2,
+      trebleBoost: 4,
+      vocalBoost: 2,
       spatial: 'MEDIUM'
     }
   };
 
   // State
   let settings = {
-    enabled: true,
+    enabled: false,
     preset: 'Flat',
     bands: [0, 0, 0, 0, 0, 0, 0],
     bassBoost: 0,       // 0 to 12 dB
     trebleBoost: 0,     // 0 to 12 dB
     vocalBoost: 0,      // 0 to 8 dB
     spatial: 'OFF',     // 'OFF' | 'LOW' | 'MEDIUM' | 'HIGH'
-    normalization: true,
+    normalization: false,
     crossfade: 0        // seconds: 0, 2, 4, 6, 8, 10
   };
 
   // Spatial Level Multipliers
   const SPATIAL_WIDTHS = {
     'OFF': 1.0,
-    'LOW': 1.3,
-    'MEDIUM': 1.6,
-    'HIGH': 2.0
+    'LOW': 1.25,
+    'MEDIUM': 1.5,
+    'HIGH': 1.85
   };
 
   /**
@@ -151,31 +165,22 @@ const AudioEffectsEngine = (() => {
    * Stores the audio element reference and loads settings, but does NOT call
    * createMediaElementSource() yet. This allows the HTMLAudioElement to output
    * directly to the speaker (native path), which survives iOS background/lock.
-   *
-   * The Web Audio DSP graph is only built when attachToElement() is called,
-   * typically when the user explicitly interacts with EQ/effects in the foreground.
    */
   function init(audioElement) {
     if (!audioElement || typeof window === 'undefined') return;
 
-    // Store reference for deferred attachment
     _pendingAudioElement = audioElement;
-
-    // Load settings from storage (but don't build Web Audio graph yet)
     loadStoredSettings();
 
-    // If the user had effects enabled previously AND we're not on iOS,
-    // attach immediately for seamless EQ experience.
-    // On iOS, we defer to avoid background audio issues.
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-                  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const isIOS = (typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent)) ||
+                  (typeof navigator !== 'undefined' && navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     const hasNonFlatEffects = _hasActiveEffects();
 
     if (hasNonFlatEffects && !isIOS) {
       attachToElement(audioElement);
     } else {
       console.log('[AudioEffects] Deferred Web Audio attachment (native playback path active)');
-      isInitialized = true; // Mark as ready for settings API, but not attached
+      isInitialized = true;
     }
   }
 
@@ -193,13 +198,19 @@ const AudioEffectsEngine = (() => {
 
   /**
    * attachToElement() — Build and connect the full Web Audio DSP graph.
-   * After this call, audio flows through: HTMLAudioElement → MediaElementSource → DSP → speaker.
-   * WARNING: This hijacks the element's output. Call detachFromElement() before background.
+   * Safe against multiple calls (never recreates createMediaElementSource on same element).
    */
   function attachToElement(audioElement) {
-    if (_isAttached) return; // Already attached
     const el = audioElement || _pendingAudioElement;
     if (!el) return;
+
+    if (_isAttached && audioCtx) {
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume().catch(console.warn);
+      }
+      applyAll();
+      return;
+    }
 
     try {
       const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
@@ -262,13 +273,13 @@ const AudioEffectsEngine = (() => {
       midGainNode.gain.value = 1.0;
       sideGainNode.gain.value = 1.0;
 
-      // 8. Peak Limiter (Hard-Knee DynamicsCompressor for zero clipping distortion)
+      // 8. Soft-Knee Dynamic Limiter (Transparent zero-clipping headroom limiter)
       limiterNode = audioCtx.createDynamicsCompressor();
-      limiterNode.threshold.value = -0.5;
-      limiterNode.knee.value = 0;
-      limiterNode.ratio.value = 20.0;
-      limiterNode.attack.value = 0.003;
-      limiterNode.release.value = 0.100;
+      limiterNode.threshold.value = -1.0;
+      limiterNode.knee.value = 4.0;
+      limiterNode.ratio.value = 12.0;
+      limiterNode.attack.value = 0.002;
+      limiterNode.release.value = 0.050;
 
       // 9. Master Gain Node
       masterGainNode = audioCtx.createGain();
@@ -312,7 +323,7 @@ const AudioEffectsEngine = (() => {
       sideGainNode.connect(spatialMerger, 0, 0);
       sideGainNode.connect(spatialMerger, 0, 1);
 
-      // Spatial Merger -> Peak Limiter -> Master Gain -> Destination
+      // Spatial Merger -> Soft Limiter -> Master Gain -> Destination
       spatialMerger.connect(limiterNode);
       limiterNode.connect(masterGainNode);
       masterGainNode.connect(audioCtx.destination);
@@ -326,7 +337,7 @@ const AudioEffectsEngine = (() => {
       // Apply current settings to the newly built graph
       applyAll();
     } catch (err) {
-      console.warn('[AudioEffects] attachToElement error (audio will play un-effected):', err);
+      console.warn('[AudioEffects] attachToElement notice:', err.message);
     }
   }
 
@@ -344,7 +355,6 @@ const AudioEffectsEngine = (() => {
     }
 
     try {
-      // Disconnect all nodes
       if (sourceNode) try { sourceNode.disconnect(); } catch (_) {}
       if (preGainNode) try { preGainNode.disconnect(); } catch (_) {}
       if (normGainNode) try { normGainNode.disconnect(); } catch (_) {}
@@ -359,8 +369,9 @@ const AudioEffectsEngine = (() => {
       if (limiterNode) try { limiterNode.disconnect(); } catch (_) {}
       if (masterGainNode) try { masterGainNode.disconnect(); } catch (_) {}
 
-      // Close the AudioContext — this releases the MediaElementSource binding
-      audioCtx.close().catch(console.warn);
+      try {
+        audioCtx.close().catch(console.warn);
+      } catch (_) {}
 
       console.log('[AudioEffects] Web Audio graph detached — native playback path restored');
     } catch (err) {
@@ -422,6 +433,13 @@ const AudioEffectsEngine = (() => {
 
   // Applies all current settings to Web Audio DSP nodes
   function applyAll() {
+    if (settings.enabled && !_isAttached && _pendingAudioElement && _hasActiveEffects()) {
+      const isHidden = (typeof document !== 'undefined' && document.visibilityState === 'hidden');
+      if (!isHidden) {
+        attachToElement(_pendingAudioElement);
+      }
+    }
+
     if (!isInitialized || !audioCtx) return;
 
     const isEnabled = settings.enabled === true;
@@ -578,14 +596,14 @@ const AudioEffectsEngine = (() => {
 
   function resetDefaults() {
     settings = {
-      enabled: true,
+      enabled: false,
       preset: 'Flat',
       bands: [0, 0, 0, 0, 0, 0, 0],
       bassBoost: 0,
       trebleBoost: 0,
       vocalBoost: 0,
       spatial: 'OFF',
-      normalization: true,
+      normalization: false,
       crossfade: 0
     };
     persistSettings();

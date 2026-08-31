@@ -72,9 +72,16 @@ function parseDurationSec(durationStr) {
 function extractPlaylistId(input) {
   if (!input) return '';
   const str = String(input).trim();
-  const match = str.match(/[?&]list=([a-zA-Z0-9_-]+)/);
-  if (match && match[1]) return match[1];
-  if (/^[a-zA-Z0-9_-]+$/.test(str)) return str;
+  const listMatch = str.match(/[?&]list=([a-zA-Z0-9_-]+)/i);
+  if (listMatch && listMatch[1]) return listMatch[1];
+  const browseMatch = str.match(/(?:browse\/|browse_id=)([a-zA-Z0-9_-]+)/i);
+  if (browseMatch && browseMatch[1]) return browseMatch[1];
+  const playlistPathMatch = str.match(/(?:playlist\/)([a-zA-Z0-9_-]+)/i);
+  if (playlistPathMatch && playlistPathMatch[1]) return playlistPathMatch[1];
+  if (/^[a-zA-Z0-9_-]+$/.test(str) && (str.startsWith('PL') || str.startsWith('VL') || str.startsWith('OLAK') || str.startsWith('RD') || str.startsWith('MPRE'))) {
+    return str;
+  }
+  if (/^[a-zA-Z0-9_-]+$/.test(str) && str.length > 11) return str;
   return str;
 }
 
@@ -82,11 +89,15 @@ function extractPlaylistId(input) {
 function extractVideoId(input) {
   if (!input) return '';
   const str = String(input).trim();
-  const shortMatch = str.match(/youtu\.be\/([a-zA-Z0-9_-]{11})/);
+  const shortMatch = str.match(/youtu\.be\/([a-zA-Z0-9_-]{11})/i);
   if (shortMatch && shortMatch[1]) return shortMatch[1];
-  const vMatch = str.match(/[?&]v=([a-zA-Z0-9_-]{11})/);
+  const vMatch = str.match(/[?&]v=([a-zA-Z0-9_-]{11})/i);
   if (vMatch && vMatch[1]) return vMatch[1];
-  if (/^[a-zA-Z0-9_-]{11}$/.test(str) && !str.startsWith('VL') && !str.startsWith('PL')) return str;
+  const shortsMatch = str.match(/shorts\/([a-zA-Z0-9_-]{11})/i);
+  if (shortsMatch && shortsMatch[1]) return shortsMatch[1];
+  const embedMatch = str.match(/embed\/([a-zA-Z0-9_-]{11})/i);
+  if (embedMatch && embedMatch[1]) return embedMatch[1];
+  if (/^[a-zA-Z0-9_-]{11}$/.test(str) && !str.startsWith('VL') && !str.startsWith('PL') && !str.startsWith('RD') && !str.startsWith('OL')) return str;
   return '';
 }
 

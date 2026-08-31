@@ -25,25 +25,36 @@ const ApiConfig = (() => {
       protocol === 'file:' ||
       href.startsWith('file:///android_asset/') ||
       href.includes('androidplatform.net') ||
-      /MusicFlowApp|Android.*wv|Version\/.*Chrome/i.test(userAgent)
+      /MusicFlowApp|Android.*wv|Version\/.*Chrome/i.test(userAgent) ||
+      (typeof window.AndroidMediaBridge !== 'undefined')
     );
   }
 
   /**
-   * Detects if the app is currently running inside an iOS App / Capacitor environment
+   * Detects if the app is currently running inside an iOS App / Capacitor WKWebView environment
    */
   function isRunningInIOS() {
     if (typeof window === 'undefined' || !window.location) return false;
     const protocol = window.location.protocol || '';
     const href = window.location.href || '';
+    const hostname = window.location.hostname || '';
     const userAgent = (typeof navigator !== 'undefined' && navigator.userAgent) || '';
+    const platform = (typeof navigator !== 'undefined' && navigator.platform) || '';
+    const maxTouchPoints = (typeof navigator !== 'undefined' && navigator.maxTouchPoints) || 0;
+
     const isCapacitor = typeof window.Capacitor !== 'undefined' || protocol === 'capacitor:';
-    const isIOSDevice = /iPhone|iPad|iPod/i.test(userAgent) || (typeof navigator !== 'undefined' && navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const isIOSDevice = /iPhone|iPad|iPod/i.test(userAgent) || (platform === 'MacIntel' && maxTouchPoints > 1);
+    const hasWebKitBridge = typeof window.webkit !== 'undefined' && typeof window.webkit.messageHandlers !== 'undefined';
+    const isLocalhostHttps = protocol === 'https:' && hostname === 'localhost';
+
     return (
       (isCapacitor && isIOSDevice) ||
       protocol === 'capacitor:' ||
       protocol === 'ionic:' ||
-      (isIOSDevice && typeof window.webkit !== 'undefined' && href.includes('localhost'))
+      protocol === 'app:' ||
+      (hasWebKitBridge && (isLocalhostHttps || href.includes('localhost') || isIOSDevice)) ||
+      (isIOSDevice && hasWebKitBridge) ||
+      (isIOSDevice && typeof window.webkit !== 'undefined' && (isLocalhostHttps || href.includes('localhost')))
     );
   }
 
@@ -60,15 +71,28 @@ const ApiConfig = (() => {
   function isLocalDevelopment() {
     if (isNativeApp()) return false;
     if (typeof window === 'undefined' || !window.location) return false;
+
+    const protocol = window.location.protocol || '';
+    if (protocol === 'capacitor:' || protocol === 'ionic:' || protocol === 'app:' || protocol === 'file:') return false;
+    if (typeof window.webkit !== 'undefined' && typeof window.webkit.messageHandlers !== 'undefined') return false;
+    if (typeof window.Capacitor !== 'undefined') return false;
+
     const hostname = window.location.hostname || '';
     const href = window.location.href || '';
+    const port = window.location.port || '';
+
+    // WKWebView on iOS serves packaged assets on https://localhost without port — this is mobile container, NEVER desktop dev server
+    if (protocol === 'https:' && (hostname === 'localhost' || hostname === '127.0.0.1') && (!port || port === '443')) {
+      return false;
+    }
+
     return (
-      hostname === 'localhost' ||
-      hostname === '127.0.0.1' ||
+      (hostname === 'localhost' && (port === '3000' || port === '5173' || port === '8080' || href.startsWith('http://localhost:'))) ||
+      (hostname === '127.0.0.1' && (port === '3000' || port === '5173' || port === '8080' || href.startsWith('http://127.0.0.1:'))) ||
       hostname.startsWith('192.168.') ||
       hostname.startsWith('10.') ||
-      href.startsWith('http://localhost') ||
-      href.startsWith('http://127.0.0.1')
+      href.startsWith('http://localhost:3000') ||
+      href.startsWith('http://127.0.0.1:3000')
     );
   }
 
@@ -89,12 +113,13 @@ const ApiConfig = (() => {
     }
     // Local development browser -> local node server on port 3000
     if (isLocalDevelopment()) {
-      return window.location.origin || DEV_API_BASE;
+      return (window.location && window.location.origin) ? window.location.origin : DEV_API_BASE;
     }
     // Production Web deployed to cloud/HTTPS -> same origin or production host
-    return (window.location.origin && window.location.origin.startsWith('https://'))
-      ? window.location.origin
-      : PRODUCTION_API_BASE;
+    if (window.location && window.location.origin && window.location.origin.startsWith('https://') && !window.location.origin.includes('localhost')) {
+      return window.location.origin;
+    }
+    return PRODUCTION_API_BASE;
   }
 
   // Production Update Metadata Endpoint (Instant High-Availability GitHub Raw CDN & Pages Fallback)
@@ -141,15 +166,14 @@ const ApiConfig = (() => {
       return endpoint;
     }
     const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-    if (cleanEndpoint.startsWith('/api/update')) {
-      if (isLocalDevelopment()) {
-        return `${DEV_API_BASE}${cleanEndpoint}`;
-      }
-      const hasForce = cleanEndpoint.includes('force=true');
-      const timestamp = hasForce ? `?t=${Date.now()}` : '';
-      return `${PRODUCTION_UPDATE_API_URL}${timestamp}`;
-    }
     return `${getApiBaseUrl()}${cleanEndpoint}`;
+  }
+
+  /**
+   * Returns true if production environment
+   */
+  function isProduction() {
+    return isNativeApp() || !isLocalDevelopment();
   }
 
   return {
@@ -162,6 +186,7 @@ const ApiConfig = (() => {
     isRunningInIOS,
     isNativeApp,
     isLocalDevelopment,
+    isProduction,
     getApiBaseUrl,
     getJioSaavnApiBase,
     getYouTubeMusicApiBase,

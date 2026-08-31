@@ -504,11 +504,6 @@ var DataNormalizer = (function() {
   // Audio Stream / Download URL extractor
   function getAudioUrl(raw) {
     if (!raw) return '';
-    if (typeof raw.audioUrl === 'string' && raw.audioUrl.trim()) return raw.audioUrl.trim();
-    if (typeof raw.streamUrl === 'string' && raw.streamUrl.trim()) return raw.streamUrl.trim();
-    if (typeof raw.url === 'string' && raw.url.trim() && (raw.url.includes('.mp4') || raw.url.includes('.mp3') || raw.url.includes('.m4a') || raw.url.includes('googlevideo') || raw.url.includes('saavncdn'))) {
-      return raw.url.trim();
-    }
 
     if (Array.isArray(raw.downloadUrl) && raw.downloadUrl.length > 0) {
       const best = raw.downloadUrl.find(u => u && (u.quality === '320kbps' || u.quality === '320')) ||
@@ -516,6 +511,12 @@ var DataNormalizer = (function() {
                    raw.downloadUrl[raw.downloadUrl.length - 1];
       const url = best?.url || best?.link || (typeof best === 'string' ? best : '');
       if (url && typeof url === 'string') return url.trim();
+    }
+
+    if (typeof raw.audioUrl === 'string' && raw.audioUrl.trim()) return raw.audioUrl.trim();
+    if (typeof raw.streamUrl === 'string' && raw.streamUrl.trim()) return raw.streamUrl.trim();
+    if (typeof raw.url === 'string' && raw.url.trim() && (raw.url.includes('.mp4') || raw.url.includes('.mp3') || raw.url.includes('.m4a') || raw.url.includes('googlevideo') || raw.url.includes('saavncdn'))) {
+      return raw.url.trim();
     }
 
     return '';

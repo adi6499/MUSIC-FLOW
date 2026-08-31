@@ -73,6 +73,9 @@ const Player = (() => {
   let _isBackgroundSwapActive = false;  // Whether we've swapped to the background element
   let _audioCtxSuspendedSince = 0;      // Timestamp when AudioContext suspension was first detected
 
+  // Current playback source resolution information
+  let currentResolvedSource = null;
+
   // Tracking milestones & history debounce
   let hasAddedToHistory = false;
   let recordedMilestones = new Set();
@@ -468,7 +471,6 @@ const Player = (() => {
   // ==========================================================================
 
   function _handleBackgroundTransition() {
-    // Only needed if AudioEffectsEngine has attached (hijacked) the audio element
     const effectsAttached = (typeof AudioEffectsEngine !== 'undefined' &&
                               typeof AudioEffectsEngine.isAttached === 'function' &&
                               AudioEffectsEngine.isAttached());
@@ -485,56 +487,53 @@ const Player = (() => {
 
       console.log('[Player] Background transition: swapping to clean Audio element for iOS background playback');
 
-      // 1. Detach AudioEffectsEngine (closes AudioContext, releases MediaElementSource)
+      // 1. Detach AudioEffectsEngine before background
       AudioEffectsEngine.detachFromElement();
 
-      // 2. Store the original element
+      // 2. Store foreground element
       _foregroundAudioEl = audio;
 
-      // 3. Create a clean Audio element with NO AudioContext attached
+      // 3. Create clean background Audio element
       _backgroundAudioEl = new Audio();
       _backgroundAudioEl.id = 'app-audio-bg';
       _backgroundAudioEl.preload = 'auto';
       _backgroundAudioEl.crossOrigin = 'anonymous';
       _backgroundAudioEl.src = currentSrc;
 
-      // 4. Pause the old element (it's now disconnected from AudioContext anyway)
       if (wasPlaying) {
         try { _foregroundAudioEl.pause(); } catch (_) {}
       }
 
-      // 5. Set up the background element
       _backgroundAudioEl.currentTime = currentTime;
-
-      // 6. Mirror event handlers to the background element
       _backgroundAudioEl.addEventListener('timeupdate', _bgTimeUpdateHandler);
       _backgroundAudioEl.addEventListener('ended', _bgEndedHandler);
       _backgroundAudioEl.addEventListener('error', _bgErrorHandler);
       _backgroundAudioEl.addEventListener('pause', _bgPauseHandler);
       _backgroundAudioEl.addEventListener('playing', _bgPlayingHandler);
 
-      // 7. Switch the active audio reference
       audio = _backgroundAudioEl;
       _isBackgroundSwapActive = true;
 
-      // 8. Start playback on the clean element
       if (wasPlaying) {
         const playPromise = _backgroundAudioEl.play();
         if (playPromise) {
           playPromise.catch(err => {
-            console.warn('[Player] Background element play error:', err.message);
+            console.warn('[Player] Background element play notice:', err.message);
           });
         }
       }
-
-      console.log(`[Player] Background swap complete at position ${currentTime.toFixed(1)}s`);
     } catch (err) {
       console.warn('[Player] Background transition error:', err);
     }
   }
 
   function _handleForegroundTransition() {
-    if (!_isBackgroundSwapActive || !_backgroundAudioEl || !_foregroundAudioEl) return;
+    if (!_isBackgroundSwapActive || !_backgroundAudioEl || !_foregroundAudioEl) {
+      if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume().catch(console.warn);
+      }
+      return;
+    }
 
     try {
       const bgPosition = _backgroundAudioEl.currentTime;
@@ -543,41 +542,33 @@ const Player = (() => {
 
       console.log(`[Player] Foreground return: restoring effects element at position ${bgPosition.toFixed(1)}s`);
 
-      // 1. Pause background element
       try { _backgroundAudioEl.pause(); } catch (_) {}
-
-      // 2. Remove event listeners from background element
       _backgroundAudioEl.removeEventListener('timeupdate', _bgTimeUpdateHandler);
       _backgroundAudioEl.removeEventListener('ended', _bgEndedHandler);
       _backgroundAudioEl.removeEventListener('error', _bgErrorHandler);
       _backgroundAudioEl.removeEventListener('pause', _bgPauseHandler);
       _backgroundAudioEl.removeEventListener('playing', _bgPlayingHandler);
 
-      // 3. Restore the foreground (original) element as active
-      audio = _foregroundAudioEl;
+      // Create a fresh audio element to prevent InvalidStateError on WebKit
+      const freshAudio = new Audio();
+      freshAudio.id = 'app-audio';
+      freshAudio.preload = 'auto';
+      freshAudio.crossOrigin = 'anonymous';
+      freshAudio.src = bgSrc || _foregroundAudioEl.src;
+      freshAudio.currentTime = bgPosition;
 
-      // 4. Sync position from background element
-      if (bgSrc === audio.src) {
-        audio.currentTime = bgPosition;
-      }
+      audio = freshAudio;
+      setupAudioListeners();
 
-      // 5. Re-attach AudioEffectsEngine if effects were being used
       if (typeof AudioEffectsEngine !== 'undefined' && AudioEffectsEngine.attachToElement) {
         AudioEffectsEngine.attachToElement(audio);
         audioCtx = AudioEffectsEngine.getAudioContext();
       }
 
-      // 6. Resume playback on the restored element
       if (wasPlaying) {
-        const playPromise = audio.play();
-        if (playPromise) {
-          playPromise.catch(err => {
-            console.warn('[Player] Foreground element play error:', err.message);
-          });
-        }
+        audio.play().catch(console.warn);
       }
 
-      // 7. Cleanup
       try {
         _backgroundAudioEl.src = '';
         _backgroundAudioEl.load();
@@ -585,14 +576,9 @@ const Player = (() => {
       _backgroundAudioEl = null;
       _foregroundAudioEl = null;
       _isBackgroundSwapActive = false;
-
-      // 8. Update native media session with correct position
       updatePositionState();
-
-      console.log('[Player] Foreground restore complete');
     } catch (err) {
       console.warn('[Player] Foreground transition error:', err);
-      // Fallback: keep using whatever audio element is active
       _isBackgroundSwapActive = false;
     }
   }
@@ -961,6 +947,8 @@ const Player = (() => {
       }
 
       currentSourceType = resolved.type;
+      currentResolvedSource = resolved;
+      notify('sourceResolved', resolved);
 
       if (!audio) init();
       if (!audio) return;
@@ -1707,6 +1695,7 @@ const Player = (() => {
     getEqPresets: () => (typeof AudioEffectsEngine !== 'undefined' ? Object.keys(AudioEffectsEngine.getPresets()) : Object.keys(EQ_PRESETS)),
     getAudioEffectsSettings: () => (typeof AudioEffectsEngine !== 'undefined' ? AudioEffectsEngine.getSettings() : null),
     getCurrentTrack,
+    getCurrentResolvedSource: () => currentResolvedSource,
     getCurrentIndex: () => currentIndex,
     getQueue: () => [...queue],
     getQueueContext,

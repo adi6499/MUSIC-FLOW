@@ -1044,12 +1044,21 @@
           <h3 class="screen-title" style="font-size:20px; margin-bottom:0;">Audio Effects &amp; EQ</h3>
         </div>
         <div style="display:flex; align-items:center; gap:8px;">
-          <span style="font-size:12px; font-weight:700; color:var(--text-secondary);" id="eq-master-label">MASTER</span>
+          <span style="font-size:12px; font-weight:700; color:var(--text-secondary);" id="eq-master-label">OFF</span>
           <label class="switch-wrap">
             <input type="checkbox" id="eq-switch" onchange="App.toggleEq(this.checked)">
             <span class="switch-slider"></span>
           </label>
         </div>
+      </div>
+
+      <!-- Real-Time Processing Status Indicator -->
+      <div id="eq-status-indicator" style="display:flex; align-items:center; justify-content:space-between; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:10px 14px; margin-bottom:16px; font-size:12px;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span class="material-symbols-outlined" id="eq-status-icon" style="font-size:18px; color:var(--text-secondary);">check_circle</span>
+          <span id="eq-status-text" style="color:var(--text-secondary); font-weight:600;">Equalizer: OFF (Transparent bit-perfect audio)</span>
+        </div>
+        <span id="eq-status-badge" class="lossless-badge-pill" style="font-size:9px; padding:2px 8px; color:var(--text-secondary); border-color:rgba(255,255,255,0.15);">OFF</span>
       </div>
 
       <!-- 1. 3D Spatial Audio & Surround Virtualizer -->

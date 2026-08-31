@@ -106,9 +106,14 @@ async function runTests() {
   const mockAudioEl = { addEventListener: () => {} };
   AudioEffectsEngine.init(mockAudioEl);
 
-  it('1. AudioEffectsEngine initializes single DSP chain successfully', () => {
+  it('1. AudioEffectsEngine starts OFF by default for bit-perfect transparent audio, and initializes on-demand', () => {
+    assert.strictEqual(AudioEffectsEngine.isEnabled(), false);
+    AudioEffectsEngine.setEnabled(true);
     assert.strictEqual(AudioEffectsEngine.isEnabled(), true);
+    // When non-zero effect is applied, DSP graph attaches
+    AudioEffectsEngine.setBassBoost(6);
     assert.ok(AudioEffectsEngine.getAudioContext() !== null);
+    AudioEffectsEngine.setBassBoost(0);
   });
 
   it('2. Standard 7-band frequencies match audio engineering standards', () => {
@@ -245,10 +250,12 @@ async function runTests() {
     AudioEffectsEngine.resetDefaults();
 
     const s = AudioEffectsEngine.getSettings();
+    assert.strictEqual(s.enabled, false);
     assert.strictEqual(s.preset, 'Flat');
     assert.deepStrictEqual(s.bands, [0, 0, 0, 0, 0, 0, 0]);
     assert.strictEqual(s.bassBoost, 0);
     assert.strictEqual(s.spatial, 'OFF');
+    assert.strictEqual(s.normalization, false);
   });
 
   it('19. Curated genre presets include Rock, Pop, Hip-Hop, Classical, Jazz, Electronic, Bollywood, Lo-Fi, Acoustic', () => {
@@ -327,11 +334,13 @@ async function runTests() {
   it('30. Player.resetAudioEffects resets all parameters cleanly', () => {
     Player.resetAudioEffects();
     const s = AudioEffectsEngine.getSettings();
+    assert.strictEqual(s.enabled, false);
     assert.strictEqual(s.preset, 'Flat');
     assert.strictEqual(s.bassBoost, 0);
     assert.strictEqual(s.trebleBoost, 0);
     assert.strictEqual(s.vocalBoost, 0);
     assert.strictEqual(s.spatial, 'OFF');
+    assert.strictEqual(s.normalization, false);
   });
 
   console.log(`\nResults: ${passed} Passed, ${failed} Failed\n`);

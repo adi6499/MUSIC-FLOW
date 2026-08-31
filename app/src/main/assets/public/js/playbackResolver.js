@@ -90,6 +90,61 @@ const PlaybackResolver = (() => {
     const title = safeTrackTitle(song);
     const artists = safeArtistString(song);
     const primaryArtist = artists.split(/[,;&/]|feat\.|ft\./i)[0].trim();
+    const preferredQuality = (typeof Storage !== 'undefined' && Storage.getAudioQuality) ? Storage.getAudioQuality() : '320kbps';
+
+    function createResult(type, uri, provider, song, extra = {}) {
+      let bitrate = '320kbps';
+      let format = 'AAC';
+      let isLossless = false;
+
+      if (type === SourceType.DOWNLOADED) {
+        bitrate = song?.bitrate || '320kbps';
+        format = song?.format || 'AAC';
+        isLossless = Boolean(song?.isLossless) || String(bitrate).includes('320') || ['FLAC', 'WAV', 'ALAC'].includes(String(format).toUpperCase());
+      } else if (type === SourceType.LOCAL) {
+        const ext = String(uri || song?.name || '').match(/\.(flac|wav|alac|aac|mp3|m4a|ogg)/i)?.[1]?.toUpperCase() || 'AUDIO';
+        format = ext;
+        isLossless = ['FLAC', 'WAV', 'ALAC'].includes(ext) || Boolean(song?.isLossless);
+        bitrate = isLossless ? 'Lossless' : '320kbps';
+      } else if (provider === 'youtube_music') {
+        bitrate = '160kbps';
+        format = 'Opus/WebM';
+        isLossless = false;
+      } else {
+        // JioSaavn / Remote stream
+        if (uri.includes('_320') || (Array.isArray(song?.downloadUrl) && song.downloadUrl.some(u => (u.url === uri || u.link === uri) && String(u.quality).includes('320')))) {
+          bitrate = '320kbps';
+          isLossless = true;
+        } else if (uri.includes('_160')) {
+          bitrate = '160kbps';
+          isLossless = false;
+        } else if (uri.includes('_96')) {
+          bitrate = '96kbps';
+          isLossless = false;
+        } else if (uri.includes('_48')) {
+          bitrate = '48kbps';
+          isLossless = false;
+        } else if (uri.includes('_12')) {
+          bitrate = '12kbps';
+          isLossless = false;
+        } else {
+          bitrate = preferredQuality || '320kbps';
+          isLossless = String(bitrate).includes('320');
+        }
+        format = uri.includes('.mp4') ? 'AAC (MP4)' : (uri.includes('.m4a') ? 'AAC' : 'MP3');
+      }
+
+      return {
+        type,
+        uri,
+        provider: provider || 'direct',
+        song,
+        bitrate,
+        format,
+        isLossless,
+        ...extra
+      };
+    }
 
     // 1. Downloaded Offline Audio Check
     if (song.source === 'DOWNLOADED' || (typeof Storage !== 'undefined' && Storage.isDownloaded && Storage.isDownloaded(song.id))) {
@@ -97,7 +152,7 @@ const PlaybackResolver = (() => {
         const offlineUrl = await Storage.getDownloadedAudioUrl(song.id);
         if (offlineUrl) {
           console.log(`[PlaybackResolver] Selected: DOWNLOADED (${song.name || song.title})`);
-          return { type: SourceType.DOWNLOADED, uri: offlineUrl, provider: 'local_offline', song };
+          return createResult(SourceType.DOWNLOADED, offlineUrl, 'local_offline', song);
         }
       } catch (e) {
         console.warn('[PlaybackResolver] Downloaded audio check warning:', e);
@@ -107,14 +162,14 @@ const PlaybackResolver = (() => {
     // 2. Local User Audio Check (Blob URL / File / ID3)
     if (song.source === 'LOCAL' || song.localBlobUrl || (song.streamUrl && song.streamUrl.startsWith('blob:'))) {
       if (song.localBlobUrl) {
-        return { type: SourceType.LOCAL, uri: song.localBlobUrl, provider: 'local_file', song };
+        return createResult(SourceType.LOCAL, song.localBlobUrl, 'local_file', song);
       }
       if (song.fileBlob && typeof URL !== 'undefined') {
         song.localBlobUrl = URL.createObjectURL(song.fileBlob);
-        return { type: SourceType.LOCAL, uri: song.localBlobUrl, provider: 'local_file', song };
+        return createResult(SourceType.LOCAL, song.localBlobUrl, 'local_file', song);
       }
       if (song.streamUrl && song.streamUrl.startsWith('blob:')) {
-        return { type: SourceType.LOCAL, uri: song.streamUrl, provider: 'local_file', song };
+        return createResult(SourceType.LOCAL, song.streamUrl, 'local_file', song);
       }
     }
 
@@ -136,17 +191,16 @@ const PlaybackResolver = (() => {
     const cachedUrl = getCachedStream(song.id);
     if (cachedUrl && cachedUrl.startsWith('http')) {
       console.log(`[PlaybackResolver] Selected: CACHED (${title})`);
-      return { type: SourceType.CACHED, uri: cachedUrl, provider: song.provider || 'cached', song };
+      return createResult(SourceType.CACHED, cachedUrl, song.provider || 'cached', song);
     }
 
     // 4. Already Available Direct Audio URL Check
-    const preferredQuality = (typeof Storage !== 'undefined' && Storage.getAudioQuality) ? Storage.getAudioQuality() : '320kbps';
     let directUrl = (typeof API !== 'undefined' && API.getDownloadUrl) ? API.getDownloadUrl(song, preferredQuality) : (song.audioUrl || song.streamUrl || '');
 
     if (directUrl && typeof directUrl === 'string' && directUrl.trim().startsWith('http')) {
       const u = directUrl.trim();
       setCachedStream(song.id, u);
-      return { type: SourceType.STREAMING, uri: u, provider: song.provider || 'direct', song };
+      return createResult(SourceType.STREAMING, u, song.provider || 'direct', song);
     }
 
     const isYtOrigin = songId.startsWith('yt_') || song.provider === 'youtube_music' || Boolean(song.videoId || song.sourceYtVideoId);
@@ -173,10 +227,8 @@ const PlaybackResolver = (() => {
             const streamUrl = (typeof ApiConfig !== 'undefined' && typeof ApiConfig.buildUrl === 'function')
               ? ApiConfig.buildUrl(streamPath)
               : streamPath;
-            if (!streamUrl.includes('spoton-trpn.vercel.app')) {
-              const res = await fetch(streamUrl, { signal });
-              if (res.ok) ytStream = await res.json();
-            }
+            const res = await fetch(streamUrl, { signal });
+            if (res.ok) ytStream = await res.json();
           }
 
           if (ytStream && ytStream.url && ytStream.url.startsWith('http')) {
@@ -187,7 +239,7 @@ const PlaybackResolver = (() => {
             song.isPlayable = true;
             setCachedStream(song.id, u);
             console.log(`[PlaybackResolver] Selected: YouTube Music Stream (${title})`);
-            return { type: SourceType.STREAMING, uri: u, provider: 'youtube_music', song };
+            return createResult(SourceType.STREAMING, u, 'youtube_music', song);
           }
         } catch (err) {
           if (err.name === 'AbortError') throw err;
@@ -215,7 +267,7 @@ const PlaybackResolver = (() => {
               song.isPlayable = true;
               setCachedStream(song.id, u);
               console.log(`[PlaybackResolver] Selected: JioSaavn Fallback Match (${matched.name})`);
-              return { type: SourceType.STREAMING, uri: u, provider: 'jiosaavn', song };
+              return createResult(SourceType.STREAMING, u, 'jiosaavn', song);
             }
           }
         } catch (err) {
@@ -247,7 +299,7 @@ const PlaybackResolver = (() => {
               song.isPlayable = true;
               setCachedStream(song.id, cleanU);
               console.log(`[PlaybackResolver] Selected: JioSaavn Direct Stream (${title})`);
-              return { type: SourceType.STREAMING, uri: cleanU, provider: 'jiosaavn', song };
+              return createResult(SourceType.STREAMING, cleanU, 'jiosaavn', song);
             }
           }
         } catch (err) {
@@ -276,7 +328,7 @@ const PlaybackResolver = (() => {
               song.isPlayable = true;
               setCachedStream(song.id, u);
               console.log(`[PlaybackResolver] Selected: JioSaavn Search Stream (${matched.name})`);
-              return { type: SourceType.STREAMING, uri: u, provider: 'jiosaavn', song };
+              return createResult(SourceType.STREAMING, u, 'jiosaavn', song);
             }
           }
         } catch (err) {
@@ -310,7 +362,7 @@ const PlaybackResolver = (() => {
             song.isPlayable = true;
             setCachedStream(song.id, u);
             console.log(`[PlaybackResolver] Selected: YouTube Music Fallback (${ytTrack.name})`);
-            return { type: SourceType.STREAMING, uri: u, provider: 'youtube_music', song };
+            return createResult(SourceType.STREAMING, u, 'youtube_music', song);
           }
         }
       } catch (err) {

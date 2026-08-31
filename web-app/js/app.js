@@ -2735,44 +2735,55 @@ const App = (() => {
   }
 
   function selectEqPreset(presetName) {
+    if (presetName !== 'Flat') {
+      Player.setEqEnabled(true);
+    }
     Player.setEqPreset(presetName);
     UI.renderEqualizerUI(Storage.getAudioEffects());
   }
 
   function setSpatialLevel(level) {
+    if (level !== 'OFF') {
+      Player.setEqEnabled(true);
+    }
     Player.setSpatial(level);
     UI.renderEqualizerUI(Storage.getAudioEffects());
   }
 
   function updateEqBand(index, value) {
     const val = parseFloat(value);
-    Player.setEqBand(index, val);
-    const valEl = document.getElementById(`eq-val-${index}`);
-    if (valEl) {
-      valEl.textContent = `${val > 0 ? '+' + val : val}dB`;
-      valEl.style.color = val > 0 ? 'var(--accent)' : (val < 0 ? '#4da6ff' : 'var(--text-secondary)');
+    if (val !== 0) {
+      Player.setEqEnabled(true);
     }
+    Player.setEqBand(index, val);
+    UI.renderEqualizerUI(Storage.getAudioEffects());
   }
 
   function updateBassBoost(value) {
     const val = parseFloat(value);
+    if (val > 0) {
+      Player.setEqEnabled(true);
+    }
     Player.setBassBoost(val);
-    const bassVal = document.getElementById('eq-bass-val');
-    if (bassVal) bassVal.textContent = `${val > 0 ? '+' + val : val} dB`;
+    UI.renderEqualizerUI(Storage.getAudioEffects());
   }
 
   function updateTrebleBoost(value) {
     const val = parseFloat(value);
+    if (val !== 0) {
+      Player.setEqEnabled(true);
+    }
     Player.setTrebleBoost(val);
-    const trebleVal = document.getElementById('eq-treble-val');
-    if (trebleVal) trebleVal.textContent = `${val > 0 ? '+' + val : val} dB`;
+    UI.renderEqualizerUI(Storage.getAudioEffects());
   }
 
   function updateVocalBoost(value) {
     const val = parseFloat(value);
+    if (val > 0) {
+      Player.setEqEnabled(true);
+    }
     Player.setVocalBoost(val);
-    const vocalVal = document.getElementById('eq-vocal-val');
-    if (vocalVal) vocalVal.textContent = `${val > 0 ? '+' + val : val} dB`;
+    UI.renderEqualizerUI(Storage.getAudioEffects());
   }
 
   function updateVirtualizer(value) {
@@ -2782,6 +2793,7 @@ const App = (() => {
 
   function toggleNormalization(enabled) {
     Player.setNormalization(enabled);
+    UI.renderEqualizerUI(Storage.getAudioEffects());
   }
 
   function selectCrossfade(seconds) {
@@ -2825,7 +2837,7 @@ const App = (() => {
   function resetAudioEffects() {
     Player.resetAudioEffects();
     UI.renderEqualizerUI(Storage.getAudioEffects());
-    UI.showToast('Audio effects reset to defaults');
+    UI.showToast('Audio effects reset to defaults (OFF)');
   }
 
   // ==========================================================================
@@ -2919,10 +2931,16 @@ const App = (() => {
   function selectQuality(quality) {
     Storage.setAudioQuality(quality);
     closeDialog('dialog-quality');
-    const badge = document.getElementById('player-quality-badge');
-    if (badge) badge.textContent = quality === '320kbps' ? 'LOSSLESS • 320 KBPS' : `STREAM • ${quality.toUpperCase()}`;
+    const cur = (typeof Player !== 'undefined' && Player.getCurrentTrack) ? Player.getCurrentTrack() : null;
+    if (cur && typeof UI !== 'undefined' && UI.renderPlayer) {
+      UI.renderPlayer(cur);
+    } else {
+      const badge = document.getElementById('player-quality-badge');
+      if (badge) badge.textContent = quality.toUpperCase().replace('KBPS', ' KBPS');
+    }
     const setVal = document.getElementById('settings-quality-val');
     if (setVal) setVal.textContent = quality;
+    UI.showToast(`Audio quality set to ${quality}`);
   }
 
   function promptChangeName() {
@@ -3899,7 +3917,7 @@ const App = (() => {
 
     const url = (input?.value || '').trim();
     if (!url) {
-      UI.showToast('Please enter a YouTube link or ID');
+      UI.showToast('Please enter a valid YouTube playlist or track link');
       return;
     }
 
@@ -3912,68 +3930,140 @@ const App = (() => {
 
     const isSingleTrack = parsedYt && parsedYt.type === 'track';
     const endpoint = isSingleTrack ? '/api/providers/ytmusic/import-track' : '/api/providers/ytmusic/import-playlist';
-    const isNativeMobile = (typeof ApiConfig !== 'undefined' && typeof ApiConfig.isNativeApp === 'function' && ApiConfig.isNativeApp());
-    const fullUrl = (typeof ApiConfig !== 'undefined') ? ApiConfig.buildUrl(endpoint) : endpoint;
+    const fullUrl = (typeof ApiConfig !== 'undefined' && typeof ApiConfig.buildUrl === 'function') ? ApiConfig.buildUrl(endpoint) : endpoint;
+    const platform = (typeof ApiConfig !== 'undefined' && typeof ApiConfig.isRunningInIOS === 'function' && ApiConfig.isRunningInIOS())
+      ? 'iOS'
+      : ((typeof ApiConfig !== 'undefined' && typeof ApiConfig.isRunningInAndroid === 'function' && ApiConfig.isRunningInAndroid()) ? 'Android' : 'Desktop');
+    const isIOS = platform === 'iOS';
+    const endpointType = (fullUrl.startsWith('http://localhost') || fullUrl.startsWith('http://127.0.0.1')) ? 'local' : 'production';
+    const requestStartTime = new Date().toISOString();
+
+    if (isIOS) {
+      console.log(`[YT-IMPORT][iOS]\nURL: ${url}\nEndpoint: ${fullUrl}\nMethod: POST\nRequest started: ${requestStartTime}`);
+    } else {
+      console.log(`[Import] Platform: ${platform} | Provider: YouTube Music | Endpoint: ${endpointType} | Request started`);
+    }
+
+    let failureStage = 'INITIALIZATION';
 
     try {
       let resData = null;
+      let lastNetworkError = null;
+      let isTimedOut = false;
 
-      // In local development, try local Node server; in native mobile apps (Android/iOS) or remote Saavn host, use direct adapter
-      if (!isNativeMobile && !fullUrl.includes('spoton-trpn.vercel.app')) {
-        try {
-          const fetchSignal = (typeof AbortSignal !== 'undefined' && AbortSignal.timeout)
-            ? AbortSignal.timeout(6000)
-            : undefined;
+      // 1. Primary Request: Production MusicFlow API backend endpoint
+      failureStage = 'NETWORK_REQUEST';
+      try {
+        const abortController = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+        const timeoutTimer = abortController ? setTimeout(() => {
+          isTimedOut = true;
+          abortController.abort();
+        }, 20000) : null;
 
-          const res = await fetch(fullUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-            body: JSON.stringify({ url }),
-            signal: fetchSignal
-          });
+        const fetchOptions = {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+          },
+          body: JSON.stringify({ url })
+        };
+        if (abortController) {
+          fetchOptions.signal = abortController.signal;
+        }
 
-          if (res.ok) {
-            const contentType = (res.headers && typeof res.headers.get === 'function')
-              ? (res.headers.get('content-type') || '')
-              : '';
-            if (!contentType || contentType.includes('application/json')) {
-              resData = await res.json();
-            }
+        const res = await fetch(fullUrl, fetchOptions);
+        if (timeoutTimer) clearTimeout(timeoutTimer);
+
+        const responseStatus = res.status;
+        const responseContentType = (res.headers && typeof res.headers.get === 'function')
+          ? (res.headers.get('content-type') || '')
+          : '';
+
+        failureStage = 'RESPONSE_READING';
+        const responseText = await res.text();
+        const responseSize = responseText ? responseText.length : 0;
+
+        if (isIOS) {
+          console.log(`[YT-IMPORT][iOS]\nHTTP status: ${responseStatus}\nResponse content-type: ${responseContentType}\nResponse size: ${responseSize}`);
+        } else {
+          console.log(`[Import] Response status: ${responseStatus} | Size: ${responseSize}`);
+        }
+
+        failureStage = 'JSON_PARSING';
+        if (responseText) {
+          try {
+            resData = JSON.parse(responseText);
+          } catch (jsonErr) {
+            console.warn('[Import] Response JSON parse failed:', jsonErr.message);
           }
-        } catch (netErr) {
-          console.warn(`[YouTubeImport] Backend fetch failed (${fullUrl}):`, netErr.message);
+        }
+      } catch (netErr) {
+        lastNetworkError = netErr;
+        if (isIOS) {
+          console.warn(`[YT-IMPORT][iOS] Network attempt failed (${fullUrl}):`, netErr.message);
+        } else {
+          console.warn(`[Import] Backend network attempt failed (${fullUrl}):`, netErr.message);
         }
       }
 
-      // Execute client-side YouTubeMusicService directly (handles Innertube metadata + JioSaavn search matching)
+      // 2. Client-Side Adapter Fallback (if backend is unreachable or returned false)
       if (!resData || resData.success === false) {
+        failureStage = 'CLIENT_ADAPTER_FALLBACK';
         const ytm = (typeof YouTubeMusicService !== 'undefined')
           ? YouTubeMusicService
           : (typeof window !== 'undefined' && window.YouTubeMusicService ? window.YouTubeMusicService : null);
 
         if (ytm) {
-          console.log('[YouTubeImport] Executing direct YouTube Music adapter');
-          if (isSingleTrack && typeof ytm.importTrack === 'function') {
-            resData = await ytm.importTrack(url);
-          } else if (typeof ytm.importAndMatchPlaylist === 'function') {
-            resData = await ytm.importAndMatchPlaylist(url);
+          try {
+            if (isSingleTrack && typeof ytm.importTrack === 'function') {
+              resData = await ytm.importTrack(url);
+            } else if (typeof ytm.importAndMatchPlaylist === 'function') {
+              resData = await ytm.importAndMatchPlaylist(url);
+            }
+          } catch (adapterErr) {
+            console.warn('[Import] Client-side adapter error:', adapterErr.message);
           }
         }
       }
 
+      // 3. Error Differentiation & User-Friendly Messaging
       if (!resData || resData.success === false) {
-        const errorMsg = resData?.error?.message || resData?.error || 'Could not import the specified YouTube link. Please verify the URL and try again.';
-        console.error(`[YTImport] URL: ${url}`);
-        console.error(`[YTImport] Method: POST`);
-        console.error(`[YTImport] Status: ${resData?.status || 500}`);
-        console.error(`[YTImport] Response:`, resData);
-        throw new Error(errorMsg);
+        failureStage = 'ERROR_ANALYSIS';
+        let userMessage = "YouTube playlist couldn't be imported right now.";
+
+        if (isTimedOut || (lastNetworkError && (lastNetworkError.name === 'AbortError' || lastNetworkError.name === 'TimeoutError' || String(lastNetworkError.message || '').toLowerCase().includes('timeout')))) {
+          userMessage = 'Import service timed out. Please try again.';
+        } else if (lastNetworkError && !resData) {
+          userMessage = "Couldn't connect. Check your internet connection and try again.";
+        } else if (resData?.code === 'MISSING_URL' || resData?.error?.code === 'MISSING_URL') {
+          userMessage = 'Please enter a valid public YouTube playlist or track link.';
+        } else if (resData?.totalFound === 0 || resData?.code === 'EMPTY_PLAYLIST' || resData?.error?.code === 'EMPTY_PLAYLIST' || resData?.error?.message?.includes('no accessible tracks')) {
+          userMessage = 'Playlist contains no accessible tracks.';
+        } else if (resData?.error?.message) {
+          userMessage = resData.error.message;
+        } else if (typeof resData?.error === 'string') {
+          userMessage = resData.error;
+        }
+
+        if (isIOS) {
+          console.error(`[YT-IMPORT][iOS]\nFailure stage: ${failureStage}\nError: ${userMessage}`);
+        } else {
+          console.error(`[Import] Failure on ${platform} (${endpointType}):`, userMessage);
+        }
+        throw new Error(userMessage);
       }
 
-      console.log(`[YTImport] URL: ${url}`);
-      console.log(`[YTImport] Method: POST`);
-      console.log(`[YTImport] Status: 200`);
-      console.log(`[YTImport] Response:`, resData);
+      failureStage = 'TRACK_NORMALIZATION';
+      const extractedCount = resData.totalFound !== undefined ? resData.totalFound : (resData.track ? 1 : (resData.allTracks ? resData.allTracks.length : 0));
+      const matchedCount = resData.matchedCount !== undefined ? resData.matchedCount : (resData.track ? 1 : (resData.matchedTracks ? resData.matchedTracks.length : 0));
+      const unavailableCount = resData.unmatchedCount !== undefined ? resData.unmatchedCount : (resData.unmatchedTracks ? resData.unmatchedTracks.length : 0);
+
+      if (isIOS) {
+        console.log(`[YT-IMPORT][iOS]\nTracks extracted: ${extractedCount}\nTracks matched: ${matchedCount}\nTracks unavailable: ${unavailableCount}`);
+      } else {
+        console.log(`[Import] Tracks extracted: ${extractedCount} | matched: ${matchedCount} | unavailable: ${unavailableCount}`);
+      }
 
       let data = resData;
 
@@ -3997,6 +4087,10 @@ const App = (() => {
           allTracks: [tr]
         };
       } else if (data && data.allTracks) {
+        data.allTracks = data.allTracks.map(t => {
+          const norm = (typeof DataNormalizer !== 'undefined') ? DataNormalizer.normalizeTrack(t) : t;
+          return norm || t;
+        });
         registerTracks(data.allTracks);
       }
 
@@ -4005,9 +4099,9 @@ const App = (() => {
       if (loader) loader.style.display = 'none';
       if (results) results.style.display = 'flex';
 
-      if (foundEl) foundEl.textContent = data.totalFound || 0;
-      if (matchedEl) matchedEl.textContent = data.matchedCount || 0;
-      if (unmatchedEl) unmatchedEl.textContent = data.unmatchedCount || 0;
+      if (foundEl) foundEl.textContent = data.totalFound !== undefined ? data.totalFound : (data.allTracks ? data.allTracks.length : 0);
+      if (matchedEl) matchedEl.textContent = data.matchedCount !== undefined ? data.matchedCount : (data.matchedTracks ? data.matchedTracks.length : 0);
+      if (unmatchedEl) unmatchedEl.textContent = data.unmatchedCount !== undefined ? data.unmatchedCount : 0;
 
       if (saveBtn) {
         if (data.isSingleSong) {
@@ -4041,9 +4135,9 @@ const App = (() => {
       if (loader) loader.style.display = 'none';
       console.error('[YouTubeImport] Import failed:', err);
 
-      let userMsg = 'Unable to connect to MusicFlow server. Check your internet connection and try again.';
-      if (err.name === 'AbortError' || err.name === 'TimeoutError' || (err.message && err.message.includes('timeout'))) {
-        userMsg = 'Request timed out connecting to MusicFlow server. Please try again.';
+      let userMsg = "Couldn't connect. Check your internet connection and try again.";
+      if (err.name === 'AbortError' || err.name === 'TimeoutError' || (err.message && err.message.toLowerCase().includes('timeout'))) {
+        userMsg = 'Import service timed out. Please try again.';
       } else if (err.message && !err.message.includes('500') && !err.message.includes('Failed to fetch') && !err.message.includes('NetworkError') && !err.message.includes('fetch')) {
         userMsg = err.message;
       }

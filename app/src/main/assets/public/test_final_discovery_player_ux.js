@@ -435,6 +435,7 @@ console.log('\nTest Group 6: Equalizer & 3D Spatial Audio');
 runTest('6.1 AudioEffectsEngine initializes DSP chain with 7 EQ bands and presets', () => {
   const mockAudio = new MockAudioElement();
   AudioEffectsEngine.init(mockAudio);
+  AudioEffectsEngine.setEnabled(true);
   assert.strictEqual(AudioEffectsEngine.isEnabled(), true, 'Audio effects should be initialized and enabled');
 
   AudioEffectsEngine.setPreset('Bass Boost');

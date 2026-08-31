@@ -44,14 +44,13 @@ class YouTubeMusicProvider extends MusicProvider {
 
   async postToBackend(endpoint, body = {}, signal) {
     const base = this.getBaseUrl();
-    // Do not dispatch YouTube provider requests to external Saavn-only host
-    if (!base || base.includes('spoton-trpn.vercel.app') || (typeof ApiConfig !== 'undefined' && typeof ApiConfig.isNativeApp === 'function' && ApiConfig.isNativeApp())) {
-      throw new Error('DIRECT_CLIENT_ADAPTER');
+    if (!base) {
+      throw new Error('NO_API_BASE');
     }
     const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
     const url = `${base}${cleanEndpoint}`;
     try {
-      const fetchSignal = signal || (typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(6000) : undefined);
+      const fetchSignal = signal || (typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(9000) : undefined);
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
@@ -61,9 +60,7 @@ class YouTubeMusicProvider extends MusicProvider {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return await res.json();
     } catch (err) {
-      if (err.message !== 'DIRECT_CLIENT_ADAPTER') {
-        console.warn(`[YouTubeMusicProvider] POST ${endpoint} failed:`, err.message);
-      }
+      console.warn(`[YouTubeMusicProvider] POST ${cleanEndpoint} fallback:`, err.message);
       this.health = ProviderHealthState.DEGRADED;
       throw err;
     }

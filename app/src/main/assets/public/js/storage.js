@@ -1137,14 +1137,14 @@ const Storage = (() => {
     // Audio Effects Engine 2.0 (7-Band EQ, 3D Spatial, Bass/Treble/Vocal, Normalization, Crossfade)
     getAudioEffects() {
       return getJSON(KEYS.AUDIO_EFFECTS, {
-        enabled: true,
+        enabled: false,
         preset: 'Flat',
         bands: [0, 0, 0, 0, 0, 0, 0],
         bassBoost: 0,
         trebleBoost: 0,
         vocalBoost: 0,
         spatial: 'OFF',
-        normalization: true,
+        normalization: false,
         crossfade: 0
       });
     },
@@ -1180,14 +1180,14 @@ const Storage = (() => {
 
     resetAudioEffects() {
       const defaults = {
-        enabled: true,
+        enabled: false,
         preset: 'Flat',
         bands: [0, 0, 0, 0, 0, 0, 0],
         bassBoost: 0,
         trebleBoost: 0,
         vocalBoost: 0,
         spatial: 'OFF',
-        normalization: true,
+        normalization: false,
         crossfade: 0
       };
       setJSON(KEYS.AUDIO_EFFECTS, defaults);

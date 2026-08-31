@@ -123,6 +123,112 @@ async function main() {
     assert.ok(!css.includes('bottom: calc(68px + env(safe-area-inset-bottom, 12px));'), 'Old disjoint 28px gap must be removed');
   });
 
+  // --------------------------------------------------------------------------
+  // 4. iOS BACKGROUND AUDIO FIX — CRITICAL
+  // --------------------------------------------------------------------------
+  runTest('6. AudioEffectsEngine: Lazy init does NOT call createMediaElementSource on init()', () => {
+    const aeePath = path.join(__dirname, 'js', 'audioEffectsEngine.js');
+    const content = fs.readFileSync(aeePath, 'utf8');
+
+    // init() must NOT contain createMediaElementSource
+    // It should be in attachToElement() only
+    const initMatch = content.match(/function init\(audioElement\)\s*\{[\s\S]*?\n  \}/);
+    assert.ok(initMatch, 'Must have an init() function');
+    assert.ok(!initMatch[0].includes('createMediaElementSource'), 'init() must NOT call createMediaElementSource (lazy init)');
+
+    // attachToElement() SHOULD contain createMediaElementSource
+    assert.ok(content.includes('function attachToElement('), 'Must have attachToElement() method');
+    const attachMatch = content.match(/function attachToElement[\s\S]*?createMediaElementSource/);
+    assert.ok(attachMatch, 'attachToElement() must call createMediaElementSource');
+  });
+
+  runTest('7. AudioEffectsEngine: Exports detachFromElement, attachToElement, isAttached', () => {
+    const aeePath = path.join(__dirname, 'js', 'audioEffectsEngine.js');
+    const content = fs.readFileSync(aeePath, 'utf8');
+
+    assert.ok(content.includes('detachFromElement'), 'Must export detachFromElement');
+    assert.ok(content.includes('attachToElement'), 'Must export attachToElement');
+    assert.ok(content.includes('isAttached'), 'Must export isAttached');
+  });
+
+  runTest('8. AudioEffectsEngine: detachFromElement closes AudioContext', () => {
+    const aeePath = path.join(__dirname, 'js', 'audioEffectsEngine.js');
+    const content = fs.readFileSync(aeePath, 'utf8');
+
+    const detachMatch = content.match(/function detachFromElement[\s\S]*?\n  \}/);
+    assert.ok(detachMatch, 'Must have detachFromElement() function');
+    assert.ok(detachMatch[0].includes('audioCtx.close()'), 'detachFromElement must close AudioContext');
+    assert.ok(detachMatch[0].includes('_isAttached = false'), 'detachFromElement must set _isAttached = false');
+  });
+
+  runTest('9. Player: Exports _handleBackgroundTransition and _handleForegroundTransition', () => {
+    const playerPath = path.join(__dirname, 'js', 'player.js');
+    const content = fs.readFileSync(playerPath, 'utf8');
+
+    assert.ok(content.includes('_handleBackgroundTransition'), 'Must have _handleBackgroundTransition');
+    assert.ok(content.includes('_handleForegroundTransition'), 'Must have _handleForegroundTransition');
+
+    // Must be in the public return object
+    const returnMatch = content.match(/return \{[\s\S]*?\};[\s\S]*?\}\)\(\)/);
+    assert.ok(returnMatch, 'Must have return statement');
+    assert.ok(returnMatch[0].includes('_handleBackgroundTransition'), '_handleBackgroundTransition must be exported');
+    assert.ok(returnMatch[0].includes('_handleForegroundTransition'), '_handleForegroundTransition must be exported');
+  });
+
+  runTest('10. Player: Background swap creates clean Audio element without AudioContext', () => {
+    const playerPath = path.join(__dirname, 'js', 'player.js');
+    const content = fs.readFileSync(playerPath, 'utf8');
+
+    // Background transition must create a new Audio() element
+    assert.ok(content.includes('_backgroundAudioEl = new Audio()'), 'Must create clean Audio element in background transition');
+    assert.ok(content.includes('AudioEffectsEngine.detachFromElement()'), 'Must detach AudioEffectsEngine before background');
+    assert.ok(content.includes('AudioEffectsEngine.attachToElement('), 'Must re-attach AudioEffectsEngine on foreground return');
+  });
+
+  runTest('11. Player: AudioContext suspension watchdog detects silent-but-playing state', () => {
+    const playerPath = path.join(__dirname, 'js', 'player.js');
+    const content = fs.readFileSync(playerPath, 'utf8');
+
+    assert.ok(content.includes('_audioCtxSuspendedSince'), 'Must track AudioContext suspension timestamp');
+    assert.ok(content.includes('audioCtx.state === \'suspended\'') || content.includes("audioCtx.state === 'suspended'"),
+      'Must check for AudioContext suspended state');
+    assert.ok(content.includes('_handleBackgroundTransition()'),
+      'Watchdog must trigger background transition on prolonged AudioContext suspension');
+  });
+
+  runTest('12. AppDelegate: applicationDidEnterBackground triggers JS background swap', () => {
+    const appDelegatePath = path.join(rootDir, 'ios', 'App', 'App', 'AppDelegate.swift');
+    const content = fs.readFileSync(appDelegatePath, 'utf8');
+
+    assert.ok(content.includes('applicationDidEnterBackground'), 'Must implement applicationDidEnterBackground');
+    assert.ok(content.includes('_handleBackgroundTransition'), 'applicationDidEnterBackground must call _handleBackgroundTransition');
+  });
+
+  runTest('13. AppDelegate: applicationWillEnterForeground triggers JS foreground restore', () => {
+    const appDelegatePath = path.join(rootDir, 'ios', 'App', 'App', 'AppDelegate.swift');
+    const content = fs.readFileSync(appDelegatePath, 'utf8');
+
+    assert.ok(content.includes('applicationWillEnterForeground'), 'Must implement applicationWillEnterForeground');
+    assert.ok(content.includes('_handleForegroundTransition'), 'applicationWillEnterForeground must call _handleForegroundTransition');
+    assert.ok(content.includes('configureAudioSession()'), 'applicationWillEnterForeground must re-activate audio session');
+  });
+
+  runTest('14. AppDelegate: Observes mediaServicesWereResetNotification', () => {
+    const appDelegatePath = path.join(rootDir, 'ios', 'App', 'App', 'AppDelegate.swift');
+    const content = fs.readFileSync(appDelegatePath, 'utf8');
+
+    assert.ok(content.includes('mediaServicesWereResetNotification'), 'Must observe mediaServicesWereResetNotification');
+  });
+
+  runTest('15. AudioEffectsEngine: iOS detection defers Web Audio attachment', () => {
+    const aeePath = path.join(__dirname, 'js', 'audioEffectsEngine.js');
+    const content = fs.readFileSync(aeePath, 'utf8');
+
+    // init() must check for iOS and defer attachment
+    assert.ok(content.includes('iPad|iPhone|iPod'), 'init() must detect iOS devices');
+    assert.ok(content.includes('Deferred Web Audio attachment'), 'init() must log deferred attachment on iOS');
+  });
+
   console.log('\n=============================================================');
   console.log(`  TEST RESULTS: ${passedTests} / ${totalTests} PASSED`);
   console.log('=============================================================\n');

@@ -63,6 +63,19 @@ const Player = (() => {
   let retryCount = 0;
   const MAX_RETRIES = 2;
 
+  // --- iOS Background Audio Fix ---
+  // When AudioEffectsEngine is attached (createMediaElementSource called), the audio element's
+  // output is routed through AudioContext. iOS suspends AudioContext in background, causing
+  // silent playback while progress continues. To fix: swap to a clean Audio element on
+  // background entry, and swap back on foreground return.
+  let _backgroundAudioEl = null;        // Clean Audio element for background playback
+  let _foregroundAudioEl = null;        // The original effects-connected Audio element
+  let _isBackgroundSwapActive = false;  // Whether we've swapped to the background element
+  let _audioCtxSuspendedSince = 0;      // Timestamp when AudioContext suspension was first detected
+
+  // Current playback source resolution information
+  let currentResolvedSource = null;
+
   // Tracking milestones & history debounce
   let hasAddedToHistory = false;
   let recordedMilestones = new Set();
@@ -233,6 +246,21 @@ const Player = (() => {
         updatePositionState();
       }
 
+      // AudioContext suspension watchdog (iOS background audio safety net)
+      if (audioCtx && audioCtx.state === 'suspended' && playbackState === PlaybackState.PLAYING) {
+        if (_audioCtxSuspendedSince === 0) {
+          _audioCtxSuspendedSince = Date.now();
+        } else if (Date.now() - _audioCtxSuspendedSince > 2000) {
+          // AudioContext has been suspended for >2s while we think we're playing
+          // This means audio output is silent — trigger background swap
+          console.warn('[Player] AudioContext suspended while PLAYING detected — triggering background swap');
+          _handleBackgroundTransition();
+          _audioCtxSuspendedSince = 0;
+        }
+      } else {
+        _audioCtxSuspendedSince = 0;
+      }
+
       const cur = getCurrentTrack();
       if (!cur || !dur || isNaN(dur) || dur <= 0) return;
 
@@ -353,9 +381,17 @@ const Player = (() => {
 
     // Auto-resume audio context & background lifecycle
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible' && playbackState === PlaybackState.PLAYING && audio) {
-        if (audio.paused) audio.play().catch(console.warn);
-        if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(console.warn);
+      if (document.visibilityState === 'visible') {
+        // Foreground return — restore from background swap if active
+        _handleForegroundTransition();
+
+        if (playbackState === PlaybackState.PLAYING && audio) {
+          if (audio.paused) audio.play().catch(console.warn);
+          if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(console.warn);
+        }
+      } else if (document.visibilityState === 'hidden') {
+        // Background entry — swap to clean element if AudioContext is in the path
+        _handleBackgroundTransition();
       }
     });
 
@@ -372,9 +408,18 @@ const Player = (() => {
     if (audioCtx || !audio || typeof window === 'undefined') return;
     try {
       if (typeof AudioEffectsEngine !== 'undefined' && typeof AudioEffectsEngine.init === 'function') {
+        // AudioEffectsEngine.init is now lazy — it won't attach AudioContext on iOS
         AudioEffectsEngine.init(audio);
         audioCtx = AudioEffectsEngine.getAudioContext();
       } else {
+        // Fallback: only create AudioContext on non-iOS or when effects are actively needed
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+                      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+        if (isIOS) {
+          console.log('[Player] Skipping Web Audio Context on iOS (native playback path)');
+          return;
+        }
+
         const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
         if (AudioCtxClass) {
           audioCtx = new AudioCtxClass();
@@ -409,6 +454,181 @@ const Player = (() => {
       }
     } catch (e) {
       console.warn('[Player] Web Audio setup error:', e);
+    }
+  }
+
+  // ==========================================================================
+  // iOS BACKGROUND AUDIO — ELEMENT SWAP MECHANISM
+  // ==========================================================================
+  // When AudioEffectsEngine is attached (createMediaElementSource called),
+  // the HTMLAudioElement's output is permanently routed through AudioContext.
+  // iOS suspends AudioContext when WKWebView goes to background, causing
+  // silent playback while currentTime continues advancing.
+  //
+  // Fix: On background entry, create a CLEAN Audio() element (no AudioContext),
+  // transfer src + currentTime, and play from that. On foreground return,
+  // sync position back to the effects-connected element.
+  // ==========================================================================
+
+  function _handleBackgroundTransition() {
+    const effectsAttached = (typeof AudioEffectsEngine !== 'undefined' &&
+                              typeof AudioEffectsEngine.isAttached === 'function' &&
+                              AudioEffectsEngine.isAttached());
+
+    if (!effectsAttached || !audio || _isBackgroundSwapActive) return;
+    if (playbackState !== PlaybackState.PLAYING && playbackState !== PlaybackState.BUFFERING) return;
+
+    try {
+      const currentSrc = audio.src;
+      const currentTime = audio.currentTime;
+      const wasPlaying = !audio.paused;
+
+      if (!currentSrc) return;
+
+      console.log('[Player] Background transition: swapping to clean Audio element for iOS background playback');
+
+      // 1. Detach AudioEffectsEngine before background
+      AudioEffectsEngine.detachFromElement();
+
+      // 2. Store foreground element
+      _foregroundAudioEl = audio;
+
+      // 3. Create clean background Audio element
+      _backgroundAudioEl = new Audio();
+      _backgroundAudioEl.id = 'app-audio-bg';
+      _backgroundAudioEl.preload = 'auto';
+      _backgroundAudioEl.crossOrigin = 'anonymous';
+      _backgroundAudioEl.src = currentSrc;
+
+      if (wasPlaying) {
+        try { _foregroundAudioEl.pause(); } catch (_) {}
+      }
+
+      _backgroundAudioEl.currentTime = currentTime;
+      _backgroundAudioEl.addEventListener('timeupdate', _bgTimeUpdateHandler);
+      _backgroundAudioEl.addEventListener('ended', _bgEndedHandler);
+      _backgroundAudioEl.addEventListener('error', _bgErrorHandler);
+      _backgroundAudioEl.addEventListener('pause', _bgPauseHandler);
+      _backgroundAudioEl.addEventListener('playing', _bgPlayingHandler);
+
+      audio = _backgroundAudioEl;
+      _isBackgroundSwapActive = true;
+
+      if (wasPlaying) {
+        const playPromise = _backgroundAudioEl.play();
+        if (playPromise) {
+          playPromise.catch(err => {
+            console.warn('[Player] Background element play notice:', err.message);
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('[Player] Background transition error:', err);
+    }
+  }
+
+  function _handleForegroundTransition() {
+    if (!_isBackgroundSwapActive || !_backgroundAudioEl || !_foregroundAudioEl) {
+      if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume().catch(console.warn);
+      }
+      return;
+    }
+
+    try {
+      const bgPosition = _backgroundAudioEl.currentTime;
+      const bgSrc = _backgroundAudioEl.src;
+      const wasPlaying = !_backgroundAudioEl.paused;
+
+      console.log(`[Player] Foreground return: restoring effects element at position ${bgPosition.toFixed(1)}s`);
+
+      try { _backgroundAudioEl.pause(); } catch (_) {}
+      _backgroundAudioEl.removeEventListener('timeupdate', _bgTimeUpdateHandler);
+      _backgroundAudioEl.removeEventListener('ended', _bgEndedHandler);
+      _backgroundAudioEl.removeEventListener('error', _bgErrorHandler);
+      _backgroundAudioEl.removeEventListener('pause', _bgPauseHandler);
+      _backgroundAudioEl.removeEventListener('playing', _bgPlayingHandler);
+
+      // Create a fresh audio element to prevent InvalidStateError on WebKit
+      const freshAudio = new Audio();
+      freshAudio.id = 'app-audio';
+      freshAudio.preload = 'auto';
+      freshAudio.crossOrigin = 'anonymous';
+      freshAudio.src = bgSrc || _foregroundAudioEl.src;
+      freshAudio.currentTime = bgPosition;
+
+      audio = freshAudio;
+      setupAudioListeners();
+
+      if (typeof AudioEffectsEngine !== 'undefined' && AudioEffectsEngine.attachToElement) {
+        AudioEffectsEngine.attachToElement(audio);
+        audioCtx = AudioEffectsEngine.getAudioContext();
+      }
+
+      if (wasPlaying) {
+        audio.play().catch(console.warn);
+      }
+
+      try {
+        _backgroundAudioEl.src = '';
+        _backgroundAudioEl.load();
+      } catch (_) {}
+      _backgroundAudioEl = null;
+      _foregroundAudioEl = null;
+      _isBackgroundSwapActive = false;
+      updatePositionState();
+    } catch (err) {
+      console.warn('[Player] Foreground transition error:', err);
+      _isBackgroundSwapActive = false;
+    }
+  }
+
+  // --- Background element event handlers ---
+  function _bgTimeUpdateHandler() {
+    if (!_backgroundAudioEl) return;
+    const curTime = _backgroundAudioEl.currentTime || 0;
+    const dur = _backgroundAudioEl.duration || (getCurrentTrack()?.duration) || 0;
+    notify('timeUpdate', { currentTime: curTime, duration: dur });
+
+    // Update native media session position periodically
+    if (Math.floor(curTime) % 2 === 0) {
+      if (typeof NativeMedia !== 'undefined') {
+        NativeMedia.setPlaybackState({
+          isPlaying: true,
+          positionSec: curTime,
+          durationSec: dur,
+          playbackRate: 1.0
+        });
+      }
+    }
+  }
+
+  function _bgEndedHandler() {
+    if (_isBackgroundSwapActive) {
+      transitionTo(PlaybackState.COMPLETED);
+      if (repeatMode === 'ONE' && _backgroundAudioEl) {
+        _backgroundAudioEl.currentTime = 0;
+        _backgroundAudioEl.play().catch(console.warn);
+      } else {
+        next();
+      }
+    }
+  }
+
+  function _bgErrorHandler() {
+    console.warn('[Player] Background audio element error');
+  }
+
+  function _bgPauseHandler() {
+    if (_isBackgroundSwapActive && playbackState === PlaybackState.PLAYING) {
+      // iOS may have paused the background element due to interruption
+      transitionTo(PlaybackState.PAUSED);
+    }
+  }
+
+  function _bgPlayingHandler() {
+    if (_isBackgroundSwapActive) {
+      transitionTo(PlaybackState.PLAYING);
     }
   }
 
@@ -727,6 +947,8 @@ const Player = (() => {
       }
 
       currentSourceType = resolved.type;
+      currentResolvedSource = resolved;
+      notify('sourceResolved', resolved);
 
       if (!audio) init();
       if (!audio) return;
@@ -1473,6 +1695,7 @@ const Player = (() => {
     getEqPresets: () => (typeof AudioEffectsEngine !== 'undefined' ? Object.keys(AudioEffectsEngine.getPresets()) : Object.keys(EQ_PRESETS)),
     getAudioEffectsSettings: () => (typeof AudioEffectsEngine !== 'undefined' ? AudioEffectsEngine.getSettings() : null),
     getCurrentTrack,
+    getCurrentResolvedSource: () => currentResolvedSource,
     getCurrentIndex: () => currentIndex,
     getQueue: () => [...queue],
     getQueueContext,
@@ -1486,7 +1709,10 @@ const Player = (() => {
     getState,
     resolvePlaybackSource,
     on,
-    off
+    off,
+    // iOS Background Audio — exposed for native AppDelegate bridge
+    _handleBackgroundTransition,
+    _handleForegroundTransition
   };
 })();
 

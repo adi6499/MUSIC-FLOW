@@ -667,19 +667,48 @@ const API = (() => {
               plain: data.plainLyrics || null
             };
           }
-        } else if (res.status !== 404 && res.status !== 429) {
-          // If not 404 or rate-limited, try fallback search
-          const searchRes = await fetch(`https://lrclib.net/api/search?q=${encodeURIComponent(cleanTitle + ' ' + cleanArtist)}`, {
+        }
+
+        // If exact get failed, try structured search (matches even with small duration/title differences)
+        if (!result) {
+          const searchParams = new URLSearchParams({
+            track_name: cleanTitle,
+            artist_name: cleanArtist
+          });
+          const searchRes = await fetch(`https://lrclib.net/api/search?${searchParams.toString()}`, {
             signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(4000) : undefined
           });
+
           if (searchRes.ok) {
             const results = await searchRes.json();
             if (Array.isArray(results) && results.length > 0) {
-              const best = results.find(r => r.syncedLyrics) || results[0];
-              result = {
-                synced: best.syncedLyrics || null,
-                plain: best.plainLyrics || null
-              };
+              const best = results.find(r => r.syncedLyrics) || results.find(r => r.plainLyrics) || results[0];
+              if (best) {
+                result = {
+                  synced: best.syncedLyrics || null,
+                  plain: best.plainLyrics || null
+                };
+              }
+            }
+          }
+        }
+
+        // If still no result, try broad query search
+        if (!result) {
+          const queryRes = await fetch(`https://lrclib.net/api/search?q=${encodeURIComponent(cleanTitle + ' ' + cleanArtist)}`, {
+            signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(4000) : undefined
+          });
+
+          if (queryRes.ok) {
+            const results = await queryRes.json();
+            if (Array.isArray(results) && results.length > 0) {
+              const best = results.find(r => r.syncedLyrics) || results.find(r => r.plainLyrics) || results[0];
+              if (best) {
+                result = {
+                  synced: best.syncedLyrics || null,
+                  plain: best.plainLyrics || null
+                };
+              }
             }
           }
         }

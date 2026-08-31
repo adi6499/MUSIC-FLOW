@@ -2330,6 +2330,12 @@ const App = (() => {
       if (rightIcon) rightIcon.textContent = 'equalizer';
       if (contextTag) contextTag.textContent = 'SYNCHRONIZED';
       if (contextTitle) contextTitle.textContent = 'Live Lyrics';
+
+      // Immediately sync and center current karaoke lyric line
+      if (typeof Lyrics !== 'undefined' && typeof Lyrics.updateTime === 'function') {
+        const curPos = (typeof Player !== 'undefined' && typeof Player.getPosition === 'function') ? Player.getPosition() : 0;
+        Lyrics.updateTime(curPos, true);
+      }
     }
   }
 

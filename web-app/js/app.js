@@ -3959,79 +3959,60 @@ const App = (() => {
       let lastNetworkError = null;
       let isTimedOut = false;
 
-      // 1. Primary Request: Production MusicFlow API backend endpoint
-      failureStage = 'NETWORK_REQUEST';
-      try {
-        const abortController = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-        const timeoutTimer = abortController ? setTimeout(() => {
-          isTimedOut = true;
-          abortController.abort();
-        }, 20000) : null;
+      const ytm = (typeof YouTubeMusicService !== 'undefined')
+        ? YouTubeMusicService
+        : (typeof window !== 'undefined' && window.YouTubeMusicService ? window.YouTubeMusicService : null);
 
-        const fetchOptions = {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json'
-          },
-          body: JSON.stringify({ url })
-        };
-        if (abortController) {
-          fetchOptions.signal = abortController.signal;
-        }
-
-        const res = await fetch(fullUrl, fetchOptions);
-        if (timeoutTimer) clearTimeout(timeoutTimer);
-
-        const responseStatus = res.status;
-        const responseContentType = (res.headers && typeof res.headers.get === 'function')
-          ? (res.headers.get('content-type') || '')
-          : '';
-
-        failureStage = 'RESPONSE_READING';
-        const responseText = await res.text();
-        const responseSize = responseText ? responseText.length : 0;
-
-        if (isIOS) {
-          console.log(`[YT-IMPORT][iOS]\nHTTP status: ${responseStatus}\nResponse content-type: ${responseContentType}\nResponse size: ${responseSize}`);
-        } else {
-          console.log(`[Import] Response status: ${responseStatus} | Size: ${responseSize}`);
-        }
-
-        failureStage = 'JSON_PARSING';
-        if (responseText) {
-          try {
-            resData = JSON.parse(responseText);
-          } catch (jsonErr) {
-            console.warn('[Import] Response JSON parse failed:', jsonErr.message);
+      // 1. Primary Engine: Direct YouTube Music Service (with native OkHttp/URLSession bridges)
+      failureStage = 'YTM_SERVICE_EXTRACTION';
+      if (ytm) {
+        try {
+          if (isSingleTrack && typeof ytm.importTrack === 'function') {
+            resData = await ytm.importTrack(url);
+          } else if (typeof ytm.importAndMatchPlaylist === 'function') {
+            resData = await ytm.importAndMatchPlaylist(url);
           }
-        }
-      } catch (netErr) {
-        lastNetworkError = netErr;
-        if (isIOS) {
-          console.warn(`[YT-IMPORT][iOS] Network attempt failed (${fullUrl}):`, netErr.message);
-        } else {
-          console.warn(`[Import] Backend network attempt failed (${fullUrl}):`, netErr.message);
+        } catch (adapterErr) {
+          lastNetworkError = adapterErr;
+          console.warn('[Import] YouTubeMusicService direct extract notice:', adapterErr.message);
         }
       }
 
-      // 2. Client-Side Adapter Fallback (if backend is unreachable or returned false)
+      // 2. Secondary Backend Endpoint Fallback (if direct extraction didn't produce result)
       if (!resData || resData.success === false) {
-        failureStage = 'CLIENT_ADAPTER_FALLBACK';
-        const ytm = (typeof YouTubeMusicService !== 'undefined')
-          ? YouTubeMusicService
-          : (typeof window !== 'undefined' && window.YouTubeMusicService ? window.YouTubeMusicService : null);
+        failureStage = 'NETWORK_REQUEST';
+        try {
+          const abortController = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+          const timeoutTimer = abortController ? setTimeout(() => {
+            isTimedOut = true;
+            abortController.abort();
+          }, 15000) : null;
 
-        if (ytm) {
-          try {
-            if (isSingleTrack && typeof ytm.importTrack === 'function') {
-              resData = await ytm.importTrack(url);
-            } else if (typeof ytm.importAndMatchPlaylist === 'function') {
-              resData = await ytm.importAndMatchPlaylist(url);
-            }
-          } catch (adapterErr) {
-            console.warn('[Import] Client-side adapter error:', adapterErr.message);
+          const fetchOptions = {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
+            },
+            body: JSON.stringify({ url })
+          };
+          if (abortController) {
+            fetchOptions.signal = abortController.signal;
           }
+
+          const res = await fetch(fullUrl, fetchOptions);
+          if (timeoutTimer) clearTimeout(timeoutTimer);
+
+          if (res.ok) {
+            const responseText = await res.text();
+            if (responseText) {
+              try {
+                resData = JSON.parse(responseText);
+              } catch (_) {}
+            }
+          }
+        } catch (netErr) {
+          lastNetworkError = netErr;
         }
       }
 

@@ -245,6 +245,22 @@ class YouTubeMusicProvider extends MusicProvider {
    * Import YouTube Music playlist URL with high accuracy matching
    */
   async importPlaylist(url, options = {}) {
+    const service = getYTMService();
+    if (service && typeof service.importAndMatchPlaylist === 'function') {
+      try {
+        const data = await service.importAndMatchPlaylist(url);
+        if (data && data.matchedTracks) {
+          data.matchedTracks = data.matchedTracks.map(s => normalizeTrackSchema(s, s.provider || MusicProviderTypes.JIOSAAVN));
+        }
+        if (data && data.allTracks) {
+          data.allTracks = data.allTracks.map(s => normalizeTrackSchema(s, s.provider || MusicProviderTypes.JIOSAAVN));
+        }
+        return data;
+      } catch (svcErr) {
+        console.warn('[YouTubeMusicProvider] getYTMService import error:', svcErr.message);
+      }
+    }
+
     try {
       const data = await this.postToBackend('/api/providers/ytmusic/import-playlist', { url }, options.signal);
       if (data && data.matchedTracks) {
@@ -255,17 +271,6 @@ class YouTubeMusicProvider extends MusicProvider {
       }
       return data;
     } catch (err) {
-      const service = getYTMService();
-      if (service && typeof service.importAndMatchPlaylist === 'function') {
-        const data = await service.importAndMatchPlaylist(url);
-        if (data && data.matchedTracks) {
-          data.matchedTracks = data.matchedTracks.map(s => normalizeTrackSchema(s, s.provider || MusicProviderTypes.JIOSAAVN));
-        }
-        if (data && data.allTracks) {
-          data.allTracks = data.allTracks.map(s => normalizeTrackSchema(s, s.provider || MusicProviderTypes.JIOSAAVN));
-        }
-        return data;
-      }
       throw err;
     }
   }
@@ -274,6 +279,19 @@ class YouTubeMusicProvider extends MusicProvider {
    * Import single YouTube Music track URL or videoId
    */
   async importTrack(urlOrId, options = {}) {
+    const service = getYTMService();
+    if (service && typeof service.importTrack === 'function') {
+      try {
+        const data = await service.importTrack(urlOrId);
+        if (data && data.track) {
+          data.track = normalizeTrackSchema(data.track, data.track.provider || MusicProviderTypes.YOUTUBE_MUSIC);
+        }
+        return data;
+      } catch (svcErr) {
+        console.warn('[YouTubeMusicProvider] getYTMService track import error:', svcErr.message);
+      }
+    }
+
     try {
       const data = await this.postToBackend('/api/providers/ytmusic/import-track', { url: urlOrId }, options.signal);
       if (data && data.track) {
@@ -281,14 +299,6 @@ class YouTubeMusicProvider extends MusicProvider {
       }
       return data;
     } catch (err) {
-      const service = getYTMService();
-      if (service && typeof service.importTrack === 'function') {
-        const data = await service.importTrack(urlOrId);
-        if (data && data.track) {
-          data.track = normalizeTrackSchema(data.track, data.track.provider || MusicProviderTypes.YOUTUBE_MUSIC);
-        }
-        return data;
-      }
       throw err;
     }
   }

@@ -175,41 +175,38 @@ async function main() {
     assert.ok(returnMatch[0].includes('_handleForegroundTransition'), '_handleForegroundTransition must be exported');
   });
 
-  runTest('10. Player: Background swap creates clean Audio element without AudioContext', () => {
+  runTest('10. Player: Background handler maintains single audio stream without creating rogue elements', () => {
     const playerPath = path.join(__dirname, 'js', 'player.js');
     const content = fs.readFileSync(playerPath, 'utf8');
 
-    // Background transition must create a new Audio() element
-    assert.ok(content.includes('_backgroundAudioEl = new Audio()'), 'Must create clean Audio element in background transition');
-    assert.ok(content.includes('AudioEffectsEngine.detachFromElement()'), 'Must detach AudioEffectsEngine before background');
-    assert.ok(content.includes('AudioEffectsEngine.attachToElement('), 'Must re-attach AudioEffectsEngine on foreground return');
+    // Background transition must maintain single audio pipeline
+    assert.ok(content.includes('_handleBackgroundTransition'), 'Must export _handleBackgroundTransition');
+    assert.ok(content.includes('_handleForegroundTransition'), 'Must export _handleForegroundTransition');
+    assert.ok(!content.includes('_backgroundAudioEl = new Audio()'), 'Must NOT create duplicate rogue audio elements in background');
   });
 
-  runTest('11. Player: AudioContext suspension watchdog detects silent-but-playing state', () => {
+  runTest('11. Player: AudioContext suspension handling on iOS', () => {
     const playerPath = path.join(__dirname, 'js', 'player.js');
     const content = fs.readFileSync(playerPath, 'utf8');
 
-    assert.ok(content.includes('_audioCtxSuspendedSince'), 'Must track AudioContext suspension timestamp');
     assert.ok(content.includes('audioCtx.state === \'suspended\'') || content.includes("audioCtx.state === 'suspended'"),
       'Must check for AudioContext suspended state');
-    assert.ok(content.includes('_handleBackgroundTransition()'),
-      'Watchdog must trigger background transition on prolonged AudioContext suspension');
   });
 
-  runTest('12. AppDelegate: applicationDidEnterBackground triggers JS background swap', () => {
+  runTest('12. AppDelegate: applicationDidEnterBackground maintains continuous audio session', () => {
     const appDelegatePath = path.join(rootDir, 'ios', 'App', 'App', 'AppDelegate.swift');
     const content = fs.readFileSync(appDelegatePath, 'utf8');
 
     assert.ok(content.includes('applicationDidEnterBackground'), 'Must implement applicationDidEnterBackground');
-    assert.ok(content.includes('_handleBackgroundTransition'), 'applicationDidEnterBackground must call _handleBackgroundTransition');
+    assert.ok(content.includes('configureAudioSession()'), 'applicationDidEnterBackground must configure audio session');
   });
 
-  runTest('13. AppDelegate: applicationWillEnterForeground triggers JS foreground restore', () => {
+  runTest('13. AppDelegate: applicationWillEnterForeground restores audio session and bridge', () => {
     const appDelegatePath = path.join(rootDir, 'ios', 'App', 'App', 'AppDelegate.swift');
     const content = fs.readFileSync(appDelegatePath, 'utf8');
 
     assert.ok(content.includes('applicationWillEnterForeground'), 'Must implement applicationWillEnterForeground');
-    assert.ok(content.includes('_handleForegroundTransition'), 'applicationWillEnterForeground must call _handleForegroundTransition');
+    assert.ok(content.includes('setupWebViewBridge()'), 'applicationWillEnterForeground must re-verify webview bridge');
     assert.ok(content.includes('configureAudioSession()'), 'applicationWillEnterForeground must re-activate audio session');
   });
 

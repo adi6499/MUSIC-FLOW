@@ -24,6 +24,38 @@ const Storage = (() => {
     UPDATE_STATE: 'mf_update_state'
   };
 
+  let _backupDebounceTimer = null;
+  function syncToNativePersistentBackup() {
+    if (_backupDebounceTimer) clearTimeout(_backupDebounceTimer);
+    _backupDebounceTimer = setTimeout(() => {
+      try {
+        const fullBackup = {};
+        for (const [name, storageKey] of Object.entries(KEYS)) {
+          const val = localStorage.getItem(storageKey);
+          if (val !== null && val !== undefined) {
+            fullBackup[storageKey] = val;
+          }
+        }
+        const jsonString = JSON.stringify(fullBackup);
+
+        // 1. iOS Keychain Persistence Bridge (survives app uninstallation)
+        if (typeof window !== 'undefined' && window.webkit?.messageHandlers?.nativeMedia) {
+          window.webkit.messageHandlers.nativeMedia.postMessage({
+            action: 'savePersistentBackup',
+            data: jsonString
+          });
+        }
+
+        // 2. Android Native Bridge (survives app uninstallation / auto-backup)
+        if (typeof window !== 'undefined' && window.AndroidMediaBridge && typeof window.AndroidMediaBridge.savePersistentBackup === 'function') {
+          window.AndroidMediaBridge.savePersistentBackup(jsonString);
+        }
+      } catch (e) {
+        console.warn('[Storage] syncToNativePersistentBackup error:', e);
+      }
+    }, 500);
+  }
+
   function getJSON(key, fallback = []) {
     try {
       const val = localStorage.getItem(key);
@@ -36,6 +68,7 @@ const Storage = (() => {
   function setJSON(key, val) {
     try {
       localStorage.setItem(key, JSON.stringify(val));
+      syncToNativePersistentBackup();
     } catch (e) {
       console.warn(`[Storage] Failed to save ${key}:`, e);
     }
@@ -1394,6 +1427,52 @@ const Storage = (() => {
           localStorage.clear();
         }
       } catch (_) {}
+    },
+
+    // Sync to Native Persistent Storage (Keychain on iOS / Auto-Backup on Android)
+    syncPersistentBackup() {
+      syncToNativePersistentBackup();
+    },
+
+    // Restore Persistent Data after App Reinstallation (called from native AppDelegate / Bridge)
+    restorePersistentBackupBase64(base64Str) {
+      if (!base64Str) return false;
+      try {
+        let jsonStr = '';
+        try {
+          const binaryStr = atob(base64Str);
+          const bytes = new Uint8Array(binaryStr.length);
+          for (let i = 0; i < binaryStr.length; i++) {
+            bytes[i] = binaryStr.charCodeAt(i);
+          }
+          jsonStr = new TextDecoder('utf-8').decode(bytes);
+        } catch (_) {
+          jsonStr = atob(base64Str);
+        }
+
+        const backupObj = JSON.parse(jsonStr || '{}');
+        if (backupObj && typeof backupObj === 'object') {
+          let restoredCount = 0;
+          for (const [key, val] of Object.entries(backupObj)) {
+            const currVal = localStorage.getItem(key);
+            // Restore if local key is missing or empty
+            if (!currVal || currVal === '[]' || currVal === '{}' || currVal === '""') {
+              localStorage.setItem(key, typeof val === 'string' ? val : JSON.stringify(val));
+              restoredCount++;
+            }
+          }
+          console.log(`[Storage] Restored ${restoredCount} persistent items from native Keychain across reinstall`);
+
+          // Trigger library & UI refresh if available
+          if (typeof App !== 'undefined' && typeof App.renderLibrary === 'function') {
+            App.renderLibrary();
+          }
+          return true;
+        }
+      } catch (err) {
+        console.warn('[Storage] restorePersistentBackupBase64 error:', err);
+      }
+      return false;
     }
   };
 })();

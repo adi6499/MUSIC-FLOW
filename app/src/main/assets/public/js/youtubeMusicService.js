@@ -106,9 +106,22 @@ if (typeof window !== 'undefined') {
   window._onNativeHttpResponse = function(requestId, response) {
     if (_pendingHttpRequests[requestId]) {
       try {
+        if (response && response.base64Data && !response.data) {
+          try {
+            const binaryStr = atob(response.base64Data);
+            const bytes = new Uint8Array(binaryStr.length);
+            for (let i = 0; i < binaryStr.length; i++) {
+              bytes[i] = binaryStr.charCodeAt(i);
+            }
+            response.data = new TextDecoder('utf-8').decode(bytes);
+          } catch (_) {
+            response.data = atob(response.base64Data);
+          }
+        }
         _pendingHttpRequests[requestId](response);
       } catch (e) {
         console.warn('[YouTubeMusicService] _onNativeHttpResponse error:', e);
+        _pendingHttpRequests[requestId](response);
       }
     }
   };
@@ -152,14 +165,14 @@ async function callInnertube(endpoint, body) {
         const timer = setTimeout(() => {
           delete _pendingHttpRequests[reqId];
           reject(new Error('iOS native HTTP request timed out'));
-        }, 9000);
+        }, 15000);
 
         _pendingHttpRequests[reqId] = (resObj) => {
           clearTimeout(timer);
           delete _pendingHttpRequests[reqId];
           if (resObj && resObj.success && resObj.data) {
             try {
-              resolve(JSON.parse(resObj.data));
+              resolve(typeof resObj.data === 'string' ? JSON.parse(resObj.data) : resObj.data);
             } catch (_) {
               resolve(resObj.data);
             }

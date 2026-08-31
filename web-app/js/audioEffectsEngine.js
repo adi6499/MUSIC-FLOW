@@ -196,6 +196,16 @@ const AudioEffectsEngine = (() => {
     return false;
   }
 
+  function isIOS() {
+    if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+    return (
+      /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ||
+      Boolean(window.webkit?.messageHandlers?.nativeMedia) ||
+      (typeof window.Capacitor !== 'undefined' && window.Capacitor.getPlatform && window.Capacitor.getPlatform() === 'ios')
+    );
+  }
+
   /**
    * attachToElement() — Build and connect the full Web Audio DSP graph.
    * Safe against multiple calls (never recreates createMediaElementSource on same element).
@@ -203,6 +213,13 @@ const AudioEffectsEngine = (() => {
   function attachToElement(audioElement) {
     const el = audioElement || _pendingAudioElement;
     if (!el) return;
+
+    if (isIOS()) {
+      console.log('[AudioEffects] iOS detected — preserving native hardware audio pipeline for uninterrupted background playback');
+      isInitialized = true;
+      _pendingAudioElement = el;
+      return;
+    }
 
     if (_isAttached && audioCtx) {
       if (audioCtx.state === 'suspended') {

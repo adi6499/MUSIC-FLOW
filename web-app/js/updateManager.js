@@ -317,17 +317,24 @@ const UpdateManager = (() => {
   // ----------------------------------------------------------------------------
   // 5. LIFECYCLE INITIALIZER
   // ----------------------------------------------------------------------------
-  function init() {
-    // Non-blocking asynchronous startup check after UI render (delay 2500ms)
-    setTimeout(() => {
-      checkForUpdates({ manual: false, silent: true }).catch(() => {});
-    }, 2500);
+  let _lastCheckTime = 0;
 
-    // Check on app resume / foreground return (throttled)
+  function init() {
+    // Non-blocking asynchronous startup check after UI render (delay 5000ms)
+    setTimeout(() => {
+      _lastCheckTime = Date.now();
+      checkForUpdates({ manual: false, silent: true }).catch(() => {});
+    }, 5000);
+
+    // Check on app resume / foreground return (throttled to at most once per 6 hours)
     if (typeof document !== 'undefined') {
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
-          checkForUpdates({ manual: false, silent: true }).catch(() => {});
+          const now = Date.now();
+          if (now - _lastCheckTime > 6 * 3600 * 1000) {
+            _lastCheckTime = now;
+            checkForUpdates({ manual: false, silent: true }).catch(() => {});
+          }
         }
       });
     }

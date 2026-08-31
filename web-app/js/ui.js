@@ -2026,6 +2026,9 @@ const UI = (() => {
       wavePhase: 0,
       isPlaying: false,
       isSeeking: false,
+      _cachedWidth: 300,
+      _cachedHeight: 32,
+      _lastResizeTime: 0,
 
       setPlaying(playing) {
         this.isPlaying = !!playing;
@@ -2043,14 +2046,14 @@ const UI = (() => {
       },
 
       startLoop() {
-        if (this.animFrameId) return; // Enforce single active animation loop
+        if (this.animFrameId) return;
         if (typeof requestAnimationFrame !== 'function') return;
         const tick = () => {
           if (!this.isPlaying) {
             this.animFrameId = null;
             return;
           }
-          this.wavePhase = (this.wavePhase + 0.075) % (Math.PI * 2);
+          this.wavePhase = (this.wavePhase + 0.05) % (Math.PI * 2);
           this.draw();
           if (typeof requestAnimationFrame === 'function') {
             this.animFrameId = requestAnimationFrame(tick);
@@ -2064,22 +2067,34 @@ const UI = (() => {
           cancelAnimationFrame(this.animFrameId);
         }
         this.animFrameId = null;
-        this.draw(); // Draw clean frozen state
+        this.draw();
       },
 
       draw() {
         const canvas = document.getElementById('player-seek-wave');
         if (!canvas || typeof canvas.getContext !== 'function') return;
+
+        // Skip rendering if player is not visible to maintain 120fps fluidity
+        const playerScreen = document.getElementById('screen-player');
+        if (playerScreen && !playerScreen.classList.contains('active') && playerScreen.style.display === 'none') {
+          return;
+        }
+
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
 
-        const rect = canvas.getBoundingClientRect();
-        const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
-        const width = rect.width || canvas.parentElement?.clientWidth || 300;
-        const height = rect.height || 32;
+        const now = Date.now();
+        if (now - this._lastResizeTime > 1000 || !this._cachedWidth) {
+          this._lastResizeTime = now;
+          this._cachedWidth = canvas.parentElement?.clientWidth || canvas.clientWidth || 300;
+          this._cachedHeight = canvas.clientHeight || 32;
+        }
 
+        const width = this._cachedWidth;
+        const height = this._cachedHeight;
         if (width <= 0 || height <= 0) return;
 
+        const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
         const targetCanvasWidth = Math.round(width * dpr);
         const targetCanvasHeight = Math.round(height * dpr);
 
@@ -2095,35 +2110,29 @@ const UI = (() => {
         const centerY = height / 2;
         const playedWidth = Math.max(0, Math.min(width, (this.currentPct / 100) * width));
 
-        // 1. Draw Unplayed Track Baseline (from playedWidth to right boundary)
+        // 1. Draw Unplayed Track Baseline
         ctx.beginPath();
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
-        ctx.lineWidth = 3.0;
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
+        ctx.lineWidth = 2.5;
         ctx.lineCap = 'round';
         const startX = Math.min(width, Math.max(0, playedWidth));
         ctx.moveTo(startX, centerY);
         ctx.lineTo(width, centerY);
         ctx.stroke();
 
-        // 2. Draw Active Played Sinusoidal Wave (from 0 to playedWidth)
+        // 2. Draw Active Played Sinusoidal Wave
         if (playedWidth > 1) {
-          const rootStyle = (typeof window !== 'undefined' && window.getComputedStyle && document.documentElement) ? getComputedStyle(document.documentElement) : null;
-          const accentColor = (rootStyle && rootStyle.getPropertyValue('--accent').trim()) || '#FF1744';
-          const accentGlow = (rootStyle && rootStyle.getPropertyValue('--accent-glow').trim()) || 'rgba(255, 23, 68, 0.45)';
-
           ctx.beginPath();
-          ctx.strokeStyle = accentColor;
+          ctx.strokeStyle = '#FF1744';
           ctx.lineWidth = 3.0;
           ctx.lineCap = 'round';
           ctx.lineJoin = 'round';
-          ctx.shadowColor = accentGlow;
-          ctx.shadowBlur = 6;
 
-          const amplitude = this.isPlaying ? 3.5 : 1.8;
-          const frequency = 0.048;
-          const taperDist = Math.min(18, playedWidth / 2);
+          const amplitude = this.isPlaying ? 3.0 : 1.5;
+          const frequency = 0.045;
+          const taperDist = Math.min(16, playedWidth / 2);
 
-          for (let x = 0; x <= playedWidth; x += 1.5) {
+          for (let x = 0; x <= playedWidth; x += 2.5) {
             let taper = 1.0;
             if (x < taperDist) {
               taper = x / taperDist;

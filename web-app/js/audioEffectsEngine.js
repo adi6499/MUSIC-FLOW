@@ -265,23 +265,15 @@ const AudioEffectsEngine = (() => {
         return filter;
       });
 
-      // 7. 3D Spatial Audio & Stereo Widener (Mid/Side Matrix with Vocal Preservation)
-      spatialSplitter = audioCtx.createChannelSplitter(2);
-      spatialMerger = audioCtx.createChannelMerger(2);
-      midGainNode = audioCtx.createGain();
-      sideGainNode = audioCtx.createGain();
-      midGainNode.gain.value = 1.0;
-      sideGainNode.gain.value = 1.0;
-
-      // 8. Soft-Knee Dynamic Limiter (Transparent zero-clipping headroom limiter)
+      // 7. Dynamic Transparent Headroom Limiter (Prevents all digital clipping and distortion)
       limiterNode = audioCtx.createDynamicsCompressor();
-      limiterNode.threshold.value = -1.0;
-      limiterNode.knee.value = 4.0;
-      limiterNode.ratio.value = 12.0;
-      limiterNode.attack.value = 0.002;
-      limiterNode.release.value = 0.050;
+      limiterNode.threshold.value = -0.5;
+      limiterNode.knee.value = 6.0;
+      limiterNode.ratio.value = 6.0;
+      limiterNode.attack.value = 0.005;
+      limiterNode.release.value = 0.100;
 
-      // 9. Master Gain Node
+      // 8. Master Gain Node
       masterGainNode = audioCtx.createGain();
       masterGainNode.gain.value = 1.0;
 
@@ -308,23 +300,7 @@ const AudioEffectsEngine = (() => {
         currentNode = filter;
       });
 
-      // Mid/Side Matrix Connection
-      currentNode.connect(spatialSplitter);
-
-      spatialSplitter.connect(midGainNode, 0);
-      spatialSplitter.connect(midGainNode, 1);
-
-      spatialSplitter.connect(sideGainNode, 0);
-      spatialSplitter.connect(sideGainNode, 1);
-
-      midGainNode.connect(spatialMerger, 0, 0);
-      midGainNode.connect(spatialMerger, 0, 1);
-
-      sideGainNode.connect(spatialMerger, 0, 0);
-      sideGainNode.connect(spatialMerger, 0, 1);
-
-      // Spatial Merger -> Soft Limiter -> Master Gain -> Destination
-      spatialMerger.connect(limiterNode);
+      currentNode.connect(limiterNode);
       limiterNode.connect(masterGainNode);
       masterGainNode.connect(audioCtx.destination);
 
@@ -332,7 +308,7 @@ const AudioEffectsEngine = (() => {
       isInitialized = true;
       _pendingAudioElement = el;
 
-      console.log('[AudioEffects] Web Audio DSP graph attached to audio element');
+      console.log('[AudioEffects] Web Audio DSP graph attached to audio element with pristine headroom limiter');
 
       // Apply current settings to the newly built graph
       applyAll();
@@ -469,10 +445,9 @@ const AudioEffectsEngine = (() => {
     rampParam(vocalBoostNode.gain, vocal);
     if (vocal > maxBoost) maxBoost = vocal;
 
-    // 5. Automatic Preamp Headroom Compensation (Prevents clipping on large boosts)
+    // 5. Automatic Preamp Headroom Compensation (Prevents digital clipping on large boosts)
     if (isEnabled && maxBoost > 0) {
-      // Attenuate preamp proportionally to headroom requirement
-      const attenuationDb = -Math.min(10, maxBoost * 0.65);
+      const attenuationDb = -Math.min(10, maxBoost * 0.70);
       const preGainLinear = Math.pow(10, attenuationDb / 20);
       rampParam(preGainNode.gain, preGainLinear);
     } else {
@@ -481,16 +456,10 @@ const AudioEffectsEngine = (() => {
 
     // 6. Loudness Normalization
     if (isEnabled && settings.normalization) {
-      rampParam(normGainNode.gain, 0.92);
+      rampParam(normGainNode.gain, 0.90);
     } else {
       rampParam(normGainNode.gain, 1.0);
     }
-
-    // 7. 3D Spatial Audio / Stereo Widener
-    const spatialLevel = isEnabled ? (settings.spatial || 'OFF') : 'OFF';
-    const sideMultiplier = SPATIAL_WIDTHS[spatialLevel] || 1.0;
-    rampParam(midGainNode.gain, 1.0);
-    rampParam(sideGainNode.gain, sideMultiplier);
   }
 
   // --- Public Control APIs ---

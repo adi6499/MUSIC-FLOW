@@ -4026,8 +4026,8 @@ const App = (() => {
         }
       }
 
-      // 2. Secondary Backend Endpoint Fallback (if direct extraction didn't produce result)
-      if (!resData || resData.success === false) {
+      // 2. Secondary Backend Endpoint Fallback (Desktop only — no backend server on iOS/Android)
+      if ((!resData || resData.success === false) && !isIOS && platform !== 'Android') {
         failureStage = 'NETWORK_REQUEST';
         try {
           const abortController = (typeof AbortController !== 'undefined') ? new AbortController() : null;

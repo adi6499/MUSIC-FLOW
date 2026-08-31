@@ -128,6 +128,94 @@ if (typeof window !== 'undefined') {
 }
 
 /**
+ * Cross-platform fetch helper that uses native bridges on iOS/Android to bypass CORS.
+ * On desktop, uses standard fetch.
+ */
+async function nativeFetchJSON(fetchUrl, options = {}) {
+  const method = (options.method || 'GET').toUpperCase();
+  const headers = options.headers || {};
+  const body = options.body || '';
+  const timeoutMs = options.timeout || 8000;
+
+  // iOS Native URLSession Bridge
+  if (typeof window !== 'undefined' && window.webkit?.messageHandlers?.nativeMedia) {
+    const msgPayload = {
+      action: 'executeHttpRequest',
+      url: fetchUrl,
+      method: method,
+      headers: headers,
+      body: body
+    };
+
+    try {
+      const postPromise = window.webkit.messageHandlers.nativeMedia.postMessage(msgPayload);
+      if (postPromise && typeof postPromise.then === 'function') {
+        const resObj = await Promise.race([
+          postPromise,
+          new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), timeoutMs))
+        ]);
+        if (resObj && resObj.base64Data) {
+          const binaryStr = atob(resObj.base64Data);
+          const bytes = new Uint8Array(binaryStr.length);
+          for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+          return JSON.parse(new TextDecoder('utf-8').decode(bytes));
+        } else if (resObj && resObj.data) {
+          return typeof resObj.data === 'string' ? JSON.parse(resObj.data) : resObj.data;
+        }
+      } else {
+        // Legacy callback bridge
+        const result = await new Promise((resolve, reject) => {
+          const reqId = `nf_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+          const timer = setTimeout(() => { delete _pendingHttpRequests[reqId]; reject(new Error('timeout')); }, timeoutMs);
+          _pendingHttpRequests[reqId] = (resObj) => {
+            clearTimeout(timer);
+            delete _pendingHttpRequests[reqId];
+            if (resObj && resObj.success && (resObj.data || resObj.base64Data)) {
+              if (resObj.base64Data) {
+                try {
+                  const bs = atob(resObj.base64Data);
+                  const bt = new Uint8Array(bs.length);
+                  for (let i = 0; i < bs.length; i++) bt[i] = bs.charCodeAt(i);
+                  resolve(JSON.parse(new TextDecoder('utf-8').decode(bt)));
+                } catch (_) { resolve(JSON.parse(atob(resObj.base64Data))); }
+              } else {
+                resolve(typeof resObj.data === 'string' ? JSON.parse(resObj.data) : resObj.data);
+              }
+            } else {
+              reject(new Error(resObj?.error || 'native fetch failed'));
+            }
+          };
+          window.webkit.messageHandlers.nativeMedia.postMessage({ ...msgPayload, requestId: reqId });
+        });
+        if (result) return result;
+      }
+    } catch (e) {
+      // Fall through to standard fetch
+    }
+  }
+
+  // Android Native OkHttp Bridge
+  if (typeof window !== 'undefined' && window.AndroidMediaBridge && typeof window.AndroidMediaBridge.executeHttpRequest === 'function') {
+    try {
+      const resStr = window.AndroidMediaBridge.executeHttpRequest(fetchUrl, method, JSON.stringify(headers), body);
+      const resObj = typeof resStr === 'string' ? JSON.parse(resStr) : resStr;
+      if (resObj.success && resObj.data) {
+        return typeof resObj.data === 'string' ? JSON.parse(resObj.data) : resObj.data;
+      }
+    } catch (_) {}
+  }
+
+  // Standard fetch (Desktop / environments without CORS issues)
+  const res = await fetch(fetchUrl, {
+    method: method,
+    headers: headers,
+    signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(timeoutMs) : undefined
+  });
+  if (res.ok) return await res.json();
+  throw new Error(`HTTP ${res.status}`);
+}
+
+/**
  * Execute YouTube Music Innertube API request
  */
 async function callInnertube(endpoint, body) {
@@ -688,6 +776,7 @@ const YouTubeMusicService = {
     const cached = getFromCache(cacheKey);
     if (cached) return cached;
 
+    // Strategy 1: YouTube Music Innertube API (via native bridge on iOS/Android)
     try {
       const data = await callInnertube('browse', { browseId });
       const header = data.header?.musicDetailHeaderRenderer 
@@ -712,28 +801,28 @@ const YouTubeMusicService = {
         }
       }
 
-        if (songs.length > 0) {
-          const result = {
-            playlist: {
-              id: rawId,
-              browseId: browseId,
-              name: title,
-              description: description,
-              image: getHighResImage(thumbs) || (songs[0]?.image || 'assets/logo.png'),
-              songCount: songs.length,
-              songs: songs
-            }
-          };
+      if (songs.length > 0) {
+        const result = {
+          playlist: {
+            id: rawId,
+            browseId: browseId,
+            name: title,
+            description: description,
+            image: getHighResImage(thumbs) || (songs[0]?.image || 'assets/logo.png'),
+            songCount: songs.length,
+            songs: songs
+          }
+        };
 
-          setInCache(cacheKey, result);
-          return result;
-        }
+        setInCache(cacheKey, result);
+        return result;
       }
     } catch (err) {
       console.warn('[YouTubeMusicService] Innertube browse notice:', err.message);
     }
 
     // Strategy 2: High-Availability Invidious Public Mirrors Fallback
+    // Uses nativeFetchJSON() which routes through native bridges on iOS/Android to bypass CORS
     const invidiousHosts = [
       'https://inv.nadeko.net',
       'https://invidious.nerdvpn.de',
@@ -747,52 +836,47 @@ const YouTubeMusicService = {
     for (const host of invidiousHosts) {
       try {
         const invUrl = `${host}/api/v1/playlists/${cleanPlaylistId}`;
-        const res = await fetch(invUrl, {
-          signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(5000) : undefined
-        });
-        if (res.ok) {
-          const plData = await res.json();
-          const streams = plData.relatedStreams || plData.videos || [];
-          if (streams.length > 0) {
-            const songs = streams.map(v => {
-              const vId = v.videoId || (v.url ? v.url.replace('/watch?v=', '') : '');
-              return {
-                id: `yt_${vId || Math.random().toString(36).substring(2, 9)}`,
-                videoId: vId,
-                name: v.title || 'YouTube Track',
-                title: v.title || 'YouTube Track',
-                artists: v.author || v.uploaderName || 'YouTube Artist',
-                primaryArtist: v.author || v.uploaderName || 'YouTube Artist',
-                album: plData.title || v.title || 'YouTube Playlist',
-                duration: Number(v.lengthSeconds || 0),
-                durationSeconds: Number(v.lengthSeconds || 0),
-                durationText: `${Math.floor((v.lengthSeconds || 0) / 60)}:${String((v.lengthSeconds || 0) % 60).padStart(2, '0')}`,
-                image: (Array.isArray(v.videoThumbnails) && v.videoThumbnails[0]?.url) ? v.videoThumbnails[0].url : (vId ? `https://i.ytimg.com/vi/${vId}/hqdefault.jpg` : 'assets/logo.png'),
-                provider: 'youtube_music',
-                providerId: vId,
-                source: 'youtube_music',
-                sourceId: vId,
-                isPlayable: true,
-                metadataAvailable: true,
-                playbackAvailable: true
-              };
-            }).filter(s => s.videoId);
+        const plData = await nativeFetchJSON(invUrl, { method: 'GET', timeout: 6000 });
+        const streams = plData.relatedStreams || plData.videos || [];
+        if (streams.length > 0) {
+          const songs = streams.map(v => {
+            const vId = v.videoId || (v.url ? v.url.replace('/watch?v=', '') : '');
+            return {
+              id: `yt_${vId || Math.random().toString(36).substring(2, 9)}`,
+              videoId: vId,
+              name: v.title || 'YouTube Track',
+              title: v.title || 'YouTube Track',
+              artists: v.author || v.uploaderName || 'YouTube Artist',
+              primaryArtist: v.author || v.uploaderName || 'YouTube Artist',
+              album: plData.title || v.title || 'YouTube Playlist',
+              duration: Number(v.lengthSeconds || 0),
+              durationSeconds: Number(v.lengthSeconds || 0),
+              durationText: `${Math.floor((v.lengthSeconds || 0) / 60)}:${String((v.lengthSeconds || 0) % 60).padStart(2, '0')}`,
+              image: (Array.isArray(v.videoThumbnails) && v.videoThumbnails[0]?.url) ? v.videoThumbnails[0].url : (vId ? `https://i.ytimg.com/vi/${vId}/hqdefault.jpg` : 'assets/logo.png'),
+              provider: 'youtube_music',
+              providerId: vId,
+              source: 'youtube_music',
+              sourceId: vId,
+              isPlayable: true,
+              metadataAvailable: true,
+              playbackAvailable: true
+            };
+          }).filter(s => s.videoId);
 
-            if (songs.length > 0) {
-              const result = {
-                playlist: {
-                  id: rawId,
-                  browseId: browseId,
-                  name: plData.title || 'YouTube Playlist',
-                  description: plData.description || '',
-                  image: plData.playlistThumbnail || songs[0]?.image || 'assets/logo.png',
-                  songCount: songs.length,
-                  songs: songs
-                }
-              };
-              setInCache(cacheKey, result);
-              return result;
-            }
+          if (songs.length > 0) {
+            const result = {
+              playlist: {
+                id: rawId,
+                browseId: browseId,
+                name: plData.title || 'YouTube Playlist',
+                description: plData.description || '',
+                image: plData.playlistThumbnail || songs[0]?.image || 'assets/logo.png',
+                songCount: songs.length,
+                songs: songs
+              }
+            };
+            setInCache(cacheKey, result);
+            return result;
           }
         }
       } catch (_) {}
@@ -815,17 +899,12 @@ const YouTubeMusicService = {
     let ytAuthor = 'YouTube Music';
     let ytThumbnail = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
 
-    // 1. Fetch real video metadata via oEmbed
+    // 1. Fetch real video metadata via oEmbed (uses native bridge on iOS to bypass CORS)
     try {
-      const oembedRes = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`, {
-        signal: AbortSignal.timeout(4000)
-      });
-      if (oembedRes.ok) {
-        const oembedData = await oembedRes.json();
-        if (oembedData.title) ytTitle = oembedData.title;
-        if (oembedData.author_name) ytAuthor = oembedData.author_name;
-        if (oembedData.thumbnail_url) ytThumbnail = oembedData.thumbnail_url;
-      }
+      const oembedData = await nativeFetchJSON(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`, { method: 'GET', timeout: 4000 });
+      if (oembedData && oembedData.title) ytTitle = oembedData.title;
+      if (oembedData && oembedData.author_name) ytAuthor = oembedData.author_name;
+      if (oembedData && oembedData.thumbnail_url) ytThumbnail = oembedData.thumbnail_url;
     } catch (_) {}
 
     let cleanArtist = ytAuthor.replace(/ - Topic$/i, '').trim();
@@ -865,9 +944,7 @@ const YouTubeMusicService = {
       const saavnBase = (typeof ApiConfig !== 'undefined' && typeof ApiConfig.getJioSaavnApiBase === 'function')
         ? ApiConfig.getJioSaavnApiBase()
         : 'https://spoton-trpn.vercel.app/api';
-      const saavnRes = await fetch(`${saavnBase}/search/songs?query=${encodeURIComponent(searchQuery)}&limit=3`, {
-        signal: AbortSignal.timeout(5000)
-      }).then(r => r.ok ? r.json() : null).catch(() => null);
+      const saavnRes = await nativeFetchJSON(`${saavnBase}/search/songs?query=${encodeURIComponent(searchQuery)}&limit=3`, { method: 'GET', timeout: 5000 }).catch(() => null);
 
       const candidateList = saavnRes?.data?.results || saavnRes?.results || [];
       if (candidateList.length > 0) {
@@ -1003,9 +1080,7 @@ const YouTubeMusicService = {
             ? ApiConfig.getJioSaavnApiBase()
             : 'https://spoton-trpn.vercel.app/api';
 
-          const saavnRes = await fetch(`${saavnBase}/search/songs?query=${encodeURIComponent(searchQuery)}&limit=3`, {
-            signal: AbortSignal.timeout(5000)
-          }).then(r => r.ok ? r.json() : null).catch(() => null);
+          const saavnRes = await nativeFetchJSON(`${saavnBase}/search/songs?query=${encodeURIComponent(searchQuery)}&limit=3`, { method: 'GET', timeout: 5000 }).catch(() => null);
 
           const candidateList = saavnRes?.data?.results || saavnRes?.results || [];
           if (candidateList.length > 0) {

@@ -160,40 +160,84 @@ async function callInnertube(endpoint, body) {
   // 2. iOS Native URLSession Bridge (bypasses WKWebView CORS/origin restrictions)
   if (typeof window !== 'undefined' && window.webkit?.messageHandlers?.nativeMedia) {
     try {
-      const nativeResult = await new Promise((resolve, reject) => {
-        const reqId = `ytm_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-        const timer = setTimeout(() => {
-          delete _pendingHttpRequests[reqId];
-          reject(new Error('iOS native HTTP request timed out'));
-        }, 15000);
+      const msgPayload = {
+        action: 'executeHttpRequest',
+        url: url,
+        method: 'POST',
+        headers: YTM_HEADERS,
+        body: JSON.stringify(payload)
+      };
 
-        _pendingHttpRequests[reqId] = (resObj) => {
-          clearTimeout(timer);
-          delete _pendingHttpRequests[reqId];
-          if (resObj && resObj.success && resObj.data) {
-            try {
-              resolve(typeof resObj.data === 'string' ? JSON.parse(resObj.data) : resObj.data);
-            } catch (_) {
-              resolve(resObj.data);
+      let nativeResult = null;
+
+      // Check if postMessage returns a Promise (iOS 14+ WKScriptMessageHandlerWithReply)
+      const postPromise = window.webkit.messageHandlers.nativeMedia.postMessage(msgPayload);
+      if (postPromise && typeof postPromise.then === 'function') {
+        const resObj = await Promise.race([
+          postPromise,
+          new Promise((_, reject) => setTimeout(() => reject(new Error('iOS native HTTP request timed out')), 15000))
+        ]);
+        if (resObj && resObj.base64Data) {
+          try {
+            const binaryStr = atob(resObj.base64Data);
+            const bytes = new Uint8Array(binaryStr.length);
+            for (let i = 0; i < binaryStr.length; i++) {
+              bytes[i] = binaryStr.charCodeAt(i);
             }
-          } else {
-            reject(new Error(resObj?.error || `Native HTTP status ${resObj?.status || 500}`));
+            const jsonText = new TextDecoder('utf-8').decode(bytes);
+            nativeResult = JSON.parse(jsonText);
+          } catch (_) {
+            nativeResult = JSON.parse(atob(resObj.base64Data));
           }
-        };
+        } else if (resObj && resObj.data) {
+          nativeResult = typeof resObj.data === 'string' ? JSON.parse(resObj.data) : resObj.data;
+        }
+      } else {
+        // Fallback for older WebKit versions using _onNativeHttpResponse
+        nativeResult = await new Promise((resolve, reject) => {
+          const reqId = `ytm_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+          const timer = setTimeout(() => {
+            delete _pendingHttpRequests[reqId];
+            reject(new Error('iOS native HTTP request timed out'));
+          }, 15000);
 
-        window.webkit.messageHandlers.nativeMedia.postMessage({
-          action: 'executeHttpRequest',
-          requestId: reqId,
-          url: url,
-          method: 'POST',
-          headers: YTM_HEADERS,
-          body: JSON.stringify(payload)
+          _pendingHttpRequests[reqId] = (resObj) => {
+            clearTimeout(timer);
+            delete _pendingHttpRequests[reqId];
+            if (resObj && resObj.success && (resObj.data || resObj.base64Data)) {
+              if (resObj.data) {
+                try {
+                  resolve(typeof resObj.data === 'string' ? JSON.parse(resObj.data) : resObj.data);
+                } catch (_) {
+                  resolve(resObj.data);
+                }
+              } else if (resObj.base64Data) {
+                try {
+                  const binaryStr = atob(resObj.base64Data);
+                  const bytes = new Uint8Array(binaryStr.length);
+                  for (let i = 0; i < binaryStr.length; i++) {
+                    bytes[i] = binaryStr.charCodeAt(i);
+                  }
+                  resolve(JSON.parse(new TextDecoder('utf-8').decode(bytes)));
+                } catch (_) {
+                  resolve(JSON.parse(atob(resObj.base64Data)));
+                }
+              }
+            } else {
+              reject(new Error(resObj?.error || `Native HTTP status ${resObj?.status || 500}`));
+            }
+          };
+
+          window.webkit.messageHandlers.nativeMedia.postMessage({
+            ...msgPayload,
+            requestId: reqId
+          });
         });
-      });
+      }
 
       if (nativeResult) return nativeResult;
     } catch (iosErr) {
-      console.warn('[YouTubeMusicService] iOS native bridge fallback:', iosErr.message);
+      console.warn('[YouTubeMusicService] iOS native bridge notice:', iosErr.message);
     }
   }
 

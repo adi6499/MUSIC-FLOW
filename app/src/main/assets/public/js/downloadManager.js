@@ -305,6 +305,13 @@ const DownloadManager = (() => {
         });
       }
 
+      // 4b. Device File System Export (Android Files App / MediaStore & iOS Documents / Files App)
+      try {
+        _saveToDeviceFilesystem(task, blob);
+      } catch (fsErr) {
+        console.warn('[DownloadManager] Device filesystem export notice:', fsErr);
+      }
+
       // 5. Verification Complete -> Mark COMPLETED
       task.status = STATUS.COMPLETED;
       task.progress = 100;
@@ -553,6 +560,102 @@ const DownloadManager = (() => {
 
   function getActiveCount() {
     return activeCount;
+  }
+
+  function _saveToDeviceFilesystem(task, blob) {
+    if (!blob || typeof window === 'undefined') return;
+
+    const safeTitle = (task.name || 'Song').replace(/[/\\?%*:|"<>]/g, '_').trim();
+    const safeArtist = (task.artists || 'Artist').replace(/[/\\?%*:|"<>]/g, '_').trim();
+    const fileName = `${safeTitle} - ${safeArtist}.mp3`;
+    const mimeType = blob.type || 'audio/mpeg';
+
+    // 1. Native Android Storage via AndroidMediaBridge (Music/MusicFlow directory in Android Files app & MediaStore)
+    if (window.AndroidMediaBridge && typeof window.AndroidMediaBridge.saveAudioToDevice === 'function') {
+      try {
+        if (typeof FileReader !== 'undefined') {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            try {
+              const dataUrl = reader.result;
+              const base64 = typeof dataUrl === 'string' ? dataUrl.split(',')[1] : '';
+              if (base64) {
+                const success = window.AndroidMediaBridge.saveAudioToDevice(
+                  fileName,
+                  base64,
+                  mimeType,
+                  task.name || '',
+                  task.artists || '',
+                  task.album || ''
+                );
+                console.log(`[DownloadManager] AndroidMediaBridge.saveAudioToDevice: ${success} for ${fileName}`);
+              }
+            } catch (bridgeErr) {
+              console.warn('[DownloadManager] AndroidMediaBridge saveAudioToDevice error:', bridgeErr);
+            }
+          };
+          reader.readAsDataURL(blob);
+          return;
+        }
+      } catch (err) {
+        console.warn('[DownloadManager] Android bridge filesystem save error:', err);
+      }
+    }
+
+    // 2. Capacitor Filesystem Plugin (iOS Documents directory -> Files.app "On My iPhone / MusicFlow")
+    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Filesystem) {
+      try {
+        const Filesystem = window.Capacitor.Plugins.Filesystem;
+        if (typeof FileReader !== 'undefined') {
+          const reader = new FileReader();
+          reader.onloadend = async () => {
+            try {
+              const dataUrl = reader.result;
+              const base64 = typeof dataUrl === 'string' ? dataUrl.split(',')[1] : '';
+              if (base64) {
+                await Filesystem.writeFile({
+                  path: fileName,
+                  data: base64,
+                  directory: 'DOCUMENTS',
+                  recursive: true
+                });
+                console.log(`[DownloadManager] Saved to iOS Documents folder (Files.app): ${fileName}`);
+              }
+            } catch (capErr) {
+              console.warn('[DownloadManager] Capacitor Filesystem write error:', capErr);
+            }
+          };
+          reader.readAsDataURL(blob);
+          return;
+        }
+      } catch (err) {
+        console.warn('[DownloadManager] Capacitor Filesystem error:', err);
+      }
+    }
+
+    // 3. Web Browser & Desktop Fallback (Trigger native browser file download to user's Downloads folder)
+    try {
+      const isMobileApp = (typeof window.AndroidMediaBridge !== 'undefined') ||
+                          (typeof window.webkit !== 'undefined' && window.webkit.messageHandlers);
+      if (!isMobileApp && typeof document !== 'undefined' && document.createElement && typeof URL !== 'undefined' && URL.createObjectURL) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          try {
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+          } catch (_) {}
+        }, 1000);
+        console.log(`[DownloadManager] Browser download initiated: ${fileName}`);
+      }
+    } catch (e) {
+      console.warn('[DownloadManager] Browser file download trigger error:', e);
+    }
   }
 
   function on(event, callback) {

@@ -150,6 +150,61 @@ class MediaSessionBridge(
         }
     }
 
+    @JavascriptInterface
+    fun saveAudioToDevice(fileName: String, base64Data: String, mimeType: String, title: String, artist: String, album: String): Boolean {
+        return try {
+            val decodedBytes = android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                val contentValues = android.content.ContentValues().apply {
+                    put(android.provider.MediaStore.Audio.Media.DISPLAY_NAME, fileName)
+                    put(android.provider.MediaStore.Audio.Media.TITLE, if (title.isNotEmpty()) title else fileName)
+                    put(android.provider.MediaStore.Audio.Media.ARTIST, if (artist.isNotEmpty()) artist else "MusicFlow")
+                    put(android.provider.MediaStore.Audio.Media.ALBUM, if (album.isNotEmpty()) album else "MusicFlow Downloads")
+                    put(android.provider.MediaStore.Audio.Media.MIME_TYPE, if (mimeType.isNotEmpty()) mimeType else "audio/mpeg")
+                    put(android.provider.MediaStore.Audio.Media.RELATIVE_PATH, "Music/MusicFlow")
+                    put(android.provider.MediaStore.Audio.Media.IS_PENDING, 1)
+                }
+                val resolver = context.contentResolver
+                val uri = resolver.insert(android.provider.MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, contentValues)
+                if (uri != null) {
+                    resolver.openOutputStream(uri)?.use { outputStream ->
+                        outputStream.write(decodedBytes)
+                        outputStream.flush()
+                    }
+                    contentValues.clear()
+                    contentValues.put(android.provider.MediaStore.Audio.Media.IS_PENDING, 0)
+                    resolver.update(uri, contentValues, null, null)
+                    android.util.Log.i("MediaSessionBridge", "Saved audio file to MediaStore Music/MusicFlow: $fileName")
+                    true
+                } else {
+                    false
+                }
+            } else {
+                val musicDir = java.io.File(
+                    android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_MUSIC),
+                    "MusicFlow"
+                )
+                if (!musicDir.exists()) musicDir.mkdirs()
+                val destFile = java.io.File(musicDir, fileName)
+                java.io.FileOutputStream(destFile).use { fos ->
+                    fos.write(decodedBytes)
+                    fos.flush()
+                }
+                android.media.MediaScannerConnection.scanFile(
+                    context,
+                    arrayOf(destFile.absolutePath),
+                    arrayOf(if (mimeType.isNotEmpty()) mimeType else "audio/mpeg"),
+                    null
+                )
+                android.util.Log.i("MediaSessionBridge", "Saved audio file to ${destFile.absolutePath}")
+                true
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("MediaSessionBridge", "Failed to save audio to device storage", e)
+            false
+        }
+    }
+
     data class TrackMetadata(
         val id: String,
         val title: String,

@@ -2642,22 +2642,28 @@ const UI = (() => {
       if (!container) return;
 
       const options = [
-        { key: '320kbps', label: 'Lossless / High Quality (320 kbps)', desc: 'Best audio fidelity with maximum detail' },
-        { key: '160kbps', label: 'Standard Quality (160 kbps)', desc: 'Balanced sound quality and low data usage' },
-        { key: '96kbps', label: 'Data Saver (96 kbps)', desc: 'Minimal data consumption for slower connections' }
+        { key: '320kbps', label: 'Lossless & Studio Master', bitrate: '320 kbps', desc: 'Highest studio master fidelity, lossless acoustic dynamics', badge: 'LOSSLESS' },
+        { key: '256kbps', label: 'High Fidelity', bitrate: '256 kbps', desc: 'Apple Music standard, pristine soundstage clarity', badge: 'HI-FI' },
+        { key: '160kbps', label: 'High Quality', bitrate: '160 kbps', desc: 'Crisp sound, balanced data usage and rapid streaming', badge: 'HQ' },
+        { key: '128kbps', label: 'Standard Quality', bitrate: '128 kbps', desc: 'Smooth streaming, standard data usage', badge: null },
+        { key: '96kbps', label: 'Data Saver', bitrate: '96 kbps', desc: 'Low data consumption, quick buffering on mobile data', badge: null },
+        { key: '48kbps', label: 'Ultra Data Saver', bitrate: '48 kbps', desc: 'Minimal data usage, ideal for weak or slow networks', badge: null }
       ];
 
       const cleanCurr = String(currentQuality).toLowerCase();
 
       container.innerHTML = options.map(opt => {
-        const isSelected = cleanCurr === opt.key.toLowerCase() || (cleanCurr === '320' && opt.key === '320kbps') || (cleanCurr === '160' && opt.key === '160kbps') || (cleanCurr === '96' && opt.key === '96kbps');
+        const isSelected = cleanCurr === opt.key.toLowerCase() || (cleanCurr.replace(/\D/g, '') === opt.key.replace(/\D/g, ''));
         return `
-          <div class="quality-option-row ${isSelected ? 'selected' : ''}" onclick="App.selectQuality('${opt.key}')" style="display:flex; align-items:center; justify-content:space-between; padding:12px 14px; border-radius:12px; margin-bottom:8px; background:${isSelected ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.02)'}; border:1px solid ${isSelected ? 'var(--accent)' : 'rgba(255,255,255,0.06)'}; cursor:pointer;">
-            <div>
-              <div style="font-size:14px; font-weight:700; color:${isSelected ? 'var(--accent)' : '#FFFFFF'};">${opt.label}</div>
-              <div style="font-size:11px; color:var(--text-secondary); margin-top:2px;">${opt.desc}</div>
+          <div class="quality-option-row ${isSelected ? 'selected' : ''}" onclick="App.selectQuality('${opt.key}')" style="display:flex; align-items:center; justify-content:space-between; padding:12px 14px; border-radius:12px; margin-bottom:8px; background:${isSelected ? 'rgba(255,255,255,0.09)' : 'rgba(255,255,255,0.02)'}; border:1px solid ${isSelected ? 'var(--accent)' : 'rgba(255,255,255,0.06)'}; cursor:pointer; transition:all 0.2s cubic-bezier(0.4, 0, 0.2, 1);">
+            <div style="flex:1; padding-right:12px;">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span style="font-size:14px; font-weight:700; color:${isSelected ? 'var(--accent)' : '#FFFFFF'};">${opt.label} (${opt.bitrate})</span>
+                ${opt.badge ? `<span style="font-size:9px; font-weight:800; padding:2px 5px; border-radius:4px; background:rgba(255,255,255,0.12); color:${isSelected ? 'var(--accent)' : '#EEEEEE'}; letter-spacing:0.5px;">${opt.badge}</span>` : ''}
+              </div>
+              <div style="font-size:11px; color:var(--text-secondary); margin-top:3px; line-height:1.3;">${opt.desc}</div>
             </div>
-            ${isSelected ? '<span class="material-symbols-outlined" style="color:var(--accent); font-size:20px; font-weight:bold;">check_circle</span>' : '<span class="material-symbols-outlined" style="color:var(--text-secondary); font-size:20px;">radio_button_unchecked</span>'}
+            ${isSelected ? '<span class="material-symbols-outlined" style="color:var(--accent); font-size:22px; font-weight:bold;">check_circle</span>' : '<span class="material-symbols-outlined" style="color:rgba(255,255,255,0.3); font-size:22px;">radio_button_unchecked</span>'}
           </div>
         `;
       }).join('');

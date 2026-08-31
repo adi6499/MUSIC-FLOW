@@ -4,6 +4,7 @@
 // ============================================================================
 
 const http = require('http');
+const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const url = require('url');
@@ -30,6 +31,16 @@ const MIME_TYPES = {
   '.ttf': 'font/ttf'
 };
 
+const YTM_BASE_URL = 'https://music.youtube.com/youtubei/v1';
+const YTM_HEADERS = {
+  'Content-Type': 'application/json',
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'X-YouTube-Client-Name': '67',
+  'X-YouTube-Client-Version': '1.20231204.01.00',
+  'Origin': 'https://music.youtube.com',
+  'Referer': 'https://music.youtube.com/'
+};
+
 const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -41,8 +52,93 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  const parsedUrl = url.parse(req.url);
+  const parsedUrl = url.parse(req.url, true);
   let pathname = parsedUrl.pathname;
+
+  // 1. Proxy Route: Innertube Proxy (/api/proxy/innertube)
+  if (pathname === '/api/proxy/innertube') {
+    const endpoint = parsedUrl.query.endpoint || 'browse';
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      const targetUrl = new URL(`${YTM_BASE_URL}/${endpoint}`);
+      const proxyReq = https.request(targetUrl, {
+        method: 'POST',
+        headers: {
+          ...YTM_HEADERS,
+          'Content-Length': Buffer.byteLength(body)
+        }
+      }, (proxyRes) => {
+        res.writeHead(proxyRes.statusCode, {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Access-Control-Allow-Origin': '*'
+        });
+        proxyRes.pipe(res);
+      });
+
+      proxyReq.on('error', (err) => {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      });
+
+      proxyReq.write(body);
+      proxyReq.end();
+    });
+    return;
+  }
+
+  // 2. Proxy Route: Serverless YouTube Playlist / Track Import (/api/providers/ytmusic/*)
+  if (pathname.startsWith('/api/providers/ytmusic/import-playlist')) {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', async () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        const inputUrl = payload.url || parsedUrl.query.url;
+        const ytmService = require('../youtubeMusicService.js');
+        const result = await ytmService.importAndMatchPlaylist(inputUrl);
+        res.writeHead(200, {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Access-Control-Allow-Origin': '*'
+        });
+        res.end(JSON.stringify(result));
+      } catch (err) {
+        res.writeHead(200, {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Access-Control-Allow-Origin': '*'
+        });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+    });
+    return;
+  }
+
+  if (pathname.startsWith('/api/providers/ytmusic/import-track')) {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', async () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        const inputUrl = payload.url || parsedUrl.query.url;
+        const ytmService = require('../youtubeMusicService.js');
+        const result = await ytmService.importTrack(inputUrl);
+        res.writeHead(200, {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Access-Control-Allow-Origin': '*'
+        });
+        res.end(JSON.stringify(result));
+      } catch (err) {
+        res.writeHead(200, {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Access-Control-Allow-Origin': '*'
+        });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // 3. Static File Serving
   if (pathname === '/' || pathname === '') {
     pathname = '/index.html';
   }

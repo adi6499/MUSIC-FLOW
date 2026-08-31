@@ -997,6 +997,31 @@ const Player = (() => {
     return { ...queueContext };
   }
 
+  async function updatePlaybackQuality(preferredQuality) {
+    const cur = getCurrentTrack();
+    if (!cur || !audio) return;
+
+    try {
+      const savedTime = audio.currentTime || 0;
+      const wasPlaying = (playbackState === PlaybackState.PLAYING);
+      
+      let newUrl = (typeof API !== 'undefined' && API.getDownloadUrl)
+        ? API.getDownloadUrl(cur, preferredQuality)
+        : '';
+      
+      if (newUrl && newUrl !== audio.src) {
+        console.log(`[Player] Seamlessly updating stream quality to ${preferredQuality}`);
+        audio.src = newUrl;
+        audio.currentTime = savedTime;
+        if (wasPlaying) {
+          audio.play().catch(console.warn);
+        }
+      }
+    } catch (e) {
+      console.warn('[Player] Quality update notice:', e);
+    }
+  }
+
   function appendToQueue(song) {
     if (!song) return;
     queue.push(song);
@@ -1547,6 +1572,7 @@ const Player = (() => {
     getPosition: () => (audio ? audio.currentTime : 0),
     getState,
     resolvePlaybackSource,
+    updatePlaybackQuality,
     on,
     off,
     // iOS Background Audio — exposed for native AppDelegate bridge

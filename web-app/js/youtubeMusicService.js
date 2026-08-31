@@ -184,6 +184,23 @@ async function callInnertube(endpoint, body) {
     }
   }
 
+  // 3. Desktop / Web Local Dev Server Proxy (bypasses browser CORS on http://localhost:3000)
+  if (typeof window !== 'undefined' && window.location && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+    try {
+      const proxyUrl = `/api/proxy/innertube?endpoint=${endpoint}`;
+      const proxyRes = await fetch(proxyUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (proxyRes.ok) {
+        return await proxyRes.json();
+      }
+    } catch (proxyErr) {
+      console.warn('[YouTubeMusicService] Local proxy notice:', proxyErr.message);
+    }
+  }
+
   const res = await fetch(url, {
     method: 'POST',
     headers: YTM_HEADERS,

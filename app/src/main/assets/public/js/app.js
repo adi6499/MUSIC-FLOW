@@ -2939,12 +2939,19 @@ const App = (() => {
   function selectQuality(quality) {
     Storage.setAudioQuality(quality);
     closeDialog('dialog-quality');
+    
+    if (typeof Player !== 'undefined' && typeof Player.updatePlaybackQuality === 'function') {
+      Player.updatePlaybackQuality(quality);
+    }
+
     const cur = (typeof Player !== 'undefined' && Player.getCurrentTrack) ? Player.getCurrentTrack() : null;
     if (cur && typeof UI !== 'undefined' && UI.renderPlayer) {
       UI.renderPlayer(cur);
-    } else {
-      const badge = document.getElementById('player-quality-badge');
-      if (badge) badge.textContent = quality.toUpperCase().replace('KBPS', ' KBPS');
+    }
+    const badge = document.getElementById('player-quality-badge');
+    if (badge) {
+      const displayStr = quality === '320kbps' ? '320 KBPS • HI-RES' : quality.toUpperCase().replace('KBPS', ' KBPS');
+      badge.textContent = displayStr;
     }
     const setVal = document.getElementById('settings-quality-val');
     if (setVal) setVal.textContent = quality;

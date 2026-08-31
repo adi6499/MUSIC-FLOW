@@ -2962,7 +2962,17 @@ const App = (() => {
       badge.textContent = displayStr;
     }
     const setVal = document.getElementById('settings-quality-val');
-    if (setVal) setVal.textContent = quality;
+    if (setVal) {
+      const q = String(quality).toLowerCase();
+      let qualityLabel = 'Lossless & Studio Master (320 kbps)';
+      if (q.includes('320')) qualityLabel = 'Lossless & Studio Master (320 kbps)';
+      else if (q.includes('256')) qualityLabel = 'High Fidelity (256 kbps)';
+      else if (q.includes('160')) qualityLabel = 'High Quality (160 kbps)';
+      else if (q.includes('128')) qualityLabel = 'Standard Quality (128 kbps)';
+      else if (q.includes('96')) qualityLabel = 'Data Saver (96 kbps)';
+      else if (q.includes('48')) qualityLabel = 'Ultra Data Saver (48 kbps)';
+      setVal.textContent = qualityLabel;
+    }
     UI.showToast(`Audio quality set to ${quality}`);
   }
 

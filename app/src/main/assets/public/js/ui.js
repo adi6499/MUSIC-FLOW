@@ -2704,11 +2704,19 @@ const UI = (() => {
       const dlLimitSelect = document.getElementById('settings-dl-limit-select');
 
       const prof = (typeof Storage !== 'undefined' && Storage.getUserProfile) ? Storage.getUserProfile() : { name: 'MusicFlow Listener' };
-      const quality = (typeof Storage !== 'undefined' && Storage.getStreamingQuality) ? Storage.getStreamingQuality() : '320';
+      const quality = String((typeof Storage !== 'undefined' && Storage.getAudioQuality) ? Storage.getAudioQuality() : '320kbps').toLowerCase();
       const perf = (typeof Storage !== 'undefined' && Storage.isPerformanceMode) ? Storage.isPerformanceMode() : false;
 
+      let qualityLabel = 'Lossless & Studio Master (320 kbps)';
+      if (quality.includes('320')) qualityLabel = 'Lossless & Studio Master (320 kbps)';
+      else if (quality.includes('256')) qualityLabel = 'High Fidelity (256 kbps)';
+      else if (quality.includes('160')) qualityLabel = 'High Quality (160 kbps)';
+      else if (quality.includes('128')) qualityLabel = 'Standard Quality (128 kbps)';
+      else if (quality.includes('96')) qualityLabel = 'Data Saver (96 kbps)';
+      else if (quality.includes('48')) qualityLabel = 'Ultra Data Saver (48 kbps)';
+
       if (nameVal) nameVal.textContent = prof.name || 'MusicFlow Listener';
-      if (qualityVal) qualityVal.textContent = quality === '320' ? 'Lossless / 320 kbps High' : (quality === '160' ? 'Standard 160 kbps' : 'Data Saver 96 kbps');
+      if (qualityVal) qualityVal.textContent = qualityLabel;
       if (perfVal) perfVal.textContent = perf ? 'ON (Minimal UI Animations)' : 'OFF (Smooth 60fps)';
 
       if (smartDlSwitch && typeof Storage !== 'undefined') {

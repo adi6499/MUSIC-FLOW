@@ -216,7 +216,7 @@ Full Changelog: https://github.com/adi6499/MUSIC-FLOW/compare/v1.7.0...v1.8.0
   // ----------------------------------------------------------------------------
   runTest('UpdateManager: Exports single version source and platform detection', () => {
     assert.strictEqual(typeof UpdateManager.VERSION, 'string');
-    assert.strictEqual(UpdateManager.VERSION, '2.7.1');
+    assert.strictEqual(UpdateManager.VERSION, '2.7.2');
     assert.strictEqual(typeof UpdateManager.getPlatform(), 'string');
     assert(['android', 'ios', 'web'].includes(UpdateManager.getPlatform()));
   });
@@ -249,7 +249,7 @@ Full Changelog: https://github.com/adi6499/MUSIC-FLOW/compare/v1.7.0...v1.8.0
       status: 200,
       headers: { get: () => 'application/json' },
       json: async () => ({
-        latestVersion: '2.7.1',
+        latestVersion: '2.7.2',
         versionCode: 28,
         apkUrl: 'https://adi6499.github.io/MUSICFLOW/downloads/MusicFlow.apk'
       })

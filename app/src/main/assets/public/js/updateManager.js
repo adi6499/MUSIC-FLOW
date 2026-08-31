@@ -5,7 +5,7 @@
 
 const UpdateManager = (() => {
   // Single Source of Truth for Client Version (synchronized with Gradle/Xcode build)
-  const APP_VERSION = '2.7.1';
+  const APP_VERSION = '2.7.2';
   const BUILD_NUMBER = 29;
 
   // Throttling & Auto-Check Configuration

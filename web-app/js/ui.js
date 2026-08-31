@@ -381,18 +381,24 @@ const UI = (() => {
       const container = document.getElementById('shelf-new-releases-container');
       const label = document.getElementById('new-releases-toggle-label');
       const chevron = document.getElementById('new-releases-chevron');
-      if (!container || !songs) return;
+      if (!container) return;
 
-      const displayList = isExpanded ? songs : songs.slice(0, 5);
+      if (Array.isArray(songs) && songs.length > 0) {
+        this._cachedNewReleases = songs;
+      }
+      const list = (Array.isArray(songs) && songs.length > 0) ? songs : (this._cachedNewReleases || []);
+      if (list.length === 0) return;
+
+      const displayList = isExpanded ? list : list.slice(0, 5);
       if (label) label.textContent = isExpanded ? 'Show less' : 'See all';
       if (chevron) chevron.textContent = isExpanded ? 'expand_less' : 'chevron_right';
 
       container.innerHTML = displayList.map(song => `
         <div class="vertical-track-row" onclick="App.playSongWithQueue('${song.id}')">
-          <img class="vertical-track-img" src="${song.image}" loading="lazy" decoding="async" onerror="this.src='assets/logo.png'" alt="${song.name}">
+          <img class="vertical-track-img" src="${song.image || 'assets/logo.png'}" loading="lazy" decoding="async" onerror="this.src='assets/logo.png'" alt="${song.name || song.title}">
           <div class="vertical-track-info">
-            <div class="vertical-track-title">${song.name}</div>
-            <div class="vertical-track-artist">${song.artists}</div>
+            <div class="vertical-track-title">${song.name || song.title}</div>
+            <div class="vertical-track-artist">${song.artists || song.primaryArtist || 'MusicFlow'}</div>
           </div>
           <button class="vertical-track-more" onclick="event.stopPropagation(); App.openSongMenu('${song.id}');" aria-label="More">
             <span class="material-symbols-outlined">more_vert</span>
@@ -1891,8 +1897,19 @@ const UI = (() => {
       }
 
       if (qualityBadge) {
-        const cleanBitrate = String(actualBitrate).toUpperCase().replace('KBPS', ' KBPS').trim();
-        qualityBadge.textContent = cleanBitrate.includes(' ') ? cleanBitrate : `${cleanBitrate} KBPS`;
+        const cleanQuality = String(actualBitrate).toLowerCase();
+        let displayStr = '320 KBPS • HI-RES';
+        if (cleanQuality.includes('320')) displayStr = '320 KBPS • HI-RES';
+        else if (cleanQuality.includes('256')) displayStr = '256 KBPS • HI-FI';
+        else if (cleanQuality.includes('160')) displayStr = '160 KBPS • HQ';
+        else if (cleanQuality.includes('128')) displayStr = '128 KBPS';
+        else if (cleanQuality.includes('96')) displayStr = '96 KBPS';
+        else if (cleanQuality.includes('48')) displayStr = '48 KBPS';
+        else {
+          const cleanBitrate = String(actualBitrate).toUpperCase().replace('KBPS', ' KBPS').trim();
+          displayStr = cleanBitrate.includes(' ') ? cleanBitrate : `${cleanBitrate} KBPS`;
+        }
+        qualityBadge.textContent = displayStr;
       }
 
       if (losslessBadge) {

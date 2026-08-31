@@ -249,7 +249,9 @@ const App = (() => {
 
   function toggleAllNewReleases() {
     isNewReleasesExpanded = !isNewReleasesExpanded;
-    const songs = (homeFeedData?.trending?.songs || homeFeedData?.quickPicks || []);
+    const songs = (UI && UI._cachedNewReleases && UI._cachedNewReleases.length > 0)
+      ? UI._cachedNewReleases
+      : (homeFeedData?.trending?.songs || homeFeedData?.quickPicks || []);
     UI.renderNewReleases(songs, isNewReleasesExpanded);
   }
 

@@ -84,30 +84,32 @@ const API = (() => {
     return 'assets/logo.png';
   }
 
-  // Helper to extract highest quality download audio URL
   function getDownloadUrl(item, preferredBitrate = '320kbps') {
     if (!item) return '';
-    const targetBitrate = String(preferredBitrate || '320kbps').toLowerCase().trim();
+    const rawTarget = String(preferredBitrate || '320kbps').toLowerCase().trim();
+    const targetKbps = parseInt(rawTarget.replace(/\D/g, ''), 10) || 320;
 
     if (Array.isArray(item.downloadUrl) && item.downloadUrl.length > 0) {
       // 1. Direct exact quality match
-      const matched = item.downloadUrl.find(u => (u.quality || '').toLowerCase() === targetBitrate);
+      const matched = item.downloadUrl.find(u => {
+        const q = String(u.quality || '').toLowerCase();
+        return q === rawTarget || parseInt(q.replace(/\D/g, ''), 10) === targetKbps;
+      });
       if (matched && (matched.url || matched.link)) return (matched.url || matched.link).trim();
 
-      // 2. If 320kbps requested, find 320k, then 160k, then highest
-      if (targetBitrate.includes('320')) {
-        const q320 = item.downloadUrl.find(u => (u.quality || '').includes('320'));
-        if (q320 && (q320.url || q320.link)) return (q320.url || q320.link).trim();
-      }
+      // 2. Select closest bitrate match (<= targetKbps or nearest available)
+      const validUrls = item.downloadUrl
+        .filter(u => u && (u.url || u.link))
+        .map(u => ({
+          url: (u.url || u.link).trim(),
+          kbps: parseInt(String(u.quality || '0').replace(/\D/g, ''), 10) || 0
+        }))
+        .sort((a, b) => b.kbps - a.kbps);
 
-      // 3. Pick highest quality available (last element or best quality)
-      const sorted = [...item.downloadUrl].sort((a, b) => {
-        const numA = parseInt((a.quality || '0').replace(/\D/g, ''), 10) || 0;
-        const numB = parseInt((b.quality || '0').replace(/\D/g, ''), 10) || 0;
-        return numB - numA;
-      });
-      const best = sorted[0];
-      if (best && (best.url || best.link)) return (best.url || best.link).trim();
+      if (validUrls.length > 0) {
+        const bestMatch = validUrls.find(u => u.kbps <= targetKbps) || validUrls[validUrls.length - 1];
+        if (bestMatch && bestMatch.url) return bestMatch.url;
+      }
     }
 
     if (typeof item.audioUrl === 'string' && item.audioUrl.trim()) return item.audioUrl.trim();

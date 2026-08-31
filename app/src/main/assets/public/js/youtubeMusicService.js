@@ -668,24 +668,93 @@ const YouTubeMusicService = {
         }
       }
 
-      const result = {
-        playlist: {
-          id: rawId,
-          browseId: browseId,
-          name: title,
-          description: description,
-          image: getHighResImage(thumbs) || (songs[0]?.image || 'assets/logo.png'),
-          songCount: songs.length,
-          songs: songs
-        }
-      };
+        if (songs.length > 0) {
+          const result = {
+            playlist: {
+              id: rawId,
+              browseId: browseId,
+              name: title,
+              description: description,
+              image: getHighResImage(thumbs) || (songs[0]?.image || 'assets/logo.png'),
+              songCount: songs.length,
+              songs: songs
+            }
+          };
 
-      setInCache(cacheKey, result);
-      return result;
+          setInCache(cacheKey, result);
+          return result;
+        }
+      }
     } catch (err) {
-      console.warn('[YouTubeMusicService] getPlaylist failed:', err.message);
-      return { playlist: null };
+      console.warn('[YouTubeMusicService] Innertube browse notice:', err.message);
     }
+
+    // Strategy 2: High-Availability Invidious Public Mirrors Fallback
+    const invidiousHosts = [
+      'https://inv.nadeko.net',
+      'https://invidious.nerdvpn.de',
+      'https://yt.artemislena.eu',
+      'https://invidious.jing.rocks',
+      'https://invidious.privacyredirect.com'
+    ];
+
+    const cleanPlaylistId = rawId.replace(/^VL/i, '');
+
+    for (const host of invidiousHosts) {
+      try {
+        const invUrl = `${host}/api/v1/playlists/${cleanPlaylistId}`;
+        const res = await fetch(invUrl, {
+          signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(5000) : undefined
+        });
+        if (res.ok) {
+          const plData = await res.json();
+          const streams = plData.relatedStreams || plData.videos || [];
+          if (streams.length > 0) {
+            const songs = streams.map(v => {
+              const vId = v.videoId || (v.url ? v.url.replace('/watch?v=', '') : '');
+              return {
+                id: `yt_${vId || Math.random().toString(36).substring(2, 9)}`,
+                videoId: vId,
+                name: v.title || 'YouTube Track',
+                title: v.title || 'YouTube Track',
+                artists: v.author || v.uploaderName || 'YouTube Artist',
+                primaryArtist: v.author || v.uploaderName || 'YouTube Artist',
+                album: plData.title || v.title || 'YouTube Playlist',
+                duration: Number(v.lengthSeconds || 0),
+                durationSeconds: Number(v.lengthSeconds || 0),
+                durationText: `${Math.floor((v.lengthSeconds || 0) / 60)}:${String((v.lengthSeconds || 0) % 60).padStart(2, '0')}`,
+                image: (Array.isArray(v.videoThumbnails) && v.videoThumbnails[0]?.url) ? v.videoThumbnails[0].url : (vId ? `https://i.ytimg.com/vi/${vId}/hqdefault.jpg` : 'assets/logo.png'),
+                provider: 'youtube_music',
+                providerId: vId,
+                source: 'youtube_music',
+                sourceId: vId,
+                isPlayable: true,
+                metadataAvailable: true,
+                playbackAvailable: true
+              };
+            }).filter(s => s.videoId);
+
+            if (songs.length > 0) {
+              const result = {
+                playlist: {
+                  id: rawId,
+                  browseId: browseId,
+                  name: plData.title || 'YouTube Playlist',
+                  description: plData.description || '',
+                  image: plData.playlistThumbnail || songs[0]?.image || 'assets/logo.png',
+                  songCount: songs.length,
+                  songs: songs
+                }
+              };
+              setInCache(cacheKey, result);
+              return result;
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    return { playlist: null };
   },
 
   /**

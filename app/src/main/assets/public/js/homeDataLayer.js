@@ -337,7 +337,7 @@ const HomeDataLayer = (() => {
         title: 'New Releases',
         tag: 'FRESH MUSIC',
         type: 'vertical_list',
-        items: trendingSongs.slice(0, 10)
+        items: trendingSongs.slice(0, 30)
       });
     }
 

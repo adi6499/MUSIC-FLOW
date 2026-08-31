@@ -202,7 +202,8 @@ const API = (() => {
 
         langList.slice(0, 3).forEach(lang => {
           const capLang = String(lang).charAt(0).toUpperCase() + String(lang).slice(1);
-          searchPromises.push(this.searchSongs(`Top ${capLang} Hits 2024`, 1, 16));
+          searchPromises.push(this.searchSongs(`Top ${capLang} Hits 2025`, 1, 20));
+          searchPromises.push(this.searchSongs(`Latest New ${capLang} Releases`, 1, 20));
         });
 
         const primaryLang = String(langList[0]).charAt(0).toUpperCase() + String(langList[0]).slice(1);
@@ -220,7 +221,7 @@ const API = (() => {
         });
 
         if (candidatePool.length === 0) {
-          candidatePool = await this.searchSongs('Top Songs 2024', 1, 24);
+          candidatePool = await this.searchSongs('Top Songs 2025', 1, 30);
         }
 
         const albums = albumRes.status === 'fulfilled' ? (albumRes.value?.data?.results || []) : [];
@@ -233,13 +234,13 @@ const API = (() => {
           const userFavs = (typeof Storage !== 'undefined') ? Storage.getFavorites() : [];
           const rawPicks = RecommendationEngine.getPersonalizedRecommendations(userHistory, userFavs, candidatePool, { limit: 16, selectedLanguages: langList });
           personalizedPicks = rawPicks.map(r => r.song || r);
-          const rawTrending = RecommendationEngine.getPersonalizedRecommendations([], [], candidatePool, { limit: 20, selectedLanguages: langList });
+          const rawTrending = RecommendationEngine.getPersonalizedRecommendations([], [], candidatePool, { limit: 30, selectedLanguages: langList });
           diverseTrending = rawTrending.map(r => r.song || r);
         }
 
         return {
           quickPicks: personalizedPicks.length > 0 ? personalizedPicks : candidatePool.slice(0, 16),
-          trending: { songs: diverseTrending.length > 0 ? diverseTrending : candidatePool.slice(0, 20) },
+          trending: { songs: diverseTrending.length > 0 ? diverseTrending : candidatePool.slice(0, 30) },
           charts,
           albums
         };

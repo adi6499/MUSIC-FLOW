@@ -247,11 +247,34 @@ const App = (() => {
     }
   }
 
-  function toggleAllNewReleases() {
+  async function toggleAllNewReleases() {
     isNewReleasesExpanded = !isNewReleasesExpanded;
-    const songs = (UI && UI._cachedNewReleases && UI._cachedNewReleases.length > 0)
-      ? UI._cachedNewReleases
-      : (homeFeedData?.trending?.songs || homeFeedData?.quickPicks || []);
+    let songs = (UI && UI._cachedNewReleases && UI._cachedNewReleases.length > 0)
+      ? [...UI._cachedNewReleases]
+      : [...(homeFeedData?.trending?.songs || homeFeedData?.quickPicks || [])];
+
+    // If expanding and list has fewer than 15 songs, dynamically fetch 25+ fresh releases
+    if (isNewReleasesExpanded && songs.length < 15 && typeof API !== 'undefined' && typeof API.searchSongs === 'function') {
+      try {
+        const langs = (typeof Storage !== 'undefined' && typeof Storage.getLanguages === 'function') ? (Storage.getLanguages() || ['hindi']) : ['hindi'];
+        const primaryLang = String(langs[0] || 'hindi');
+        const capLang = primaryLang.charAt(0).toUpperCase() + primaryLang.slice(1);
+        const moreSongs = await API.searchSongs(`Latest New ${capLang} Songs 2025`, 1, 25);
+        if (Array.isArray(moreSongs) && moreSongs.length > 0) {
+          const seen = new Set(songs.map(s => String(s.id)));
+          for (const ms of moreSongs) {
+            const norm = (typeof API.normalizeSong === 'function') ? API.normalizeSong(ms) : ms;
+            if (norm && norm.id && !seen.has(String(norm.id))) {
+              seen.add(String(norm.id));
+              songs.push(norm);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('[App] Dynamic new releases fetch warning:', err);
+      }
+    }
+
     UI.renderNewReleases(songs, isNewReleasesExpanded);
   }
 

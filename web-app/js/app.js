@@ -693,27 +693,22 @@ const App = (() => {
   let isCardTransitioning = false;
 
   function transitionToNext() {
-    if (isCardTransitioning || playerSwipeState === PlayerSwipeState.COMMITTING_NEXT || playerSwipeState === PlayerSwipeState.COMMITTING_PREV) {
-      console.log('[PlayerDeck] Transition lock active — ignoring rapid next request');
-      return;
+    if (isCardTransitioning) {
+      // Force unlock if stuck
+      isCardTransitioning = false;
+      playerSwipeState = PlayerSwipeState.READY;
     }
 
     const queue = (typeof Player !== 'undefined' && Player.getQueue) ? Player.getQueue() : [];
-    if (queue.length === 0) return;
+    if (queue.length === 0) {
+      if (typeof Player !== 'undefined' && Player.next) Player.next();
+      return;
+    }
 
     const curIdx = (typeof Player !== 'undefined' && Player.getCurrentIndex) ? Player.getCurrentIndex() : 0;
     const repeatMode = (typeof Player !== 'undefined' && Player.getRepeatMode) ? Player.getRepeatMode() : 'OFF';
 
     if (repeatMode === 'ONE') {
-      Player.next();
-      return;
-    }
-
-    const hasNext = (curIdx + 1 < queue.length) || (repeatMode === 'ALL');
-    const queueCtx = (typeof Player !== 'undefined' && Player.getQueueContext) ? Player.getQueueContext() : {};
-    const isPlaylist = queueCtx.source === 'playlist' || queueCtx.mode === 'playlist';
-
-    if (!hasNext && isPlaylist) {
       Player.next();
       return;
     }
@@ -748,17 +743,20 @@ const App = (() => {
         isCardTransitioning = false;
         playerSwipeState = PlayerSwipeState.READY;
       }, 60);
-    }, 200);
+    }, 180);
   }
 
   function transitionToPrevious() {
-    if (isCardTransitioning || playerSwipeState === PlayerSwipeState.COMMITTING_NEXT || playerSwipeState === PlayerSwipeState.COMMITTING_PREV) {
-      console.log('[PlayerDeck] Transition lock active — ignoring rapid prev request');
-      return;
+    if (isCardTransitioning) {
+      isCardTransitioning = false;
+      playerSwipeState = PlayerSwipeState.READY;
     }
 
     const queue = (typeof Player !== 'undefined' && Player.getQueue) ? Player.getQueue() : [];
-    if (queue.length === 0) return;
+    if (queue.length === 0) {
+      if (typeof Player !== 'undefined' && Player.previous) Player.previous();
+      return;
+    }
 
     const audio = (typeof Player !== 'undefined' && Player.getAudioElement) ? Player.getAudioElement() : null;
     if (audio && audio.currentTime > 3.0) {
@@ -796,7 +794,7 @@ const App = (() => {
         isCardTransitioning = false;
         playerSwipeState = PlayerSwipeState.READY;
       }, 60);
-    }, 200);
+    }, 180);
   }
 
   function initPlayer3DDeckGesture() {
@@ -2059,6 +2057,7 @@ const App = (() => {
     seekBar._isSeekInitialized = true;
 
     let isPointerDown = false;
+    let seekSafetyTimer = null;
 
     function getProgressFromCoord(clientX) {
       const targetEl = seekTrack || seekBar;
@@ -2087,13 +2086,15 @@ const App = (() => {
       isPointerDown = true;
       window._isUserSeeking = true;
       seekBar.classList.add('seeking');
+      if (seekSafetyTimer) clearTimeout(seekSafetyTimer);
+
       try {
         if (e.pointerId !== undefined && seekBar.setPointerCapture) {
           seekBar.setPointerCapture(e.pointerId);
         }
       } catch (_) {}
 
-      const clientX = (e.clientX !== undefined) ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
+      const clientX = (e.clientX !== undefined && e.clientX !== 0) ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
       const progress = getProgressFromCoord(clientX);
       updateVisualSeek(progress);
     }
@@ -2101,22 +2102,25 @@ const App = (() => {
     function onPointerMove(e) {
       if (!isPointerDown) return;
       if (e.cancelable) e.preventDefault();
-      const clientX = (e.clientX !== undefined) ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
+      const clientX = (e.clientX !== undefined && e.clientX !== 0) ? e.clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : 0);
       const progress = getProgressFromCoord(clientX);
       updateVisualSeek(progress);
     }
 
     function onPointerUp(e) {
-      if (!isPointerDown) return;
+      if (!isPointerDown && !window._isUserSeeking) return;
       isPointerDown = false;
       seekBar.classList.remove('seeking');
+
       try {
         if (e.pointerId !== undefined && seekBar.releasePointerCapture) {
           seekBar.releasePointerCapture(e.pointerId);
         }
       } catch (_) {}
 
-      const clientX = (e.clientX !== undefined) ? e.clientX : (e.changedTouches && e.changedTouches[0] ? e.changedTouches[0].clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : 0));
+      const clientX = (e.clientX !== undefined && e.clientX !== 0)
+        ? e.clientX
+        : (e.changedTouches && e.changedTouches[0] ? e.changedTouches[0].clientX : (e.touches && e.touches[0] ? e.touches[0].clientX : 0));
       const progress = getProgressFromCoord(clientX);
       updateVisualSeek(progress);
 
@@ -2126,24 +2130,28 @@ const App = (() => {
         Player.seek(targetSeconds);
       }
 
-      setTimeout(() => {
+      if (seekSafetyTimer) clearTimeout(seekSafetyTimer);
+      seekSafetyTimer = setTimeout(() => {
         window._isUserSeeking = false;
-      }, 60);
+      }, 50);
     }
 
-    // Pointer Events (Desktop Mouse + Touch + Android WebView)
+    // Pointer Events (Desktop Mouse + Touch + iOS WKWebView)
     seekBar.addEventListener('pointerdown', onPointerDown, { passive: false });
     seekBar.addEventListener('pointermove', onPointerMove, { passive: false });
     seekBar.addEventListener('pointerup', onPointerUp);
     seekBar.addEventListener('pointercancel', onPointerUp);
 
-    // Fallback touch events for environments without PointerEvent support
-    if (typeof window !== 'undefined' && !window.PointerEvent) {
-      seekBar.addEventListener('touchstart', onPointerDown, { passive: false });
-      seekBar.addEventListener('touchmove', onPointerMove, { passive: false });
-      seekBar.addEventListener('touchend', onPointerUp);
-      seekBar.addEventListener('touchcancel', onPointerUp);
-    }
+    // Native Touch Events for iOS WebKit & Mobile Browsers
+    seekBar.addEventListener('touchstart', onPointerDown, { passive: false });
+    seekBar.addEventListener('touchmove', onPointerMove, { passive: false });
+    seekBar.addEventListener('touchend', onPointerUp);
+    seekBar.addEventListener('touchcancel', onPointerUp);
+
+    // Global Safety Window Release Listeners
+    window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('touchend', onPointerUp);
+    window.addEventListener('touchcancel', onPointerUp);
   }
 
   // ==========================================================================

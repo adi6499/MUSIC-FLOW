@@ -101,9 +101,22 @@ function extractVideoId(input) {
   return '';
 }
 
+const _pendingHttpRequests = {};
+if (typeof window !== 'undefined') {
+  window._onNativeHttpResponse = function(requestId, response) {
+    if (_pendingHttpRequests[requestId]) {
+      try {
+        _pendingHttpRequests[requestId](response);
+      } catch (e) {
+        console.warn('[YouTubeMusicService] _onNativeHttpResponse error:', e);
+      }
+    }
+  };
+}
+
 /**
- * Execute YouTube Music Innertube API request
- */
+  * Execute YouTube Music Innertube API request
+  */
 async function callInnertube(endpoint, body) {
   const url = `${YTM_BASE_URL}/${endpoint}`;
   const payload = {
@@ -111,7 +124,7 @@ async function callInnertube(endpoint, body) {
     ...body
   };
 
-  // If running in Android APK, route through native OkHttp to bypass all WebView CORS/origin restrictions
+  // 1. Android Native OkHttp Bridge (bypasses WebView CORS/origin restrictions)
   if (typeof window !== 'undefined' && window.AndroidMediaBridge && typeof window.AndroidMediaBridge.executeHttpRequest === 'function') {
     try {
       const resStr = window.AndroidMediaBridge.executeHttpRequest(
@@ -124,10 +137,50 @@ async function callInnertube(endpoint, body) {
       if (resObj.success && resObj.data) {
         return JSON.parse(resObj.data);
       } else if (resObj.status && resObj.status !== 200) {
-        console.warn(`[YouTubeMusicService] Native OkHttp returned status ${resObj.status}`);
+        console.warn(`[YouTubeMusicService] Android OkHttp returned status ${resObj.status}`);
       }
     } catch (bridgeErr) {
-      console.warn('[YouTubeMusicService] Native bridge fetch fallback:', bridgeErr.message);
+      console.warn('[YouTubeMusicService] Android bridge fetch fallback:', bridgeErr.message);
+    }
+  }
+
+  // 2. iOS Native URLSession Bridge (bypasses WKWebView CORS/origin restrictions)
+  if (typeof window !== 'undefined' && window.webkit?.messageHandlers?.nativeMedia) {
+    try {
+      const nativeResult = await new Promise((resolve, reject) => {
+        const reqId = `ytm_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+        const timer = setTimeout(() => {
+          delete _pendingHttpRequests[reqId];
+          reject(new Error('iOS native HTTP request timed out'));
+        }, 9000);
+
+        _pendingHttpRequests[reqId] = (resObj) => {
+          clearTimeout(timer);
+          delete _pendingHttpRequests[reqId];
+          if (resObj && resObj.success && resObj.data) {
+            try {
+              resolve(JSON.parse(resObj.data));
+            } catch (_) {
+              resolve(resObj.data);
+            }
+          } else {
+            reject(new Error(resObj?.error || `Native HTTP status ${resObj?.status || 500}`));
+          }
+        };
+
+        window.webkit.messageHandlers.nativeMedia.postMessage({
+          action: 'executeHttpRequest',
+          requestId: reqId,
+          url: url,
+          method: 'POST',
+          headers: YTM_HEADERS,
+          body: JSON.stringify(payload)
+        });
+      });
+
+      if (nativeResult) return nativeResult;
+    } catch (iosErr) {
+      console.warn('[YouTubeMusicService] iOS native bridge fallback:', iosErr.message);
     }
   }
 

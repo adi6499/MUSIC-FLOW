@@ -602,7 +602,37 @@ const DownloadManager = (() => {
       }
     }
 
-    // 2. Capacitor Filesystem Plugin (iOS Documents directory -> Files.app "On My iPhone / MusicFlow")
+    // 2. Native iOS Storage via WKScriptMessageHandler (Documents directory -> Files.app "On My iPhone / MusicFlow")
+    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.nativeMedia) {
+      try {
+        if (typeof FileReader !== 'undefined') {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            try {
+              const dataUrl = reader.result;
+              const base64 = typeof dataUrl === 'string' ? dataUrl.split(',')[1] : '';
+              if (base64) {
+                window.webkit.messageHandlers.nativeMedia.postMessage({
+                  action: 'saveAudioFile',
+                  fileName: fileName,
+                  base64Data: base64,
+                  mimeType: mimeType
+                });
+                console.log(`[DownloadManager] Sent to iOS nativeMedia.saveAudioFile: ${fileName}`);
+              }
+            } catch (iosErr) {
+              console.warn('[DownloadManager] iOS nativeMedia saveAudioFile error:', iosErr);
+            }
+          };
+          reader.readAsDataURL(blob);
+          return;
+        }
+      } catch (err) {
+        console.warn('[DownloadManager] iOS bridge filesystem save error:', err);
+      }
+    }
+
+    // 3. Capacitor Filesystem Plugin (Fallback)
     if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Filesystem) {
       try {
         const Filesystem = window.Capacitor.Plugins.Filesystem;

@@ -246,19 +246,9 @@ const Player = (() => {
         updatePositionState();
       }
 
-      // AudioContext suspension watchdog (iOS background audio safety net)
+      // AudioContext smooth resume check
       if (audioCtx && audioCtx.state === 'suspended' && playbackState === PlaybackState.PLAYING) {
-        if (_audioCtxSuspendedSince === 0) {
-          _audioCtxSuspendedSince = Date.now();
-        } else if (Date.now() - _audioCtxSuspendedSince > 2000) {
-          // AudioContext has been suspended for >2s while we think we're playing
-          // This means audio output is silent — trigger background swap
-          console.warn('[Player] AudioContext suspended while PLAYING detected — triggering background swap');
-          _handleBackgroundTransition();
-          _audioCtxSuspendedSince = 0;
-        }
-      } else {
-        _audioCtxSuspendedSince = 0;
+        audioCtx.resume().catch(() => {});
       }
 
       const cur = getCurrentTrack();

@@ -93,6 +93,27 @@ class MediaSessionBridge(
     }
 
     @JavascriptInterface
+    fun savePersistentBackup(jsonStr: String): Boolean {
+        return try {
+            if (jsonStr.isBlank()) return false
+            val prefs = context.getSharedPreferences("musicflow_backup_prefs", Context.MODE_PRIVATE)
+            prefs.edit().putString("persistent_backup_json", jsonStr).apply()
+
+            // Also persist to internal file for robust local storage survival
+            try {
+                val backupFile = java.io.File(context.filesDir, "musicflow_backup.json")
+                backupFile.writeText(jsonStr, Charsets.UTF_8)
+            } catch (_: Exception) {}
+
+            android.util.Log.i("MediaSessionBridge", "Persistent backup saved successfully on Android (${jsonStr.length} chars)")
+            true
+        } catch (e: Exception) {
+            android.util.Log.e("MediaSessionBridge", "Failed to save persistent backup", e)
+            false
+        }
+    }
+
+    @JavascriptInterface
     fun releaseSession() {
         MusicService.stopMediaService(context)
         currentTrackInfo = null
@@ -102,11 +123,15 @@ class MediaSessionBridge(
     fun executeHttpRequest(url: String, method: String, headersJson: String, bodyStr: String): String {
         return try {
             val client = okhttp3.OkHttpClient.Builder()
-                .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-                .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                .connectTimeout(25, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(25, java.util.concurrent.TimeUnit.SECONDS)
+                .writeTimeout(25, java.util.concurrent.TimeUnit.SECONDS)
                 .build()
 
-            val requestBuilder = okhttp3.Request.Builder().url(url)
+            val requestBuilder = okhttp3.Request.Builder()
+                .url(url)
+                .header("User-Agent", "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36")
+                .header("Accept", "*/*")
 
             if (headersJson.isNotEmpty() && headersJson != "{}") {
                 try {
@@ -122,7 +147,8 @@ class MediaSessionBridge(
                 } catch (_: Exception) {}
             }
 
-            if (method.equals("POST", ignoreCase = true)) {
+            val httpMethod = method.uppercase()
+            if (httpMethod == "POST") {
                 val mediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
                 val reqBody = (if (bodyStr.isEmpty()) "{}" else bodyStr).toRequestBody(mediaType)
                 requestBuilder.post(reqBody)
@@ -131,11 +157,15 @@ class MediaSessionBridge(
             }
 
             val response = client.newCall(requestBuilder.build()).execute()
-            val responseBody = response.body?.string() ?: ""
+            val responseBytes = response.body?.bytes() ?: ByteArray(0)
+            val responseBody = String(responseBytes, Charsets.UTF_8)
+            val base64Data = android.util.Base64.encodeToString(responseBytes, android.util.Base64.NO_WRAP)
+
             val resObj = JSONObject().apply {
                 put("status", response.code)
                 put("success", response.isSuccessful)
                 put("data", responseBody)
+                put("base64Data", base64Data)
             }
             resObj.toString()
         } catch (e: Exception) {
@@ -145,6 +175,7 @@ class MediaSessionBridge(
                 put("success", false)
                 put("error", e.message ?: "Network request failed")
                 put("data", "")
+                put("base64Data", "")
             }
             errObj.toString()
         }
@@ -226,6 +257,25 @@ class MediaSessionBridge(
 
         fun registerWebView(webView: WebView?) {
             activeWebView = WeakReference(webView)
+        }
+
+        fun getPersistentBackupBase64(context: Context): String? {
+            return try {
+                val prefs = context.getSharedPreferences("musicflow_backup_prefs", Context.MODE_PRIVATE)
+                var jsonStr = prefs.getString("persistent_backup_json", null)
+                if (jsonStr.isNullOrBlank()) {
+                    val backupFile = java.io.File(context.filesDir, "musicflow_backup.json")
+                    if (backupFile.exists()) {
+                        jsonStr = backupFile.readText(Charsets.UTF_8)
+                    }
+                }
+                if (!jsonStr.isNullOrBlank()) {
+                    android.util.Base64.encodeToString(jsonStr.toByteArray(Charsets.UTF_8), android.util.Base64.NO_WRAP)
+                } else null
+            } catch (e: Exception) {
+                android.util.Log.e("MediaSessionBridge", "getPersistentBackupBase64 error", e)
+                null
+            }
         }
 
         fun sendPlay() {

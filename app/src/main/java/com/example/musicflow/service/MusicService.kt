@@ -23,6 +23,39 @@ class MusicService : Service() {
     private var currentDurationSec: Double = 0.0
     private var currentPositionSec: Double = 0.0
 
+    private var isNoisyReceiverRegistered = false
+    private val becomingNoisyReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == android.media.AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
+                android.util.Log.i("MusicService", "Headphones/Bluetooth disconnected -> Pausing audio playback")
+                MediaSessionBridge.sendPause()
+            }
+        }
+    }
+
+    private fun registerNoisyReceiver() {
+        if (!isNoisyReceiverRegistered) {
+            try {
+                registerReceiver(
+                    becomingNoisyReceiver,
+                    android.content.IntentFilter(android.media.AudioManager.ACTION_AUDIO_BECOMING_NOISY)
+                )
+                isNoisyReceiverRegistered = true
+            } catch (e: Exception) {
+                android.util.Log.e("MusicService", "Failed to register noisy receiver", e)
+            }
+        }
+    }
+
+    private fun unregisterNoisyReceiver() {
+        if (isNoisyReceiverRegistered) {
+            try {
+                unregisterReceiver(becomingNoisyReceiver)
+                isNoisyReceiverRegistered = false
+            } catch (_: Exception) {}
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
 
@@ -77,6 +110,7 @@ class MusicService : Service() {
                 updateMediaSessionMetadata()
                 updatePlaybackStateCompat()
                 publishNotification()
+                if (currentIsPlaying) registerNoisyReceiver() else unregisterNoisyReceiver()
             }
 
             ACTION_UPDATE_STATE -> {
@@ -87,6 +121,7 @@ class MusicService : Service() {
 
                 updatePlaybackStateCompat()
                 publishNotification()
+                if (currentIsPlaying) registerNoisyReceiver() else unregisterNoisyReceiver()
             }
 
             ACTION_TOGGLE_PLAY -> {
@@ -115,6 +150,7 @@ class MusicService : Service() {
             }
 
             ACTION_STOP -> {
+                unregisterNoisyReceiver()
                 stopForeground(true)
                 stopSelf()
             }
@@ -180,6 +216,7 @@ class MusicService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        unregisterNoisyReceiver()
         notificationManager?.cancelNotification()
         mediaSession?.run {
             isActive = false

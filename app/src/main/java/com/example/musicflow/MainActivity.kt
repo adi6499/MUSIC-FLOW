@@ -129,14 +129,32 @@ fun WebMusicFlowScreen(
                         }
                         return false
                     }
+
+                    override fun onPageFinished(view: WebView?, url: String?) {
+                        super.onPageFinished(view, url)
+                        try {
+                            val backupBase64 = com.example.musicflow.service.MediaSessionBridge.getPersistentBackupBase64(ctx)
+                            if (!backupBase64.isNullOrEmpty()) {
+                                val restoreJs = """
+                                    if (window.Storage && typeof window.Storage.restorePersistentBackupBase64 === 'function') {
+                                        window.Storage.restorePersistentBackupBase64('$backupBase64');
+                                    }
+                                """.trimIndent()
+                                view?.postDelayed({
+                                    view.evaluateJavascript(restoreJs, null)
+                                }, 300)
+                            }
+                        } catch (e: Exception) {
+                            android.util.Log.e("MainActivity", "Error restoring persistent backup", e)
+                        }
+                    }
                 }
 
                 webChromeClient = WebChromeClient()
 
-                addJavascriptInterface(
-                    com.example.musicflow.service.MediaSessionBridge(ctx, this),
-                    "AndroidMediaBridge"
-                )
+                val bridge = com.example.musicflow.service.MediaSessionBridge(ctx, this)
+                addJavascriptInterface(bridge, "AndroidMediaBridge")
+                com.example.musicflow.service.MediaSessionBridge.registerWebView(this)
 
                 loadUrl("file:///android_asset/public/index.html")
                 webViewInstance = this

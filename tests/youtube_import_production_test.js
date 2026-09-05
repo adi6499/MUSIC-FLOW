@@ -93,7 +93,7 @@ it('1.3 DataNormalizer.parseYouTubeUrl returns null for non-YouTube URLs', () =>
 const ApiConfig = require('../web-app/js/apiConfig.js');
 
 it('2.1 ApiConfig exports production and development API constants', () => {
-  assert.strictEqual(ApiConfig.PRODUCTION_API_BASE, 'https://spoton-trpn.vercel.app');
+  assert.strictEqual(ApiConfig.PRODUCTION_API_BASE, 'https://spoton-sigma.vercel.app');
   assert.strictEqual(ApiConfig.DEV_API_BASE, 'http://localhost:3000');
 });
 
@@ -114,7 +114,7 @@ it('2.2 ApiConfig selects http://localhost:3000 in local desktop development bro
   assert.strictEqual(ApiConfig.buildUrl('/api/providers/ytmusic/import-playlist'), 'http://localhost:3000/api/providers/ytmusic/import-playlist');
 });
 
-it('2.3 ApiConfig selects https://spoton-trpn.vercel.app in Android WebView build (never localhost)', () => {
+it('2.3 ApiConfig selects https://spoton-sigma.vercel.app in Android WebView build (never localhost)', () => {
   // Simulate Android WebView running file:///android_asset/public/index.html
   global.window = {
     location: {
@@ -128,9 +128,9 @@ it('2.3 ApiConfig selects https://spoton-trpn.vercel.app in Android WebView buil
 
   assert.strictEqual(ApiConfig.isRunningInAndroid(), true);
   assert.strictEqual(ApiConfig.isLocalDevelopment(), false);
-  assert.strictEqual(ApiConfig.getApiBaseUrl(), 'https://spoton-trpn.vercel.app');
-  assert.strictEqual(ApiConfig.buildUrl('/api/providers/ytmusic/import-playlist'), 'https://spoton-trpn.vercel.app/api/providers/ytmusic/import-playlist');
-  assert.strictEqual(ApiConfig.buildUrl('/api/update'), 'https://spoton-trpn.vercel.app/api/update');
+  assert.strictEqual(ApiConfig.getApiBaseUrl(), 'https://spoton-sigma.vercel.app');
+  assert.strictEqual(ApiConfig.buildUrl('/api/providers/ytmusic/import-playlist'), 'https://spoton-sigma.vercel.app/api/providers/ytmusic/import-playlist');
+  assert.strictEqual(ApiConfig.buildUrl('/api/update'), 'https://spoton-sigma.vercel.app/api/update');
 });
 
 it('2.4 ApiConfig preserves absolute URLs when passed to buildUrl()', () => {

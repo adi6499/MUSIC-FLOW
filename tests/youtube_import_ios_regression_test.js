@@ -88,9 +88,9 @@ global.Storage = Storage;
     assert.strictEqual(ApiConfig.isRunningInIOS(), true, 'Must identify iPhone WKWebView as iOS');
     assert.strictEqual(ApiConfig.isNativeApp(), true, 'Must be native app');
     assert.strictEqual(ApiConfig.isLocalDevelopment(), false, 'Must NOT be considered local development');
-    assert.strictEqual(ApiConfig.getApiBaseUrl(), 'https://spoton-trpn.vercel.app', 'Base URL must be production');
-    assert.strictEqual(ApiConfig.getYouTubeMusicApiBase(), 'https://spoton-trpn.vercel.app/api/providers/ytmusic');
-    assert.strictEqual(ApiConfig.buildUrl('/api/providers/ytmusic/import-playlist'), 'https://spoton-trpn.vercel.app/api/providers/ytmusic/import-playlist');
+    assert.strictEqual(ApiConfig.getApiBaseUrl(), 'https://spoton-sigma.vercel.app', 'Base URL must be production');
+    assert.strictEqual(ApiConfig.getYouTubeMusicApiBase(), 'https://spoton-sigma.vercel.app/api/providers/ytmusic');
+    assert.strictEqual(ApiConfig.buildUrl('/api/providers/ytmusic/import-playlist'), 'https://spoton-sigma.vercel.app/api/providers/ytmusic/import-playlist');
 
     global.window = originalWindow;
     global.navigator = originalNavigator;
@@ -120,8 +120,8 @@ global.Storage = Storage;
     };
 
     assert.strictEqual(ApiConfig.isRunningInIOS(), true, 'Must identify iPadOS desktop useragent as iOS');
-    assert.strictEqual(ApiConfig.getApiBaseUrl(), 'https://spoton-trpn.vercel.app');
-    assert.strictEqual(ApiConfig.buildUrl('/api/providers/ytmusic/import-playlist'), 'https://spoton-trpn.vercel.app/api/providers/ytmusic/import-playlist');
+    assert.strictEqual(ApiConfig.getApiBaseUrl(), 'https://spoton-sigma.vercel.app');
+    assert.strictEqual(ApiConfig.buildUrl('/api/providers/ytmusic/import-playlist'), 'https://spoton-sigma.vercel.app/api/providers/ytmusic/import-playlist');
 
     global.window = originalWindow;
     global.navigator = originalNavigator;
@@ -149,8 +149,8 @@ global.Storage = Storage;
     };
 
     assert.strictEqual(ApiConfig.isRunningInIOS(), true);
-    assert.strictEqual(ApiConfig.getApiBaseUrl(), 'https://spoton-trpn.vercel.app');
-    assert.strictEqual(ApiConfig.buildUrl('/api/providers/ytmusic/import-playlist'), 'https://spoton-trpn.vercel.app/api/providers/ytmusic/import-playlist');
+    assert.strictEqual(ApiConfig.getApiBaseUrl(), 'https://spoton-sigma.vercel.app');
+    assert.strictEqual(ApiConfig.buildUrl('/api/providers/ytmusic/import-playlist'), 'https://spoton-sigma.vercel.app/api/providers/ytmusic/import-playlist');
 
     global.window = originalWindow;
     global.navigator = originalNavigator;

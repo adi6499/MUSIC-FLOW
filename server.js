@@ -3,6 +3,7 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const handleUpdateRequest = require('./api/update.js');
+const jiosaavnService = require('./jiosaavnService');
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, 'web-app');
@@ -529,6 +530,166 @@ const server = http.createServer((req, res) => {
 
   const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost:3000'}`);
   const urlPath = parsedUrl.pathname;
+
+  // ============================================================================
+  // JIOSAAVN SERVICE ENDPOINTS (Local, Web & Native Parity)
+  // ============================================================================
+  if (urlPath === '/api/search/songs' && req.method === 'GET') {
+    const q = parsedUrl.searchParams.get('query') || parsedUrl.searchParams.get('q') || '';
+    const page = parseInt(parsedUrl.searchParams.get('page') || parsedUrl.searchParams.get('p') || '1', 10);
+    const limit = parseInt(parsedUrl.searchParams.get('limit') || parsedUrl.searchParams.get('n') || '20', 10);
+    (async () => {
+      try {
+        const data = await jiosaavnService.searchSongs(q, page, limit);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(data));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+    })();
+    return;
+  }
+
+  if (urlPath === '/api/search/albums' && req.method === 'GET') {
+    const q = parsedUrl.searchParams.get('query') || parsedUrl.searchParams.get('q') || '';
+    const page = parseInt(parsedUrl.searchParams.get('page') || '1', 10);
+    const limit = parseInt(parsedUrl.searchParams.get('limit') || '20', 10);
+    (async () => {
+      try {
+        const data = await jiosaavnService.searchAlbums(q, page, limit);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(data));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+    })();
+    return;
+  }
+
+  if (urlPath === '/api/search/playlists' && req.method === 'GET') {
+    const q = parsedUrl.searchParams.get('query') || parsedUrl.searchParams.get('q') || '';
+    const page = parseInt(parsedUrl.searchParams.get('page') || '1', 10);
+    const limit = parseInt(parsedUrl.searchParams.get('limit') || '20', 10);
+    (async () => {
+      try {
+        const data = await jiosaavnService.searchPlaylists(q, page, limit);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(data));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+    })();
+    return;
+  }
+
+  if (urlPath === '/api/search/artists' && req.method === 'GET') {
+    const q = parsedUrl.searchParams.get('query') || parsedUrl.searchParams.get('q') || '';
+    const page = parseInt(parsedUrl.searchParams.get('page') || '1', 10);
+    const limit = parseInt(parsedUrl.searchParams.get('limit') || '20', 10);
+    (async () => {
+      try {
+        const data = await jiosaavnService.searchArtists(q, page, limit);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(data));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+    })();
+    return;
+  }
+
+  if (urlPath === '/api/search' && req.method === 'GET') {
+    const q = parsedUrl.searchParams.get('query') || parsedUrl.searchParams.get('q') || '';
+    (async () => {
+      try {
+        const data = await jiosaavnService.searchAll(q);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(data));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+    })();
+    return;
+  }
+
+  if ((urlPath.startsWith('/api/songs/') || urlPath === '/api/songs') && req.method === 'GET') {
+    const id = urlPath.startsWith('/api/songs/') ? urlPath.replace('/api/songs/', '').trim() : parsedUrl.searchParams.get('id');
+    (async () => {
+      try {
+        const data = await jiosaavnService.getSongDetails(id);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(data));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+    })();
+    return;
+  }
+
+  if ((urlPath.startsWith('/api/albums/') || urlPath === '/api/albums') && req.method === 'GET') {
+    const id = urlPath.startsWith('/api/albums/') ? urlPath.replace('/api/albums/', '').trim() : parsedUrl.searchParams.get('id');
+    (async () => {
+      try {
+        const data = await jiosaavnService.getAlbumDetails(id);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(data));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+    })();
+    return;
+  }
+
+  if ((urlPath.startsWith('/api/playlists/') || urlPath === '/api/playlists') && req.method === 'GET') {
+    const id = urlPath.startsWith('/api/playlists/') ? urlPath.replace('/api/playlists/', '').trim() : parsedUrl.searchParams.get('id');
+    (async () => {
+      try {
+        const data = await jiosaavnService.getPlaylistDetails(id);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(data));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+    })();
+    return;
+  }
+
+  if ((urlPath.startsWith('/api/artists/') || urlPath === '/api/artists') && req.method === 'GET') {
+    const id = urlPath.startsWith('/api/artists/') ? urlPath.replace('/api/artists/', '').trim() : parsedUrl.searchParams.get('id');
+    (async () => {
+      try {
+        const data = await jiosaavnService.getArtistDetails(id);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(data));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+    })();
+    return;
+  }
+
+  if (urlPath === '/api/modules' && req.method === 'GET') {
+    (async () => {
+      try {
+        const data = await jiosaavnService.getBrowseModules();
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(data));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+    })();
+    return;
+  }
 
   // API Routes
   if (urlPath === '/api/recommendations/status' && req.method === 'GET') {

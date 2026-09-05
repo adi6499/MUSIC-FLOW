@@ -529,7 +529,7 @@ const server = http.createServer((req, res) => {
   }
 
   const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost:3000'}`);
-  const urlPath = parsedUrl.pathname;
+  const urlPath = parsedUrl.pathname.startsWith('/api/') ? parsedUrl.pathname.replace(/\.js$/, '') : parsedUrl.pathname;
 
   // ============================================================================
   // JIOSAAVN SERVICE ENDPOINTS (Local, Web & Native Parity)

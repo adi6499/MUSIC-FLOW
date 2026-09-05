@@ -815,6 +815,11 @@ const Storage = (() => {
         addedAt: Date.now()
       };
 
+      if (fileBlob) {
+        if (!this._localFileBlobMap) this._localFileBlobMap = new Map();
+        this._localFileBlobMap.set(id, fileBlob);
+      }
+
       if (existingIdx >= 0) {
         localList[existingIdx] = entry;
       } else {
@@ -828,9 +833,47 @@ const Storage = (() => {
       return entry;
     },
 
+    async getLocalAudioUrl(songId) {
+      if (!songId) return null;
+      const id = String(songId);
+      if (this._localFileBlobMap && this._localFileBlobMap.has(id)) {
+        const fileOrBlob = this._localFileBlobMap.get(id);
+        if (fileOrBlob && typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
+          return URL.createObjectURL(fileOrBlob);
+        }
+      }
+      if (typeof IndexedDbStorage !== 'undefined' && typeof IndexedDbStorage.getLocalTrackAudioUrl === 'function') {
+        const url = await IndexedDbStorage.getLocalTrackAudioUrl(id);
+        if (url) return url;
+      }
+      const songs = this.getLocalSongs();
+      const s = songs.find(track => String(track.id) === id);
+      if (s && (s.localBlobUrl || s.streamUrl)) {
+        return s.localBlobUrl || s.streamUrl;
+      }
+      return null;
+    },
+
+    async getLocalTrackBlob(songId) {
+      if (!songId) return null;
+      const id = String(songId);
+      if (this._localFileBlobMap && this._localFileBlobMap.has(id)) {
+        return this._localFileBlobMap.get(id);
+      }
+      if (typeof IndexedDbStorage !== 'undefined' && typeof IndexedDbStorage.getLocalTrack === 'function') {
+        const rec = await IndexedDbStorage.getLocalTrack(id);
+        if (rec && rec.fileBlob) return rec.fileBlob;
+      }
+      return null;
+    },
+
     removeLocalSong(songId) {
+      const id = String(songId);
+      if (this._localFileBlobMap) {
+        this._localFileBlobMap.delete(id);
+      }
       let localList = this.getLocalSongs();
-      localList = localList.filter(s => String(s.id) !== String(songId));
+      localList = localList.filter(s => String(s.id) !== id);
       setJSON('mf_local_tracks_meta', localList);
       if (typeof IndexedDbStorage !== 'undefined') {
         IndexedDbStorage.removeLocalTrack(songId);
@@ -838,6 +881,9 @@ const Storage = (() => {
     },
 
     clearAllLocalSongs() {
+      if (this._localFileBlobMap) {
+        this._localFileBlobMap.clear();
+      }
       setJSON('mf_local_tracks_meta', []);
       if (typeof IndexedDbStorage !== 'undefined') {
         IndexedDbStorage.clearAllLocalTracks();

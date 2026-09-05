@@ -173,6 +173,32 @@ const IndexedDbStorage = (() => {
     });
   }
 
+  async function getLocalTrack(id) {
+    const db = await openDB();
+    if (!db || !id) return null;
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction('local_tracks', 'readonly');
+        const store = tx.objectStore('local_tracks');
+        const req = store.get(String(id));
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => resolve(null);
+      } catch (_) {
+        resolve(null);
+      }
+    });
+  }
+
+  async function getLocalTrackAudioUrl(id) {
+    const record = await getLocalTrack(id);
+    if (record && record.fileBlob) {
+      if (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
+        return URL.createObjectURL(record.fileBlob);
+      }
+    }
+    return null;
+  }
+
   async function removeLocalTrack(id) {
     const db = await openDB();
     if (!db) return false;
@@ -316,6 +342,8 @@ const IndexedDbStorage = (() => {
     clearAllDownloadedAudio,
     saveLocalTrack,
     getAllLocalTracks,
+    getLocalTrack,
+    getLocalTrackAudioUrl,
     removeLocalTrack,
     clearAllLocalTracks,
     saveDownloadTask,

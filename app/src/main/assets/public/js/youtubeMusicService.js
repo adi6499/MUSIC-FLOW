@@ -340,10 +340,20 @@ async function callInnertube(endpoint, body) {
       });
       if (proxyRes.ok) {
         return await proxyRes.json();
+      } else {
+        console.warn(`[YouTubeMusicService] Local proxy HTTP ${proxyRes.status} for ${endpoint}`);
+        return null;
       }
     } catch (proxyErr) {
       console.warn('[YouTubeMusicService] Local proxy notice:', proxyErr.message);
+      return null;
     }
+  }
+
+  // In browser context, direct fetch to music.youtube.com triggers CORS violations
+  if (typeof window !== 'undefined' && window.document && window.location && window.location.protocol.startsWith('http')) {
+    console.warn(`[YouTubeMusicService] Direct browser fetch to ${endpoint} skipped to prevent CORS violations`);
+    return null;
   }
 
   const res = await fetch(url, {
@@ -593,16 +603,31 @@ const YouTubeMusicService = {
    */
   async getRadioCandidates(videoId, seedTitle = '', seedArtist = '', limit = 25) {
     let resolvedVideoId = videoId;
+    const isValidYTVideoId = typeof resolvedVideoId === 'string' && /^[a-zA-Z0-9_-]{11}$/.test(resolvedVideoId);
+    if (!isValidYTVideoId) {
+      resolvedVideoId = null;
+    }
 
-    // If videoId is missing, resolve by searching seed title + artist
+    // If videoId is missing or non-YT, resolve by searching seed title + artist
     if (!resolvedVideoId && (seedTitle || seedArtist)) {
       const searchRes = await this.search(`${seedTitle} ${seedArtist}`.trim(), 3);
-      if (searchRes.songs.length > 0) {
+      if (searchRes && searchRes.songs && searchRes.songs.length > 0) {
         resolvedVideoId = searchRes.songs[0].videoId;
       }
     }
 
-    if (!resolvedVideoId) return { candidates: [], resolvedVideoId: null };
+    if (!resolvedVideoId) {
+      // Fallback directly to catalog search for artist/title tracks
+      if (seedTitle || seedArtist) {
+        try {
+          const searchRes = await this.search(`${seedArtist || seedTitle}`.trim(), limit);
+          if (searchRes && searchRes.songs && searchRes.songs.length > 0) {
+            return { seedVideoId: null, candidates: searchRes.songs.slice(0, limit) };
+          }
+        } catch (_) {}
+      }
+      return { candidates: [], resolvedVideoId: null };
+    }
 
     const cacheKey = `radio_${resolvedVideoId}_${limit}`;
     const cached = getFromCache(cacheKey);
@@ -615,7 +640,7 @@ const YouTubeMusicService = {
         playlistId: `RDAMVM${resolvedVideoId}`
       });
 
-      const tabs = data.contents?.singleColumnMusicWatchNextResultsRenderer?.tabbedRenderer?.watchNextTabbedResultsRenderer?.tabs || [];
+      const tabs = data?.contents?.singleColumnMusicWatchNextResultsRenderer?.tabbedRenderer?.watchNextTabbedResultsRenderer?.tabs || [];
       const queueItems = tabs[0]?.tabRenderer?.content?.musicQueueRenderer?.content?.playlistPanelRenderer?.contents || [];
 
       const candidates = [];
@@ -644,6 +669,18 @@ const YouTubeMusicService = {
         });
       }
 
+      // If automix returned empty, fallback to catalog search
+      if (candidates.length === 0 && (seedTitle || seedArtist)) {
+        const searchFallback = await this.search(`${seedArtist || seedTitle}`.trim(), limit);
+        if (searchFallback && searchFallback.songs && searchFallback.songs.length > 0) {
+          for (const s of searchFallback.songs) {
+            if (s.videoId && s.videoId !== resolvedVideoId) {
+              candidates.push(s);
+            }
+          }
+        }
+      }
+
       const result = {
         seedVideoId: resolvedVideoId,
         candidates: candidates.slice(0, limit)
@@ -653,6 +690,14 @@ const YouTubeMusicService = {
       return result;
     } catch (err) {
       console.warn('[YouTubeMusicService] getRadioCandidates failed:', err.message);
+      if (seedTitle || seedArtist) {
+        try {
+          const searchFallback = await this.search(`${seedArtist || seedTitle}`.trim(), limit);
+          if (searchFallback && searchFallback.songs) {
+            return { seedVideoId: resolvedVideoId, candidates: searchFallback.songs.slice(0, limit) };
+          }
+        } catch (_) {}
+      }
       return { seedVideoId: resolvedVideoId, candidates: [] };
     }
   },

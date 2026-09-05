@@ -242,7 +242,14 @@ const ID3Parser = (() => {
     base = base.replace(/^[0-9]+[\s._-]+/, ''); // Remove leading track numbers "01 - "
     if (base.includes(' - ')) {
       const parts = base.split(' - ');
-      return parts[parts.length - 1].trim();
+      const p0 = parts[0].trim();
+      const p1 = parts[parts.length - 1].trim();
+      // If p1 contains commas or multiple artist indicators (e.g. "Mithoon, Pritam, Sayeed Quadri"),
+      // p1 is the artists and p0 is the title!
+      if (p1.includes(',') || /\b(feat|ft|with|prod)\b/i.test(p1) || (!p0.includes('&') && p1.includes('&'))) {
+        return p0 || 'Untitled Local Track';
+      }
+      return p1 || 'Untitled Local Track';
     }
     return base.trim() || 'Untitled Local Track';
   }
@@ -252,7 +259,13 @@ const ID3Parser = (() => {
     const base = filename.replace(/\.[^/.]+$/, '');
     if (base.includes(' - ')) {
       const parts = base.split(' - ');
-      return parts[0].trim();
+      const p0 = parts[0].trim();
+      const p1 = parts[parts.length - 1].trim();
+      // If p1 contains commas or multiple artist indicators, p1 is the artist!
+      if (p1.includes(',') || /\b(feat|ft|with|prod)\b/i.test(p1) || (!p0.includes('&') && p1.includes('&'))) {
+        return p1;
+      }
+      return p0;
     }
     return '';
   }

@@ -19,7 +19,11 @@ const ExploreDataLayer = (() => {
     { id: 'punjabi', name: 'Punjabi Hits', query: 'Punjabi Top Hits', gradient: 'linear-gradient(135deg, #f7971e 0%, #ffd200 100%)', icon: 'bolt' },
     { id: 'romantic', name: 'Romantic', query: 'Romantic Hits', gradient: 'linear-gradient(135deg, #ee0979 0%, #ff6a00 100%)', icon: 'favorite' },
     { id: 'dance', name: 'Dance / EDM', query: 'Electronic Dance EDM', gradient: 'linear-gradient(135deg, #00b4db 0%, #0083b0 100%)', icon: 'equalizer' },
-    { id: 'classical', name: 'Classical & Devotional', query: 'Classical Melodies', gradient: 'linear-gradient(135deg, #134e5e 0%, #71b280 100%)', icon: 'self_improvement' }
+    { id: 'classical', name: 'Classical & Devotional', query: 'Classical Melodies', gradient: 'linear-gradient(135deg, #134e5e 0%, #71b280 100%)', icon: 'self_improvement' },
+    { id: 'new releases', name: 'New Releases', query: 'Latest Hit Songs 2025 Trending', gradient: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)', icon: 'new_releases' },
+    { id: 'top charts', name: 'Top Charts', query: 'Top 50 Trending Hit Songs', gradient: 'linear-gradient(135deg, #f857a6 0%, #ff5858 100%)', icon: 'trending_up' },
+    { id: 'moods & moments', name: 'Moods & Moments', query: 'Feel Good Chill Pop Melodies', gradient: 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)', icon: 'mood' },
+    { id: 'top playlists', name: 'Top Playlists', query: 'Superhit Playlists Best Songs', gradient: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)', icon: 'queue_music' }
   ];
 
   // Ambient Soundscapes
@@ -60,20 +64,46 @@ const ExploreDataLayer = (() => {
   // 2. Fetch Genre Details for Dedicated Genre Deep Dive Screen
   async function getGenreDetails(genreIdOrName) {
     const APIClient = (typeof API !== 'undefined') ? API : (typeof require !== 'undefined' ? require('./api.js') : null);
-    const matchedGenre = FEATURED_GENRES.find(g => g.id === genreIdOrName.toLowerCase() || g.name.toLowerCase() === genreIdOrName.toLowerCase());
+    const normalizedKey = String(genreIdOrName || '').toLowerCase().trim();
+    const matchedGenre = FEATURED_GENRES.find(g => g.id === normalizedKey || g.name.toLowerCase() === normalizedKey);
     const query = matchedGenre ? matchedGenre.query : `${genreIdOrName} Top Hits`;
     const title = matchedGenre ? matchedGenre.name : genreIdOrName;
     const gradient = matchedGenre ? matchedGenre.gradient : 'linear-gradient(135deg, #1E1E22 0%, #2A2A30 100%)';
 
     try {
-      const songs = await APIClient.searchSongs(query, 1, 24);
+      let songs = await APIClient.searchSongs(query, 1, 30);
+      let normalizedSongs = (songs || []).map(APIClient.normalizeSong);
+
+      // Filter out any songs whose literal title matches the genre/category query (e.g. tracks literally named "New Releases")
+      normalizedSongs = normalizedSongs.filter(s => {
+        const lowerName = String(s.name || s.title || '').toLowerCase().trim();
+        return lowerName !== normalizedKey && lowerName !== 'new releases' && lowerName !== 'top charts' && lowerName !== 'moods & moments';
+      });
+
+      // If New Releases had filtered results or fewer than 10 songs, enrich with trending tracks
+      if (normalizedKey.includes('new release') && normalizedSongs.length < 15) {
+        try {
+          const StorageClient = (typeof Storage !== 'undefined') ? Storage : null;
+          const langs = StorageClient ? StorageClient.getLanguages() : ['hindi'];
+          const homeFeed = await APIClient.getHomeFeed(langs);
+          const fresh = (homeFeed?.trending?.songs || homeFeed?.quickPicks || []).map(APIClient.normalizeSong);
+          const seenIds = new Set(normalizedSongs.map(s => String(s.id)));
+          for (const item of fresh) {
+            if (item && item.id && !seenIds.has(String(item.id))) {
+              seenIds.add(String(item.id));
+              normalizedSongs.push(item);
+            }
+          }
+        } catch (_) {}
+      }
+
       return {
         id: genreIdOrName,
         title,
         gradient,
         icon: matchedGenre?.icon || 'music_note',
-        songs: songs.map(APIClient.normalizeSong),
-        topArtists: extractTopArtists(songs)
+        songs: normalizedSongs.slice(0, 25),
+        topArtists: extractTopArtists(normalizedSongs)
       };
     } catch (e) {
       console.warn('[ExploreDataLayer] Genre details error:', e);

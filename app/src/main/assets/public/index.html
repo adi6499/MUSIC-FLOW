@@ -21,7 +21,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
 
-  <link rel="stylesheet" href="css/app.css">
+  <link rel="stylesheet" href="css/app.css?v=2.8.0">
 </head>
 <body>
   <!-- Global Top Progress Loading Bar -->
@@ -38,34 +38,60 @@
       <section id="screen-home" class="screen active">
         <!-- Sticky Header Wrapper: Top Bar (Greeting & Settings) + Mood & Activity Filter Chips -->
         <div class="home-sticky-header" id="home-sticky-header">
-          <header class="home-top-bar">
-            <div class="user-avatar-wrap" id="btn-user-profile" title="Profile">
-              <img id="home-user-avatar" src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80" alt="Avatar">
+          <header class="home-top-bar ytm-top-bar" id="ytm-top-bar">
+            <div class="ytm-brand-wrap" onclick="App.navigate('home')" title="MusicFlow">
+              <div class="ytm-logo-icon">
+                <svg viewBox="0 0 24 24" width="26" height="26" fill="none">
+                  <circle cx="12" cy="12" r="11" fill="#FF0000"/>
+                  <polygon points="9.5,7.5 16.5,12 9.5,16.5" fill="#FFFFFF"/>
+                </svg>
+              </div>
+              <span class="ytm-brand-text">Music</span>
             </div>
-            <h1 class="home-greeting-text" id="home-greeting">Good morning</h1>
+            <h1 class="home-greeting-text" id="home-greeting" style="display:none;">Good morning</h1>
             <div id="offline-pill-indicator" style="display:none; align-items:center; gap:4px; padding:3px 8px; border-radius:12px; background:var(--accent-soft); border:1px solid var(--accent-border); font-size:10.5px; font-weight:800; color:var(--accent); letter-spacing:0.5px; margin-left:auto; margin-right:8px;">
               <span class="material-symbols-outlined" style="font-size:13px;">cloud_off</span>
               <span>OFFLINE</span>
             </div>
-            <button class="icon-btn-glass" id="btn-open-settings" aria-label="Settings" title="Settings">
-              <span class="material-symbols-outlined">settings</span>
-            </button>
+            <div class="ytm-top-actions">
+              <button class="icon-btn-glass" id="btn-top-cast" onclick="App.openAudioOutputSheet()" aria-label="Connect to a device" title="Connect to a device">
+                <span class="material-symbols-outlined">cast</span>
+              </button>
+              <button class="icon-btn-glass" id="btn-top-search" onclick="App.navigate('search')" aria-label="Search" title="Search">
+                <span class="material-symbols-outlined">search</span>
+              </button>
+              <button class="icon-btn-glass" id="btn-open-settings" onclick="App.openSettings()" aria-label="Settings" title="Settings" style="display:none;">
+                <span class="material-symbols-outlined">settings</span>
+              </button>
+              <div class="user-avatar-wrap" id="btn-user-profile" onclick="App.openSettings()" title="Account & Settings">
+                <img id="home-user-avatar" src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80" alt="Avatar">
+              </div>
+            </div>
           </header>
 
           <!-- Sticky Mood & Activity Filter Chips Bar -->
           <div class="mood-chips-scroll" id="mood-chips-container">
             <button class="mood-chip active" data-mood="All">All</button>
             <button class="mood-chip" data-mood="Energize">Energize</button>
-            <button class="mood-chip" data-mood="Relax">Relax</button>
             <button class="mood-chip" data-mood="Workout">Workout</button>
+            <button class="mood-chip" data-mood="Relax">Relax</button>
             <button class="mood-chip" data-mood="Focus">Focus</button>
-            <button class="mood-chip" data-mood="Party">Party</button>
-            <button class="mood-chip" data-mood="Romance">Romance</button>
-            <button class="mood-chip" data-mood="Sleep">Sleep</button>
+            <button class="mood-chip" data-mood="Commute">Commute</button>
           </div>
         </div>
 
         <div class="home-feed-sections" id="home-feed-sections">
+          <!-- YouTube Music "Listen Again" 2x3 Grid -->
+          <section class="shelf-section" id="shelf-listen-again-section">
+            <div class="shelf-header">
+              <div>
+                <span class="shelf-tag">LISTEN AGAIN</span>
+                <h2 class="shelf-title">Listen again</h2>
+              </div>
+            </div>
+            <div class="ytm-listen-again-grid" id="ytm-listen-again-container"></div>
+          </section>
+
           <!-- Continue Listening (RESUME) -->
           <section class="shelf-section" id="shelf-continue-listening-section" style="display:none;">
             <div class="shelf-header">
@@ -258,10 +284,22 @@
         </div>
       </section>
 
+      <!-- ================= 1.5 SAMPLES SCREEN (YouTube Music Shorts Discovery Reel) ================= -->
+      <section id="screen-samples" class="screen">
+        <header class="samples-top-bar">
+          <span class="samples-top-title">Samples</span>
+        </header>
+        <div class="samples-reel-wrapper" id="samples-reel-wrapper">
+          <div class="samples-reel-container" id="samples-reel-container">
+            <!-- Dynamic vertical scroll cards -->
+          </div>
+        </div>
+      </section>
+
       <!-- ================= 2. NAVIGATION / EXPLORE SCREEN ================= -->
       <section id="screen-explore" class="screen">
         <header class="screen-header">
-          <h1 class="screen-title">Navigation</h1>
+          <h1 class="screen-title">Explore</h1>
         </header>
 
         <!-- 1. 3D SWIPE DISCOVERY: Discover For You -->
@@ -418,6 +456,9 @@
               <button class="search-clear-btn" id="btn-search-clear" style="display:none;" aria-label="Clear">
                 <span class="material-symbols-outlined">close</span>
               </button>
+              <button class="search-voice-btn" id="btn-search-voice" onclick="App.startVoiceSearch()" aria-label="Voice search" title="Search with voice">
+                <span class="material-symbols-outlined">mic</span>
+              </button>
             </div>
           </div>
 
@@ -438,6 +479,18 @@
 
         <!-- Search Discovery Hub (when query is empty) -->
         <div id="search-discovery-hub" class="search-discovery-hub">
+          <!-- YouTube Music Radio Builder Banner -->
+          <div class="radio-builder-banner" id="banner-radio-builder" onclick="RadioBuilder.open()">
+            <div class="radio-builder-icon-box">
+              <span class="material-symbols-outlined">graphic_eq</span>
+            </div>
+            <div class="radio-builder-text">
+              <div class="radio-builder-title">Create a radio</div>
+              <div class="radio-builder-subtitle">Tune your music by choosing your favourite artists</div>
+            </div>
+            <span class="material-symbols-outlined radio-builder-arrow">chevron_right</span>
+          </div>
+
           <!-- Recent Searches -->
           <div id="search-recent-section" class="search-recent-section" style="display:none;">
             <div class="search-section-head">
@@ -553,14 +606,14 @@
           </div>
         </div>
 
-        <!-- 7 Library Tabs: Playlists, Songs, Albums, Artists, History, Downloads, Local -->
+        <!-- 7 Library Tabs: Playlists, Songs, Albums, Artists, Downloads, History, Local -->
         <div class="library-tabs-bar" id="library-tabs-bar">
           <button class="lib-tab-btn active" data-tab="playlists">Playlists</button>
           <button class="lib-tab-btn" data-tab="songs">Songs</button>
           <button class="lib-tab-btn" data-tab="albums">Albums</button>
           <button class="lib-tab-btn" data-tab="artists">Artists</button>
-          <button class="lib-tab-btn" data-tab="history">History</button>
           <button class="lib-tab-btn" data-tab="downloads">Downloads</button>
+          <button class="lib-tab-btn" data-tab="history">History</button>
           <button class="lib-tab-btn" data-tab="local">Local</button>
         </div>
 
@@ -749,17 +802,17 @@
         <span class="material-symbols-outlined nav-icon">home</span>
         <span class="nav-label">Home</span>
       </button>
+      <button class="nav-tab" data-target="samples" onclick="App.navigate('samples')" aria-label="Samples">
+        <span class="material-symbols-outlined nav-icon">play_circle</span>
+        <span class="nav-label">Samples</span>
+      </button>
       <button class="nav-tab" data-target="explore" onclick="App.navigate('explore')" aria-label="Explore">
         <span class="material-symbols-outlined nav-icon">explore</span>
-        <span class="nav-label">Navigation</span>
+        <span class="nav-label">Explore</span>
       </button>
-      <button class="nav-tab" data-target="search" onclick="App.navigate('search')" aria-label="Search">
-        <span class="material-symbols-outlined nav-icon">search</span>
-        <span class="nav-label">Search</span>
-      </button>
-      <button class="nav-tab" data-target="library" onclick="App.navigate('library')" aria-label="My Music">
-        <span class="material-symbols-outlined nav-icon">play_circle</span>
-        <span class="nav-label">My music</span>
+      <button class="nav-tab" data-target="library" onclick="App.navigate('library')" aria-label="Library">
+        <span class="material-symbols-outlined nav-icon">library_music</span>
+        <span class="nav-label">Library</span>
       </button>
     </nav>
   </div>
@@ -783,13 +836,24 @@
         <span class="player-context-tag" id="player-context-tag">PLAYING FROM</span>
         <span class="player-context-title" id="player-context-title">Top Hits</span>
       </div>
-      <div class="player-top-bar-balancer" aria-hidden="true" style="width: 40px; height: 40px; pointer-events: none; flex-shrink: 0;"></div>
+      <div class="player-top-bar-balancer" aria-hidden="true"></div>
     </header>
 
-    <!-- Top Subtle Drag Handle -->
-    <div class="player-drag-handle"></div>
+    <!-- YouTube Music Song / Video Segmented Switcher Pill -->
+    <div class="ytm-player-switch-wrap">
+      <div class="ytm-player-switch-pill" id="ytm-player-switch-pill">
+        <button class="ytm-switch-btn active" id="btn-switch-song" onclick="App.setPlayerMode('song')">
+          <span class="material-symbols-outlined" style="font-size:16px;">music_note</span>
+          <span>Song</span>
+        </button>
+        <button class="ytm-switch-btn" id="btn-switch-video" onclick="App.setPlayerMode('video')">
+          <span class="material-symbols-outlined" style="font-size:16px;">play_circle</span>
+          <span>Video</span>
+        </button>
+      </div>
+    </div>
 
-    <!-- Center Content (Artwork or Live Synced Lyrics) -->
+    <!-- Center Content (Artwork, Video, or Live Synced Lyrics) -->
     <div class="player-center-body" id="player-center-body">
       <!-- 1. Artwork View / 3D Interactive Deck -->
       <div class="player-art-view" id="player-art-view">
@@ -809,6 +873,13 @@
         </div>
       </div>
 
+      <!-- 1.5 Video Player View (When Video mode is active) -->
+      <div class="player-video-view" id="player-video-view" style="display:none;">
+        <div class="player-video-container" id="player-video-container">
+          <iframe id="player-yt-iframe" class="player-yt-iframe" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+        </div>
+      </div>
+
       <!-- 2. Live Synced Lyrics View (LyricsView in PlayerScreen.kt) -->
       <div class="player-lyrics-view" id="player-lyrics-view" style="display:none;">
         <div class="lyrics-scroll-container" id="lyrics-scroll-container">
@@ -822,7 +893,7 @@
       <div class="player-meta-col">
         <h2 class="player-song-title" id="full-player-title">Song Title</h2>
         <div class="player-artist-line" id="full-player-artist-container">
-          <span class="player-artist-name clickable-link" id="full-player-artist">Artist</span>
+          <span class="player-artist-name clickable-link" id="full-player-artist" onclick="event.stopPropagation(); App.navigateToArtist()">Artist</span>
         </div>
         <div class="player-badges-row">
           <span class="lossless-badge-pill" id="player-lossless-badge">
@@ -840,6 +911,29 @@
           <span class="material-symbols-outlined">more_vert</span>
         </button>
       </div>
+    </div>
+
+    <!-- YouTube Music 6-Button Action Strip -->
+    <div class="ytm-action-strip" id="ytm-player-action-strip">
+      <button class="ytm-action-btn" id="btn-player-dislike" onclick="App.dislikeCurrentTrack()" aria-label="Dislike track" title="Dislike">
+        <span class="material-symbols-outlined" id="player-dislike-icon">thumb_down</span>
+      </button>
+      <button class="ytm-action-btn" id="btn-player-like" onclick="App.toggleFavoriteCurrent()" aria-label="Like track" title="Like">
+        <span class="material-symbols-outlined" id="player-like-icon">thumb_up</span>
+      </button>
+      <button class="ytm-action-btn" id="btn-player-comments" onclick="App.openCommentsSheet()" aria-label="Comments" title="Comments">
+        <span class="material-symbols-outlined">chat_bubble_outline</span>
+      </button>
+      <button class="ytm-action-btn" id="btn-player-save" onclick="App.openAddToPlaylistModal()" aria-label="Save to playlist" title="Save">
+        <span class="material-symbols-outlined">playlist_add</span>
+      </button>
+      <button class="ytm-action-btn" id="btn-player-share" onclick="App.shareCurrentTrack()" aria-label="Share track" title="Share">
+        <span class="material-symbols-outlined">share</span>
+      </button>
+      <button class="ytm-action-btn" id="btn-player-download" onclick="App.downloadCurrentTrack()" aria-label="Download track" title="Download">
+        <span class="material-symbols-outlined" id="player-download-icon">download</span>
+        <span id="player-download-label" style="display:none;">Download</span>
+      </button>
     </div>
 
     <!-- Touch & Pointer Optimized Custom Scrubber with Wavy Animation -->
@@ -876,8 +970,8 @@
       </button>
     </div>
 
-    <!-- Secondary 5-Button Utility Card -->
-    <div class="player-utility-card">
+    <!-- Secondary Utilities Row for backward compatibility -->
+    <div class="player-utility-card" style="display:none;">
       <button class="utility-btn" id="btn-toggle-lyrics" onclick="App.toggleLyricsView()" title="Live Synced Lyrics" aria-label="Lyrics">
         <span class="material-symbols-outlined">chat_bubble_outline</span>
         <span>Lyrics</span>
@@ -885,10 +979,6 @@
       <button class="utility-btn" onclick="App.openEqualizer()" title="Equalizer & Sound FX" aria-label="Equalizer">
         <span class="material-symbols-outlined">equalizer</span>
         <span>Equalizer</span>
-      </button>
-      <button class="utility-btn" id="btn-player-download" onclick="App.downloadCurrentTrack()" title="Download Track" aria-label="Download">
-        <span class="material-symbols-outlined" id="player-download-icon">download</span>
-        <span id="player-download-label">Download</span>
       </button>
       <button class="utility-btn" id="btn-player-timer" onclick="App.openSleepTimerDialog()" title="Sleep Timer" aria-label="Sleep Timer">
         <span class="material-symbols-outlined" id="player-timer-icon">timer</span>
@@ -898,6 +988,158 @@
         <span class="material-symbols-outlined">queue_music</span>
         <span>Queue</span>
       </button>
+    </div>
+
+    <!-- Backdrop to close drawer when tapping outside -->
+    <div class="drawer-backdrop" id="player-drawer-backdrop" onclick="App.collapsePlayerDrawer()"></div>
+
+    <!-- YouTube Music 3-Tab Bottom Pull-up Sliding Drawer -->
+    <div class="ytm-player-drawer" id="player-sliding-drawer">
+      <div class="drawer-drag-bar" onclick="App.togglePlayerDrawer()" title="Tap to toggle drawer">
+        <div class="drawer-pill-handle"></div>
+        <button class="drawer-close-btn" id="btn-collapse-drawer" onclick="event.stopPropagation(); App.collapsePlayerDrawer();" aria-label="Collapse drawer" title="Collapse">
+          <span class="material-symbols-outlined">keyboard_arrow_down</span>
+        </button>
+      </div>
+      <div class="drawer-tabs-nav">
+        <div class="drawer-tabs-group">
+          <button class="drawer-tab-btn active" id="drawer-tab-queue" onclick="App.switchDrawerTab('queue')">UP NEXT</button>
+          <button class="drawer-tab-btn" id="drawer-tab-lyrics" onclick="App.switchDrawerTab('lyrics')">LYRICS</button>
+          <button class="drawer-tab-btn" id="drawer-tab-related" onclick="App.switchDrawerTab('related')">RELATED</button>
+        </div>
+      </div>
+      <div class="drawer-body-container" id="drawer-body-container">
+        <!-- Tab 1: UP NEXT Queue -->
+        <div class="drawer-pane active" id="drawer-pane-queue">
+          <div class="drawer-queue-header">
+            <div class="drawer-autoplay-row">
+              <span class="drawer-autoplay-label">Autoplay</span>
+              <label class="switch-wrap">
+                <input type="checkbox" id="autoplay-switch" checked onchange="App.toggleAutoplay(this.checked)">
+                <span class="switch-slider"></span>
+              </label>
+            </div>
+            <div class="drawer-queue-actions">
+              <button class="drawer-action-chip" onclick="App.saveQueueAsPlaylistAction()">
+                <span class="material-symbols-outlined" style="font-size:14px;">playlist_add</span>
+                <span>Save</span>
+              </button>
+              <button class="drawer-action-chip" onclick="Player.clearQueue()">Clear</button>
+            </div>
+          </div>
+          <div class="queue-tracks-list" id="drawer-queue-tracks-container"></div>
+        </div>
+
+        <!-- Tab 2: LYRICS -->
+        <div class="drawer-pane" id="drawer-pane-lyrics">
+          <div class="drawer-lyrics-container" id="drawer-lyrics-scroll">
+            <p class="lyrics-line active">Loading synchronized lyrics...</p>
+          </div>
+          <div class="drawer-lyrics-source" id="drawer-lyrics-source">Source: Musixmatch / LRCLIB</div>
+        </div>
+
+        <!-- Tab 3: RELATED -->
+        <div class="drawer-pane" id="drawer-pane-related">
+          <div class="drawer-related-section">
+            <h4 class="drawer-section-title">You might also like</h4>
+            <div class="drawer-related-list" id="drawer-related-tracks">
+              <div class="loading-shimmer-card" style="height:56px; border-radius:12px; margin-bottom:8px;"></div>
+              <div class="loading-shimmer-card" style="height:56px; border-radius:12px; margin-bottom:8px;"></div>
+            </div>
+          </div>
+          <div class="drawer-related-section">
+            <h4 class="drawer-section-title">Similar artists</h4>
+            <div class="cards-horizontal-shelf" id="drawer-related-artists"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- YouTube Music Comments Bottom Sheet -->
+  <div class="bottom-sheet-backdrop" id="sheet-comments" onclick="App.closeBottomSheet('sheet-comments')">
+    <div class="bottom-sheet-panel" onclick="event.stopPropagation()" style="max-height:80vh; display:flex; flex-direction:column;">
+      <div class="sheet-drag-handle"></div>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <h3 class="screen-title" style="font-size:18px; margin-bottom:0;">Comments</h3>
+          <span style="font-size:12px; color:var(--text-secondary);" id="comments-count-label">Comments</span>
+        </div>
+        <button onclick="App.closeBottomSheet('sheet-comments')" style="background:transparent; border:none; color:var(--text-secondary); cursor:pointer;" aria-label="Close">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+      <div class="comments-list" id="comments-list-container" style="overflow-y:auto; flex:1; display:flex; flex-direction:column; gap:12px;">
+        <!-- Comments populated dynamically -->
+      </div>
+      <div class="comment-input-row" id="comment-input-row" style="display:flex; align-items:center; gap:10px; padding-top:12px; border-top:1px solid rgba(255,255,255,0.08); margin-top:8px;">
+        <input type="text" id="input-new-comment" placeholder="Add a comment..." style="flex:1; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:20px; padding:10px 16px; color:#fff; font-size:13px; outline:none;" onkeydown="if(event.key==='Enter')App.postUserComment()">
+        <button id="btn-post-comment" onclick="App.postUserComment()" style="background:var(--accent, #FF0033); color:#fff; border:none; border-radius:50%; width:36px; height:36px; display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0;" aria-label="Send comment">
+          <span class="material-symbols-outlined" style="font-size:18px;">send</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- YouTube Music Radio Builder Bottom Sheet -->
+  <div class="bottom-sheet-backdrop" id="sheet-radio-builder" onclick="App.closeBottomSheet('sheet-radio-builder')">
+    <div class="bottom-sheet-panel radio-builder-sheet-panel" onclick="event.stopPropagation()">
+      <div class="sheet-drag-handle"></div>
+      
+      <!-- Header -->
+      <div class="radio-builder-header">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <div class="radio-builder-badge-icon">
+            <span class="material-symbols-outlined">graphic_eq</span>
+          </div>
+          <div>
+            <h3 class="radio-builder-main-title">Create a radio</h3>
+            <span class="radio-builder-sub" id="radio-builder-step-label">Select up to 10 artists (0 selected)</span>
+          </div>
+        </div>
+        <button class="icon-btn-mini" onclick="App.closeBottomSheet('sheet-radio-builder')" aria-label="Close">
+          <span class="material-symbols-outlined">close</span>
+        </button>
+      </div>
+
+      <!-- Artist Seed Picker Grid (scrollable) -->
+      <div class="radio-builder-artists-scroll">
+        <div class="radio-artist-grid" id="radio-artist-grid">
+          <!-- Populated dynamically by RadioBuilder.open() -->
+        </div>
+      </div>
+
+      <!-- Tuner Controls -->
+      <div class="radio-tuner-section">
+        <!-- Variety Selector -->
+        <div class="radio-tuner-row">
+          <span class="radio-tuner-label">Artist variety:</span>
+          <div class="radio-tune-chips-wrap">
+            <button class="radio-tune-chip active" data-variety="familiar" onclick="RadioBuilder.setVariety('familiar')">Familiar</button>
+            <button class="radio-tune-chip" data-variety="blend" onclick="RadioBuilder.setVariety('blend')">Blend</button>
+            <button class="radio-tune-chip" data-variety="discover" onclick="RadioBuilder.setVariety('discover')">Discover</button>
+          </div>
+        </div>
+
+        <!-- Mood Selector -->
+        <div class="radio-tuner-row">
+          <span class="radio-tuner-label">Music mood:</span>
+          <div class="radio-tune-chips-wrap">
+            <button class="radio-tune-chip active" data-mood="all" onclick="RadioBuilder.setMood('all')">All</button>
+            <button class="radio-tune-chip" data-mood="chill" onclick="RadioBuilder.setMood('chill')">Chill</button>
+            <button class="radio-tune-chip" data-mood="upbeat" onclick="RadioBuilder.setMood('upbeat')">Upbeat</button>
+            <button class="radio-tune-chip" data-mood="party" onclick="RadioBuilder.setMood('party')">Party</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Launch Action -->
+      <div class="radio-builder-action-bar">
+        <button class="radio-launch-btn" id="btn-launch-radio" onclick="RadioBuilder.launch()">
+          <span class="material-symbols-outlined" style="font-size:20px;">play_arrow</span>
+          <span>Tune Radio</span>
+        </button>
+      </div>
     </div>
   </div>
 
@@ -1566,10 +1808,16 @@
             <span class="settings-label">Updates</span>
             <span class="settings-sub" id="settings-update-status">✓ You're up to date</span>
           </div>
-          <button class="settings-action-btn" id="btn-check-updates" onclick="App.checkUpdatesManual()" style="padding:6px 14px; border-radius:var(--radius-full); background:var(--accent-soft); border:1px solid var(--accent-border); color:var(--accent); font-size:12px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px;">
-            <span class="material-symbols-outlined" id="icon-update-spin" style="font-size:15px;">sync</span>
-            <span id="text-update-btn">Check</span>
-          </button>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <button class="settings-action-btn" id="btn-whats-new" onclick="App.showImprovementsPanel()" style="padding:6px 12px; border-radius:var(--radius-full); background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); color:var(--text-primary); font-size:12px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:4px;">
+              <span class="material-symbols-outlined" style="font-size:15px; color:#00F2FE;">auto_awesome</span>
+              <span>What's New</span>
+            </button>
+            <button class="settings-action-btn" id="btn-check-updates" onclick="App.checkUpdatesManual()" style="padding:6px 14px; border-radius:var(--radius-full); background:var(--accent-soft); border:1px solid var(--accent-border); color:var(--accent); font-size:12px; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:6px;">
+              <span class="material-symbols-outlined" id="icon-update-spin" style="font-size:15px;">sync</span>
+              <span id="text-update-btn">Check</span>
+            </button>
+          </div>
         </div>
         <div style="font-size:11px; color:var(--text-secondary); margin-top:6px; padding:0 4px;" id="settings-update-time">
           Last checked: Never
@@ -1748,9 +1996,9 @@
           <span class="material-symbols-outlined" style="font-size:18px;">download</span>
           <span id="btn-update-now-text">Update Now</span>
         </button>
-        <button class="update-release-btn" onclick="App.openGitHubRelease()">
-          <span class="material-symbols-outlined" style="font-size:16px;">open_in_new</span>
-          <span>View Release</span>
+        <button class="update-release-btn" onclick="App.openWebsite()">
+          <span class="material-symbols-outlined" style="font-size:16px;">language</span>
+          <span>Official Website</span>
         </button>
         <button class="update-later-btn" id="btn-update-later" onclick="App.dismissUpdateDialog()">Later</button>
       </div>
@@ -1806,8 +2054,8 @@
   </div>
 
   <!-- Hidden Inputs for Local Audio Import -->
-  <input type="file" id="local-file-input" multiple accept="audio/*" style="display:none;" onchange="App.handleLocalFilesImport(event)">
-  <input type="file" id="local-folder-input" webkitdirectory directory multiple style="display:none;" onchange="App.handleLocalFolderImport(event)">
+  <input type="file" id="local-file-input" multiple accept="audio/*,.mp3,.m4a,.aac,.wav,.flac,.ogg,.opus" style="display:none;" onchange="App.handleLocalFilesImport(event)">
+  <input type="file" id="local-folder-input" webkitdirectory directory multiple accept="audio/*,.mp3,.m4a,.aac,.wav,.flac,.ogg,.opus" style="display:none;" onchange="App.handleLocalFolderImport(event)">
 
   <!-- Hidden DOM Audio Element for Playback -->
   <audio id="app-audio" preload="auto" playsinline webkit-playsinline></audio>
@@ -1848,6 +2096,8 @@
   <script src="js/lyrics.js"></script>
   <script src="js/audioOutputManager.js"></script>
   <script src="js/ui.js"></script>
-  <script src="js/app.js"></script>
+  <script src="js/samplesFeed.js"></script>
+  <script src="js/radioBuilder.js"></script>
+  <script src="js/app.js?v=2.8.0"></script>
 </body>
 </html>

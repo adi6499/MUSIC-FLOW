@@ -28,7 +28,7 @@ const API = (() => {
       .replace(/&apos;/g, "'");
   }
 
-  async function fetchWithFallback(endpoint, params = {}) {
+  async function fetchWithFallback(endpoint, params = {}, options = {}) {
     const query = new URLSearchParams(params).toString();
     const cleanEndpoint = endpoint.startsWith('/api/')
       ? endpoint.replace(/^\/api/, '')
@@ -36,17 +36,36 @@ const API = (() => {
     const path = `${cleanEndpoint}${query ? '?' + query : ''}`;
     const hosts = getPrimaryHosts();
 
+    const signal = options.signal;
+    if (signal?.aborted) {
+      const e = new Error('The operation was aborted');
+      e.name = 'AbortError';
+      throw e;
+    }
+
     for (let i = 0; i < hosts.length; i++) {
+      if (signal?.aborted) {
+        const e = new Error('The operation was aborted');
+        e.name = 'AbortError';
+        throw e;
+      }
       const idx = (currentHostIndex + i) % hosts.length;
       const url = `${hosts[idx]}${path}`;
 
       try {
-        const res = await fetch(url, { signal: AbortSignal.timeout(9000) });
+        let fetchSignal = signal;
+        if (!fetchSignal && typeof AbortSignal !== 'undefined' && AbortSignal.timeout) {
+          fetchSignal = AbortSignal.timeout(options.timeout || 9000);
+        }
+        const res = await fetch(url, { signal: fetchSignal || undefined });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         currentHostIndex = idx;
         return data;
       } catch (err) {
+        if (err.name === 'AbortError' || signal?.aborted) {
+          throw err;
+        }
         console.warn(`[API] Host ${hosts[idx]} failed for ${cleanEndpoint}:`, err.message);
       }
     }
@@ -224,8 +243,39 @@ const API = (() => {
           candidatePool = await this.searchSongs('Top Songs 2025', 1, 30);
         }
 
-        const albums = albumRes.status === 'fulfilled' ? (albumRes.value?.data?.results || []) : [];
-        const charts = playlistRes.status === 'fulfilled' ? (playlistRes.value?.data?.results || []) : [];
+        let albums = albumRes.status === 'fulfilled' ? (albumRes.value?.data?.results || albumRes.value?.results || []) : [];
+        const charts = playlistRes.status === 'fulfilled' ? (playlistRes.value?.data?.results || playlistRes.value?.results || []) : [];
+
+        // Fallback 1: if primary language album query returned empty, query general hits albums
+        if (!Array.isArray(albums) || albums.length === 0) {
+          try {
+            const fallbackAlbumRes = await fetchWithFallback('/search/albums', { query: `Top Albums 2025`, limit: 12 });
+            albums = fallbackAlbumRes?.data?.results || fallbackAlbumRes?.results || [];
+          } catch (_) {}
+        }
+
+        // Fallback 2: if still empty, synthesize unique albums from candidatePool
+        if ((!Array.isArray(albums) || albums.length === 0) && candidatePool.length > 0) {
+          const seenAlbums = new Set();
+          albums = [];
+          for (const s of candidatePool) {
+            const aName = s.album?.name || s.album || s.name;
+            if (aName && typeof aName === 'string' && !seenAlbums.has(aName.toLowerCase())) {
+              seenAlbums.add(aName.toLowerCase());
+              albums.push({
+                id: s.album?.id || `alb_${s.id}`,
+                name: aName,
+                title: aName,
+                type: 'album',
+                artists: s.artists || s.primaryArtist || 'MusicFlow',
+                artist: s.artists || s.primaryArtist || 'MusicFlow',
+                image: s.image || 'assets/logo.png',
+                year: s.year || ''
+              });
+              if (albums.length >= 10) break;
+            }
+          }
+        }
 
         let personalizedPicks = candidatePool;
         let diverseTrending = candidatePool;
@@ -252,7 +302,7 @@ const API = (() => {
     },
 
     // Search unified (with Typesense Search Layer as primary + resilient fallback)
-    async searchAll(query) {
+    async searchAll(query, options = {}) {
       try {
         const QN = (typeof QueryNormalizer !== 'undefined') ? QueryNormalizer : (typeof require !== 'undefined' ? require('./queryNormalizer.js') : null);
         const SE = (typeof SearchEngine !== 'undefined') ? SearchEngine : (typeof require !== 'undefined' ? require('./searchEngine.js') : null);
@@ -261,6 +311,13 @@ const API = (() => {
         const parsed = QN
           ? QN.parseCompoundQuery(query)
           : { normalizedQuery: query.trim(), isCompoundQuery: false, rawQuery: query };
+
+        const signal = options.signal;
+        if (signal?.aborted) {
+          const e = new Error('The operation was aborted');
+          e.name = 'AbortError';
+          throw e;
+        }
 
         // 1. Primary Indexed Search via Typesense
         if (typeof TypesenseClient !== 'undefined') {
@@ -279,6 +336,17 @@ const API = (() => {
               rankedSongs = TD.deduplicate(rankedSongs, query);
             }
 
+            rankedSongs.forEach(s => {
+              if (s && !s.audioUrl) {
+                const direct = getDownloadUrl(s);
+                if (direct) {
+                  s.audioUrl = direct;
+                  s.streamUrl = direct;
+                  s.isPlayable = true;
+                }
+              }
+            });
+
             const didYouMean = SE ? SE.detectDidYouMean(query) : null;
 
             return {
@@ -295,33 +363,34 @@ const API = (() => {
           }
         }
 
-        // 2. Resilient Multi-Cluster Fallback: Query decomposition + Smart Ranking
+        // 2. Resilient Fast Fallback: Single-page quick queries for instant live search
         const targetArtist = parsed.candidateArtist || (QN && QN.isLikelyArtist(parsed.normalizedQuery) ? parsed.normalizedQuery : null);
 
         const promises = [
-          fetchWithFallback('/search', { query: parsed.normalizedQuery }),
-          this.searchSongs(parsed.normalizedQuery, 1, 30),
-          fetchWithFallback('/search/artists', { query: targetArtist || parsed.normalizedQuery, limit: 10 }),
-          fetchWithFallback('/search/albums', { query: parsed.candidateSongTitle || parsed.normalizedQuery, limit: 10 }),
-          fetchWithFallback('/search/playlists', { query: parsed.candidateSongTitle || parsed.normalizedQuery, limit: 10 }),
+          fetchWithFallback('/search', { query: parsed.normalizedQuery }, { signal }),
+          this.searchSongs(parsed.normalizedQuery, 1, 25, { isLiveSearch: true, signal }),
+          fetchWithFallback('/search/artists', { query: targetArtist || parsed.normalizedQuery, limit: 6 }, { signal }),
+          fetchWithFallback('/search/albums', { query: parsed.candidateSongTitle || parsed.normalizedQuery, limit: 6 }, { signal }),
+          fetchWithFallback('/search/playlists', { query: parsed.candidateSongTitle || parsed.normalizedQuery, limit: 6 }, { signal }),
           // Parallel secondary query to YouTube Music provider
           fetch((typeof ApiConfig !== 'undefined' && typeof ApiConfig.buildUrl === 'function') ? ApiConfig.buildUrl('/api/providers/ytmusic/search') : '/api/providers/ytmusic/search', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query: parsed.normalizedQuery, limit: 20 }),
-            signal: AbortSignal.timeout(3500)
+            body: JSON.stringify({ query: parsed.normalizedQuery, limit: 15 }),
+            signal: signal || AbortSignal.timeout(2500)
           }).then(r => r.ok ? r.json() : { songs: [] }).catch(() => ({ songs: [] }))
         ];
 
         if (parsed.isCompoundQuery && parsed.candidateSongTitle) {
-          promises.push(this.searchSongs(parsed.candidateSongTitle, 1, 30));
-        }
-
-        if (targetArtist && targetArtist !== parsed.normalizedQuery) {
-          promises.push(this.searchSongs(targetArtist, 1, 30));
+          promises.push(this.searchSongs(parsed.candidateSongTitle, 1, 20, { isLiveSearch: true, signal }));
         }
 
         const results = await Promise.allSettled(promises);
+        if (signal?.aborted) {
+          const e = new Error('The operation was aborted');
+          e.name = 'AbortError';
+          throw e;
+        }
 
         const searchRes = results[0];
         const songsRes = results[1];
@@ -330,17 +399,15 @@ const API = (() => {
         const playlistsRes = results[4];
         const ytRes = results[5];
         const subSongRes = results[6];
-        const artistSongsRes = results[7];
 
         const federated = searchRes.status === 'fulfilled' ? (searchRes.value?.data || searchRes.value) : {};
         const deepSongs = songsRes.status === 'fulfilled' ? songsRes.value : [];
         const ytData = ytRes && ytRes.status === 'fulfilled' ? ytRes.value : { songs: [], artists: [], albums: [], playlists: [] };
         const ytSongs = (ytData?.songs || []).map(normalizeSong);
         const subSongs = (subSongRes && subSongRes.status === 'fulfilled') ? subSongRes.value : [];
-        const artistSongs = (artistSongsRes && artistSongsRes.status === 'fulfilled') ? artistSongsRes.value : [];
 
         const federatedSongs = (federated?.songs?.results || []).map(normalizeSong);
-        const allCandidateSongs = [...deepSongs, ...ytSongs, ...subSongs, ...artistSongs, ...federatedSongs];
+        const allCandidateSongs = [...deepSongs, ...ytSongs, ...subSongs, ...federatedSongs];
 
         const rawArtists = artistsRes.status === 'fulfilled' ? (artistsRes.value?.data?.results || []) : (federated?.artists?.results || []);
         const rawAlbums = albumsRes.status === 'fulfilled' ? (albumsRes.value?.data?.results || []) : (federated?.albums?.results || []);
@@ -364,6 +431,18 @@ const API = (() => {
           rankedSongs = TD.deduplicate(allCandidateSongs, query);
         }
 
+        // Instant play optimization: pre-calculate audioUrl on every ranked result
+        rankedSongs.forEach(s => {
+          if (s && !s.audioUrl) {
+            const direct = getDownloadUrl(s);
+            if (direct) {
+              s.audioUrl = direct;
+              s.streamUrl = direct;
+              s.isPlayable = true;
+            }
+          }
+        });
+
         // Asynchronously sync discovered tracks into Typesense in background
         if (typeof TypesenseClient !== 'undefined' && rankedSongs.length > 0) {
           rankedSongs.slice(0, 8).forEach(s => TypesenseClient.syncTrack(s));
@@ -381,8 +460,9 @@ const API = (() => {
           provider: 'live_fallback'
         };
       } catch (e) {
+        if (e.name === 'AbortError') throw e;
         console.error('[API] searchAll error:', e);
-        const fallbackSongs = await this.searchSongs(query, 1, 30);
+        const fallbackSongs = await this.searchSongs(query, 1, 20, { isLiveSearch: true });
         return {
           query,
           songs: { results: fallbackSongs },
@@ -396,7 +476,7 @@ const API = (() => {
     },
 
     // Search songs specifically (with multi-page deep aggregation & smart ranking)
-    async searchSongs(query, page = 1, limit = 30) {
+    async searchSongs(query, page = 1, limit = 30, options = {}) {
       try {
         const QN = (typeof QueryNormalizer !== 'undefined') ? QueryNormalizer : (typeof require !== 'undefined' ? require('./queryNormalizer.js') : null);
         const SE = (typeof SearchEngine !== 'undefined') ? SearchEngine : (typeof require !== 'undefined' ? require('./searchEngine.js') : null);
@@ -406,41 +486,52 @@ const API = (() => {
           ? QN.parseCompoundQuery(query)
           : { normalizedQuery: query.trim(), isCompoundQuery: false, rawQuery: query };
 
+        const signal = options.signal;
+        if (signal?.aborted) {
+          const e = new Error('The operation was aborted');
+          e.name = 'AbortError';
+          throw e;
+        }
+
         const targetArtist = parsed.candidateArtist || (QN && QN.isLikelyArtist(parsed.normalizedQuery) ? parsed.normalizedQuery : null);
 
-        // Fetch multiple pages in parallel to gather 30+ distinct, unique tracks after deduplication
-        const pagesToFetch = page === 1 ? [1, 2, 3, 4, 5, 6, 7] : [page, page + 1, page + 2];
+        // For live search and fast first page, fetch only 1 page to guarantee instant snappiness
+        const pagesToFetch = (options.isLiveSearch || (!options.deep && page === 1))
+          ? [page]
+          : [page, page + 1, page + 2];
         const promises = [];
 
         for (const p of pagesToFetch) {
-          promises.push(fetchWithFallback('/search/songs', { query: parsed.normalizedQuery, page: p, limit: 30 }));
-          if (targetArtist && targetArtist !== parsed.normalizedQuery) {
-            promises.push(fetchWithFallback('/search/songs', { query: targetArtist, page: p, limit: 30 }));
+          promises.push(fetchWithFallback('/search/songs', { query: parsed.normalizedQuery, page: p, limit: limit }, { signal }));
+          if (!options.isLiveSearch && targetArtist && targetArtist !== parsed.normalizedQuery) {
+            promises.push(fetchWithFallback('/search/songs', { query: targetArtist, page: p, limit: limit }, { signal }));
           }
-          if (parsed.isCompoundQuery && parsed.candidateSongTitle) {
-            promises.push(fetchWithFallback('/search/songs', { query: parsed.candidateSongTitle, page: p, limit: 30 }));
+          if (!options.isLiveSearch && parsed.isCompoundQuery && parsed.candidateSongTitle) {
+            promises.push(fetchWithFallback('/search/songs', { query: parsed.candidateSongTitle, page: p, limit: limit }, { signal }));
           }
         }
 
-        // Also query YouTube Music provider in parallel for rich catalog coverage
-        promises.push(
-          fetch((typeof ApiConfig !== 'undefined' && typeof ApiConfig.buildUrl === 'function') ? ApiConfig.buildUrl('/api/providers/ytmusic/search') : '/api/providers/ytmusic/search', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ query: parsed.normalizedQuery, limit: 30 }),
-            signal: AbortSignal.timeout(3500)
-          }).then(r => r.ok ? r.json() : { songs: [] }).then(d => d?.songs || []).catch(() => [])
-        );
-
-        // For page 1, also fetch top albums and their songs to enrich discography with iconic hits
-        if (page === 1) {
+        // Only query YouTube Music when deep search or full search requested
+        if (!options.isLiveSearch) {
           promises.push(
-            fetchWithFallback('/search/albums', { query: targetArtist || parsed.normalizedQuery, limit: 8 })
+            fetch((typeof ApiConfig !== 'undefined' && typeof ApiConfig.buildUrl === 'function') ? ApiConfig.buildUrl('/api/providers/ytmusic/search') : '/api/providers/ytmusic/search', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ query: parsed.normalizedQuery, limit: 20 }),
+              signal: signal || AbortSignal.timeout(3000)
+            }).then(r => r.ok ? r.json() : { songs: [] }).then(d => d?.songs || []).catch(() => [])
+          );
+        }
+
+        // Deep discography album song enrichment only when explicitly requested
+        if (options.deep && page === 1) {
+          promises.push(
+            fetchWithFallback('/search/albums', { query: targetArtist || parsed.normalizedQuery, limit: 5 }, { signal })
               .then(async albRes => {
                 const albList = albRes?.data?.results || albRes?.results || [];
-                const topAlbs = albList.slice(0, 5);
+                const topAlbs = albList.slice(0, 3);
                 const albSongPromises = topAlbs.map(a =>
-                  fetchWithFallback('/albums', { id: a.id })
+                  fetchWithFallback('/albums', { id: a.id }, { signal })
                     .then(det => det?.data?.songs || det?.songs || [])
                     .catch(() => [])
                 );
@@ -452,6 +543,12 @@ const API = (() => {
         }
 
         const responses = await Promise.allSettled(promises);
+        if (signal?.aborted) {
+          const e = new Error('The operation was aborted');
+          e.name = 'AbortError';
+          throw e;
+        }
+
         let items = [];
         for (const r of responses) {
           if (r.status === 'fulfilled' && r.value) {
@@ -473,8 +570,21 @@ const API = (() => {
           ranked = TD.deduplicate(normalized, query);
         }
 
+        // Pre-populate audioUrl for instant playback
+        ranked.forEach(s => {
+          if (s && !s.audioUrl) {
+            const direct = getDownloadUrl(s);
+            if (direct) {
+              s.audioUrl = direct;
+              s.streamUrl = direct;
+              s.isPlayable = true;
+            }
+          }
+        });
+
         return ranked;
       } catch (e) {
+        if (e.name === 'AbortError') throw e;
         console.error('[API] searchSongs error:', e);
         return [];
       }
@@ -609,7 +719,7 @@ const API = (() => {
     // Get Album Details
     async getAlbumDetails(id) {
       try {
-        const res = await fetchWithFallback('/albums', { id });
+        const res = await fetchWithFallback('/albums', { id, limit: 100 });
         const data = res?.data || res;
         if (data && Array.isArray(data.songs)) {
           data.songs = data.songs.map(normalizeSong);
@@ -623,7 +733,7 @@ const API = (() => {
     // Get Playlist Details
     async getPlaylistDetails(id) {
       try {
-        const res = await fetchWithFallback('/playlists', { id });
+        const res = await fetchWithFallback('/playlists', { id, limit: 100 });
         const data = res?.data || res;
         if (data && Array.isArray(data.songs)) {
           data.songs = data.songs.map(normalizeSong);

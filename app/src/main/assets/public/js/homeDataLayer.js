@@ -353,13 +353,35 @@ const HomeDataLayer = (() => {
     }
 
     // SECTION 9: Top Albums
-    if (albums.length > 0) {
+    let topAlbums = Array.isArray(albums) ? [...albums] : [];
+    if (topAlbums.length === 0 && candidatePool.length > 0) {
+      const seen = new Set();
+      for (const s of candidatePool) {
+        const aName = s.album?.name || s.album || s.name;
+        if (aName && typeof aName === 'string' && !seen.has(aName.toLowerCase())) {
+          seen.add(aName.toLowerCase());
+          topAlbums.push({
+            id: s.album?.id || `alb_${s.id}`,
+            name: aName,
+            title: aName,
+            type: 'album',
+            artists: s.artists || s.primaryArtist || 'MusicFlow',
+            artist: s.artists || s.primaryArtist || 'MusicFlow',
+            image: s.image || 'assets/logo.png',
+            year: s.year || ''
+          });
+          if (topAlbums.length >= 8) break;
+        }
+      }
+    }
+
+    if (topAlbums.length > 0) {
       sections.push({
         id: 'top_albums',
         title: 'Top Albums & EPs',
         tag: 'DISCOGRAPHY',
         type: 'album_cards',
-        items: albums.slice(0, 8)
+        items: topAlbums.slice(0, 8)
       });
     }
 

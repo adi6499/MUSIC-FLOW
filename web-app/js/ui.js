@@ -167,6 +167,33 @@ const UI = (() => {
       }
     },
 
+    renderListenAgain(items) {
+      const section = document.getElementById('shelf-listen-again-section');
+      const container = document.getElementById('ytm-listen-again-container');
+      if (!section || !container) return;
+
+      if (!items || items.length === 0) {
+        const history = (typeof Storage !== 'undefined' && Storage.getHistory) ? Storage.getHistory() : [];
+        items = history.slice(0, 6);
+      }
+
+      if (!items || items.length === 0) {
+        section.style.display = 'none';
+        return;
+      }
+
+      section.style.display = 'block';
+      container.innerHTML = items.slice(0, 6).map(item => `
+        <div class="listen-again-item" onclick="App.playSongWithQueue('${item.id}')">
+          <img class="listen-again-thumb" src="${item.image || 'assets/logo.png'}" alt="" onerror="this.src='assets/logo.png'">
+          <div class="listen-again-meta">
+            <span class="listen-again-title">${item.name}</span>
+            <span class="listen-again-sub">${item.artists || item.primaryArtist || 'Unknown'}</span>
+          </div>
+        </div>
+      `).join('');
+    },
+
     renderQuickPicks(songs) {
       const container = document.getElementById('quick-picks-container');
       if (!container || !songs || songs.length === 0) return;
@@ -411,8 +438,10 @@ const UI = (() => {
       const container = document.getElementById('shelf-trending-container');
       if (!container || !charts) return;
 
-      container.innerHTML = charts.map(item => `
-        <div class="music-square-card" onclick="App.openAlbumOrPlaylist('${item.id}', '${item.type || 'playlist'}')">
+      container.innerHTML = charts.map(item => {
+        const titleSafe = (item.title || item.name || '').replace(/'/g, "\\'");
+        return `
+        <div class="music-square-card" onclick="App.openAlbumOrPlaylist('${item.id}', '${item.type || 'playlist'}', '${titleSafe}')">
           <div class="square-card-art-wrap">
             <img src="${API.getImageUrl(item)}" loading="lazy" decoding="async" onerror="this.src='assets/logo.png'" alt="${item.title || item.name}">
             <div class="square-card-play-overlay">
@@ -422,15 +451,27 @@ const UI = (() => {
           <div class="square-card-title">${item.title || item.name}</div>
           <div class="square-card-sub">${formatArtists(item.subtitle || item.artists || 'MusicFlow')}</div>
         </div>
-      `).join('');
+      `;
+      }).join('');
     },
 
     renderAlbums(albums) {
       const container = document.getElementById('shelf-albums-container');
-      if (!container || !albums) return;
+      const section = document.getElementById('shelf-albums-section');
+      if (!container) return;
 
-      container.innerHTML = albums.map(item => `
-        <div class="music-square-card" onclick="App.openAlbumOrPlaylist('${item.id}', 'album')">
+      if (!albums || !Array.isArray(albums) || albums.length === 0) {
+        container.innerHTML = '';
+        if (section) section.style.display = 'none';
+        return;
+      }
+
+      if (section) section.style.display = '';
+      container.innerHTML = albums.map(item => {
+        const titleSafe = (item.title || item.name || '').replace(/'/g, "\\'");
+        const artistSafe = (item.artists || item.artist || item.subtitle || '').replace(/'/g, "\\'");
+        return `
+        <div class="music-square-card" onclick="App.openAlbumOrPlaylist('${item.id}', 'album', '${titleSafe}', '${artistSafe}')">
           <div class="square-card-art-wrap">
             <img src="${API.getImageUrl(item)}" loading="lazy" decoding="async" onerror="this.src='assets/logo.png'" alt="${item.title || item.name}">
             <div class="square-card-play-overlay">
@@ -440,7 +481,8 @@ const UI = (() => {
           <div class="square-card-title">${item.title || item.name}</div>
           <div class="square-card-sub">${formatArtists(item.artists || item.artist || item.subtitle || item.year || 'Album')}</div>
         </div>
-      `).join('');
+      `;
+      }).join('');
     },
 
     // ========================================================================
@@ -726,8 +768,10 @@ const UI = (() => {
           <div class="shelf-section" style="margin-top:16px;">
             <div class="search-section-title">Playlists</div>
             <div class="cards-horizontal-shelf" style="padding: 4px 0;">
-              ${playlists.map(pl => `
-                <div class="music-square-card" onclick="App.openAlbumOrPlaylist('${pl.id}', 'playlist')">
+              ${playlists.map(pl => {
+                const titleSafe = (pl.title || pl.name || '').replace(/'/g, "\\'");
+                return `
+                <div class="music-square-card" onclick="App.openAlbumOrPlaylist('${pl.id}', 'playlist', '${titleSafe}')">
                   <div class="square-card-art-wrap">
                     <img src="${API.getImageUrl(pl)}" loading="lazy" decoding="async" onerror="this.src='assets/logo.png'" alt="${pl.title || pl.name}">
                     <div class="square-card-play-overlay"><span class="material-symbols-outlined fill-icon" style="font-size:20px;">play_arrow</span></div>
@@ -735,7 +779,8 @@ const UI = (() => {
                   <div class="square-card-title">${escapeHtml(pl.title || pl.name)}</div>
                   <div class="square-card-sub">${escapeHtml(formatArtists(pl.subtitle || pl.artists || 'Playlist'))}</div>
                 </div>
-              `).join('')}
+              `;
+              }).join('')}
             </div>
           </div>
         `;
@@ -797,8 +842,10 @@ const UI = (() => {
 
       const charts = exploreData.charts || [];
       if (charts.length > 0) {
-        chartsContainer.innerHTML = charts.map(item => `
-          <div class="music-square-card" onclick="App.openAlbumOrPlaylist('${item.id}', '${item.type || 'playlist'}')">
+        chartsContainer.innerHTML = charts.map(item => {
+          const titleSafe = (item.title || item.name || '').replace(/'/g, "\\'");
+          return `
+          <div class="music-square-card" onclick="App.openAlbumOrPlaylist('${item.id}', '${item.type || 'playlist'}', '${titleSafe}')">
             <div class="square-card-art-wrap">
               <img src="${API.getImageUrl(item)}" onerror="this.src='assets/logo.png'" alt="${item.title || item.name}">
               <div class="square-card-play-overlay">
@@ -808,7 +855,8 @@ const UI = (() => {
             <div class="square-card-title">${item.title || item.name}</div>
             <div class="square-card-sub">${formatArtists(item.subtitle || item.artists || 'MusicFlow')}</div>
           </div>
-        `).join('');
+        `;
+        }).join('');
       }
     },
 
@@ -1375,10 +1423,14 @@ const UI = (() => {
         } else if (localSubTab === 'albums') {
           html += `<div class="playlists-grid">` + localAlbums.map(alb => `
             <div class="playlist-rich-card" onclick="App.playLocalCollection('${alb.id}', 'album')">
-              <img class="playlist-rich-card-cover" src="${alb.image}" onerror="this.src='assets/logo.png'" alt="${alb.name}">
-              <div class="playlist-rich-card-info">
-                <div class="playlist-rich-card-name">${alb.name}</div>
-                <div class="playlist-rich-card-count">${alb.artist} • ${alb.songCount} songs</div>
+              <div class="playlist-rich-cover-wrap">
+                <img class="playlist-rich-cover-img playlist-rich-card-cover" src="${alb.image || 'assets/logo.png'}" onerror="this.src='assets/logo.png'" alt="${alb.name}">
+              </div>
+              <div class="playlist-rich-info playlist-rich-card-info">
+                <div>
+                  <div class="playlist-rich-title playlist-rich-card-name">${alb.name}</div>
+                  <div class="playlist-rich-sub playlist-rich-card-count">${alb.artist} • ${alb.songCount} songs</div>
+                </div>
               </div>
             </div>
           `).join('') + `</div>`;
@@ -1610,18 +1662,31 @@ const UI = (() => {
       const playBtn = document.getElementById('btn-detail-play-all');
 
       const songs = albumData.songs || [];
-      const artist = albumData.artist || albumData.primaryArtist || (songs[0] && (songs[0].primaryArtist || songs[0].artists)) || 'Unknown Artist';
+      const artist = albumData.artist || albumData.primaryArtist || (songs[0] && (songs[0].primaryArtist || songs[0].artists)) || 'MusicFlow';
       const year = albumData.year || (songs[0] && songs[0].year) || '';
-      const type = albumData.type || (songs.length > 5 ? 'Album' : (songs.length > 1 ? 'EP' : 'Single'));
+      const isPlaylist = (albumData.type === 'playlist' || albumData.type === 'chart');
+      const type = isPlaylist ? 'Playlist' : (albumData.type || (songs.length > 5 ? 'Album' : (songs.length > 1 ? 'EP' : 'Single')));
       const totalSec = songs.reduce((acc, s) => acc + (Number(s.duration) || 0), 0);
       const durStr = totalSec > 0 ? ` • ${Math.floor(totalSec / 60)} min` : '';
 
-      if (titleEl) titleEl.textContent = albumData.name || albumData.title || 'Album';
+      const sourceTagEl = document.getElementById('detail-source-tag');
+      if (sourceTagEl) {
+        sourceTagEl.textContent = isPlaylist ? 'PLAYLIST' : 'ALBUM';
+      }
+
+      if (titleEl) titleEl.textContent = albumData.name || albumData.title || (isPlaylist ? 'Playlist' : 'Album');
       if (subEl) {
-        subEl.innerHTML = `
-          <span style="color:#FFF; font-weight:700; cursor:pointer;" onclick="App.openArtist('${artist.replace(/'/g, "\\'")}')">${artist}</span>
-          <span> • ${year ? year + ' • ' : ''}${type} • ${songs.length} track${songs.length === 1 ? '' : 's'}${durStr}</span>
-        `;
+        if (isPlaylist) {
+          subEl.innerHTML = `
+            <span style="color:#FFF; font-weight:700;">${escapeHtml(artist)}</span>
+            <span> • Playlist • ${songs.length} track${songs.length === 1 ? '' : 's'}${durStr}</span>
+          `;
+        } else {
+          subEl.innerHTML = `
+            <span style="color:#FFF; font-weight:700; cursor:pointer;" onclick="App.openArtist('${artist.replace(/'/g, "\\'")}')">${escapeHtml(artist)}</span>
+            <span> • ${year ? year + ' • ' : ''}${type} • ${songs.length} track${songs.length === 1 ? '' : 's'}${durStr}</span>
+          `;
+        }
       }
       if (coverImg) {
         coverImg.src = albumData.image || (songs[0] && songs[0].image) || 'assets/logo.png';
@@ -2668,10 +2733,10 @@ const UI = (() => {
       if (!container) return;
 
       const options = [
-        { key: '320kbps', label: 'Lossless & Studio Master', bitrate: '320 kbps', desc: 'Highest studio master fidelity, lossless acoustic dynamics', badge: 'LOSSLESS' },
+        { key: '320kbps', label: 'Lossless / High Quality', bitrate: '320 kbps', desc: 'Highest studio master fidelity, lossless acoustic dynamics', badge: 'LOSSLESS' },
         { key: '256kbps', label: 'High Fidelity', bitrate: '256 kbps', desc: 'Apple Music standard, pristine soundstage clarity', badge: 'HI-FI' },
-        { key: '160kbps', label: 'High Quality', bitrate: '160 kbps', desc: 'Crisp sound, balanced data usage and rapid streaming', badge: 'HQ' },
-        { key: '128kbps', label: 'Standard Quality', bitrate: '128 kbps', desc: 'Smooth streaming, standard data usage', badge: null },
+        { key: '160kbps', label: 'Standard Quality', bitrate: '160 kbps', desc: 'Crisp sound, balanced data usage and rapid streaming', badge: 'HQ' },
+        { key: '128kbps', label: 'Normal Quality', bitrate: '128 kbps', desc: 'Smooth streaming, standard data usage', badge: null },
         { key: '96kbps', label: 'Data Saver', bitrate: '96 kbps', desc: 'Low data consumption, quick buffering on mobile data', badge: null },
         { key: '48kbps', label: 'Ultra Data Saver', bitrate: '48 kbps', desc: 'Minimal data usage, ideal for weak or slow networks', badge: null }
       ];
@@ -2876,7 +2941,7 @@ const UI = (() => {
     // ========================================================================
     // IN-APP UPDATE UI METHODS
     // ========================================================================
-    showUpdateDialog(updateData, isMandatory = false) {
+    showUpdateDialog(updateData, isMandatory = false, isImprovements = false) {
       const dialog = document.getElementById('modal-update-dialog');
       if (!dialog) return;
 
@@ -2892,12 +2957,16 @@ const UI = (() => {
       const currVer = (typeof UpdateManager !== 'undefined') ? UpdateManager.VERSION : '2.7.2';
       const latestVer = updateData.latestVersion || currVer;
 
-      if (titleEl) titleEl.textContent = updateData.title || `MusicFlow ${latestVer}`;
+      if (titleEl) titleEl.textContent = updateData.title || (isImprovements ? "MusicFlow What's New" : `MusicFlow ${latestVer}`);
       if (currVerEl) currVerEl.textContent = `v${currVer}`;
       if (newVerEl) newVerEl.textContent = `v${latestVer}`;
 
       if (badgeEl) {
-        if (isMandatory) {
+        if (isImprovements) {
+          badgeEl.textContent = "What's New & Improvements";
+          badgeEl.style.color = '#A855F7';
+          badgeEl.style.background = 'rgba(168, 85, 247, 0.14)';
+        } else if (isMandatory) {
           badgeEl.textContent = 'Update Required';
           badgeEl.style.color = 'var(--accent)';
           badgeEl.style.background = 'var(--accent-soft)';
@@ -2910,9 +2979,17 @@ const UI = (() => {
 
       if (notesListEl) {
         notesListEl.innerHTML = '';
+        const defaultNotes = [
+          "⚡ 120 FPS Instant Search & 0ms Playback: Eliminated typing lag with AbortSignal request pruning and instant pre-cached audio streams.",
+          "✨ Zero-Scroll Playlist & Album Navigation: Opening any playlist or album immediately resets view to top header with smooth animations.",
+          "💿 Resilient Discography & Top Albums: Multi-tier fallback ensures album shelves never get stuck loading.",
+          "♾️ Infinite Unbroken Radio & Up Next: Automatic dynamic fallback queues guarantee non-stop playback without dead ends.",
+          "🎧 3D Spatial Audio & Equalizer v2: Ultra-crisp audio tuning with bass boost and surround virtualization.",
+          "🚀 Sideload APK Direct Updates: Instant delivery of new releases and APK downloads with 1-click update."
+        ];
         const notes = Array.isArray(updateData.releaseNotes) && updateData.releaseNotes.length > 0
           ? updateData.releaseNotes
-          : ['Performance, recommendation quality, and playback stability improvements.'];
+          : defaultNotes;
         notes.forEach(note => {
           const li = document.createElement('li');
           li.textContent = note;
@@ -2922,6 +2999,7 @@ const UI = (() => {
 
       if (laterBtn) {
         laterBtn.style.display = isMandatory ? 'none' : 'block';
+        laterBtn.textContent = isImprovements ? 'Close' : 'Later';
       }
 
       if (updateNowBtn) {
@@ -2931,7 +3009,7 @@ const UI = (() => {
           if (updateNowText) updateNowText.textContent = 'Temporarily Unavailable';
         } else {
           updateNowBtn.style.opacity = '1';
-          if (updateNowText) updateNowText.textContent = isMandatory ? 'Update MusicFlow' : 'Update Now';
+          if (updateNowText) updateNowText.textContent = isImprovements ? 'Download Latest APK' : (isMandatory ? 'Update MusicFlow' : 'Update Now');
         }
       }
 
@@ -2979,7 +3057,7 @@ const UI = (() => {
       if (versionVal) versionVal.textContent = `v${appVer}`;
 
       if (state && state.isChecking) {
-        if (statusSub) statusSub.textContent = 'Checking GitHub Releases...';
+        if (statusSub) statusSub.textContent = 'Checking for updates...';
         if (spinIcon) spinIcon.classList.add('spin-icon-fast');
         if (btnText) btnText.textContent = 'Checking...';
         return;

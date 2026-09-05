@@ -344,7 +344,11 @@ const Player = (() => {
         }
       }
 
-      lastError = { code, message: msg, track: getCurrentTrack() };
+      const failedTrack = getCurrentTrack();
+      if (failedTrack) {
+        failedTrack.isPlayable = false;
+      }
+      lastError = { code, message: msg, track: failedTrack };
       console.warn('[Player] Audio playback error:', lastError);
       notify('error', lastError);
       transitionTo(PlaybackState.ERROR, { error: lastError });
@@ -358,14 +362,18 @@ const Player = (() => {
             audio.load();
             audio.play().catch(console.warn);
           }
-        }, 1200);
+        }, 800);
       } else if (queue.length > 1) {
-        // Auto-skip failed track after notification
+        // Swift auto-skip failed track (350ms)
+        const trackTitle = failedTrack?.name || failedTrack?.title || 'Song';
+        if (typeof window !== 'undefined' && window.UI && typeof window.UI.showToast === 'function') {
+          window.UI.showToast(`"${trackTitle}" unavailable, skipping...`);
+        }
         setTimeout(() => {
           if (lastStartedRequestId === playbackRequestId) {
             next();
           }
-        }, 1500);
+        }, 350);
       }
     });
 
@@ -820,8 +828,8 @@ const Player = (() => {
         } catch (_) {}
       }
 
-      // Auto-populate continuous queue when near queue end
-      if (queue.length - currentIndex <= 3 && autoPlay && !isRadio) {
+      // Continuous endless playback: auto-populate whenever near queue end
+      if (queue.length - currentIndex <= 4 && autoPlay) {
         autoPopulateContinuousQueue(song);
       }
     } catch (err) {
@@ -836,14 +844,16 @@ const Player = (() => {
       notify('error', lastError);
       transitionTo(PlaybackState.ERROR, { error: lastError });
 
-      // Auto-advance if track is unavailable and more songs in queue
-      if (queue.length > 1 && (currentIndex + 1 < queue.length)) {
-        if (isRadio) {
-          console.log(`[Radio] Track unavailable; auto-skipping "${song.name}" and advancing to next playable recommendation at index ${currentIndex + 1}`);
+      // Auto-advance swiftly if track is unavailable and more songs in queue
+      if (queue.length > 1) {
+        const trackTitle = song?.name || song?.title || 'Song';
+        console.log(`[Player] Track unavailable; auto-skipping "${trackTitle}"`);
+        if (typeof window !== 'undefined' && window.UI && typeof window.UI.showToast === 'function') {
+          window.UI.showToast(`"${trackTitle}" unavailable, skipping...`);
         }
         setTimeout(() => {
           if (currentReqGen === playbackGeneration) next();
-        }, isRadio ? 300 : 1200);
+        }, 350);
       }
     }
   }
@@ -857,43 +867,69 @@ const Player = (() => {
 
   async function autoPopulateContinuousQueue(currentSong) {
     if (!currentSong || isAutoPopulatingQueue) return;
-    if (queueContext.source === 'playlist' || queueContext.source === 'album') return;
 
     isAutoPopulatingQueue = true;
     try {
       let recs = [];
       const primaryArtist = (typeof DataNormalizer !== 'undefined')
         ? DataNormalizer.getPrimaryArtist(currentSong)
-        : String(currentSong.primaryArtist || currentSong.artists || '').split(/[,;&/]/)[0].trim();
+        : String(currentSong.primaryArtist || currentSong.artists || '').split(/[,;&/•+]/)[0].trim();
 
-      if (typeof API !== 'undefined' && API.getSimilarSongs) {
-        recs = await API.getSimilarSongs(currentSong.id, 20);
+      // Channel 1: Similar Songs API
+      if (currentSong.id && typeof API !== 'undefined' && API.getSimilarSongs) {
+        try {
+          const sim = await API.getSimilarSongs(currentSong.id, 25);
+          if (Array.isArray(sim) && sim.length > 0) recs.push(...sim);
+        } catch (_) {}
       }
 
-      if (!recs || recs.length < 6) {
-        if (primaryArtist && typeof API !== 'undefined' && API.searchSongs) {
-          const searchRecs = await API.searchSongs(`${primaryArtist} Similar Tracks`, 1, 20);
-          if (Array.isArray(searchRecs)) {
-            recs = [...(recs || []), ...searchRecs];
-          }
-        }
+      // Channel 2: Artist Top Songs
+      if (recs.length < 15 && primaryArtist && typeof API !== 'undefined' && API.getArtistSongs) {
+        try {
+          const artSongs = await API.getArtistSongs(primaryArtist, 1, 25);
+          if (Array.isArray(artSongs) && artSongs.length > 0) recs.push(...artSongs);
+        } catch (_) {}
+      }
+
+      // Channel 3: Artist Hits Search
+      if (recs.length < 15 && primaryArtist && typeof API !== 'undefined' && API.searchSongs) {
+        try {
+          const searchRecs = await API.searchSongs(`${primaryArtist} Hits`, 1, 20);
+          if (Array.isArray(searchRecs) && searchRecs.length > 0) recs.push(...searchRecs);
+        } catch (_) {}
+      }
+
+      // Channel 4: General Artist Query
+      if (recs.length < 15 && primaryArtist && typeof API !== 'undefined' && API.searchSongs) {
+        try {
+          const searchPlain = await API.searchSongs(primaryArtist, 1, 20);
+          if (Array.isArray(searchPlain) && searchPlain.length > 0) recs.push(...searchPlain);
+        } catch (_) {}
+      }
+
+      // Channel 5: Fallback to local catalog or home pool
+      if (recs.length < 8 && typeof Storage !== 'undefined' && Storage.getAllSongs) {
+        try {
+          const pool = Storage.getAllSongs();
+          if (Array.isArray(pool) && pool.length > 0) recs.push(...pool);
+        } catch (_) {}
       }
 
       const TD = (typeof TrackDeduplicator !== 'undefined') ? TrackDeduplicator : { deduplicate: arr => arr, cleanTrackTitle: t => t };
       const seedCleanTitle = TD.cleanTrackTitle ? TD.cleanTrackTitle(currentSong.name || currentSong.title) : '';
       
       const uniqueRecs = TD.deduplicate(recs || []);
-      // Hard filter: reject exact same track, tracks already in queue, and obvious remix/slowed variants of the seed song
+      const queuedIds = new Set(queue.map(q => String(q.id || q.videoId || '').toLowerCase()));
+      const queuedTitles = new Set(queue.map(q => String(q.name || q.title || '').toLowerCase().replace(/[^a-z0-9]/g, '')));
+
+      // Hard filter: reject exact same track, tracks already in queue, and duplicate remix variants
       const newItems = uniqueRecs.filter(s => {
-        if (!s || !s.id) return false;
-        if (String(s.id) === String(currentSong.id)) return false;
-        if (queue.some(q => String(q.id) === String(s.id))) return false;
-        if (seedCleanTitle && TD.cleanTrackTitle) {
-          const candTitle = TD.cleanTrackTitle(s.name || s.title);
-          if (candTitle === seedCleanTitle && TD.cleanArtistName(s.artists || s.primaryArtist) === TD.cleanArtistName(currentSong.artists || currentSong.primaryArtist)) {
-            return false; // Skip duplicate version of the seed track!
-          }
-        }
+        if (!s || (!s.id && !s.videoId)) return false;
+        const sid = String(s.id || s.videoId || '').toLowerCase();
+        if (sid === String(currentSong.id || currentSong.videoId || '').toLowerCase()) return false;
+        if (queuedIds.has(sid)) return false;
+        const candTitle = String(s.name || s.title || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (candTitle && queuedTitles.has(candTitle)) return false;
         return true;
       });
 
@@ -901,6 +937,9 @@ const Player = (() => {
         queue.push(...newItems);
         unShuffledQueue.push(...newItems);
         notify('queueChange', queue);
+        if (typeof NativeMedia !== 'undefined') {
+          NativeMedia.setQueue(queue, currentIndex);
+        }
       }
     } catch (_) {
     } finally {
@@ -910,34 +949,44 @@ const Player = (() => {
 
   async function playSong(song, newQueue = null) {
     if (!song) return;
-    if (newQueue && Array.isArray(newQueue) && newQueue.length > 0) {
+    if (newQueue && Array.isArray(newQueue) && newQueue.length > 1) {
       const idx = newQueue.findIndex(s => String(s.id) === String(song.id));
       setQueue(newQueue, idx >= 0 ? idx : 0);
+      if (newQueue.length <= 4) {
+        autoPopulateContinuousQueue(song);
+      }
     } else {
       const existingIdx = queue.findIndex(s => String(s.id) === String(song.id));
       if (existingIdx >= 0) {
         await playTrackAtIndex(existingIdx, true);
       } else {
-        queue.push(song);
-        unShuffledQueue.push(song);
+        queue = [song];
+        unShuffledQueue = [song];
+        currentIndex = 0;
         notify('queueChange', queue);
-        await playTrackAtIndex(queue.length - 1, true);
-        autoPopulateContinuousQueue(song);
+        await playTrackAtIndex(0, true);
       }
+      autoPopulateContinuousQueue(song);
     }
   }
 
   let queueContext = { source: 'default', mode: 'normal', sourceId: null, title: '' };
 
+  function isValidQueueTrack(t) {
+    if (!t || typeof t !== 'object') return false;
+    if (!t.id && !t.name && !t.title && !t.mediaUrl && !t.url) return false;
+    return true;
+  }
+
   function startRadioQueue(currentSong, relatedSongs = []) {
-    if (!currentSong) return;
+    if (!currentSong || !isValidQueueTrack(currentSong)) return;
     queueContext = { source: 'radio', mode: 'radio', sourceId: currentSong.id, title: `${currentSong.name} Radio` };
-    const cleanRelated = relatedSongs.filter(s => s && s.id && String(s.id) !== String(currentSong.id));
+    const cleanRelated = relatedSongs.filter(s => isValidQueueTrack(s) && String(s.id) !== String(currentSong.id));
     const activeTrack = getCurrentTrack();
     const isSameActiveTrack = activeTrack && (String(activeTrack.id) === String(currentSong.id));
 
     if (isSameActiveTrack) {
-      const pastTracks = queue.slice(0, currentIndex);
+      const pastTracks = queue.slice(0, currentIndex).filter(isValidQueueTrack);
       queue = [...pastTracks, activeTrack, ...cleanRelated];
       unShuffledQueue = [...queue];
       notify('queueChange', queue);
@@ -979,7 +1028,8 @@ const Player = (() => {
 
   function setQueue(newQueue, startIndex = 0, autoPlay = true, context = null) {
     queueContext = context || (queueContext.source === 'playlist' ? queueContext : { source: 'default', mode: 'normal' });
-    queue = Array.isArray(newQueue) ? [...newQueue] : [];
+    const rawQueue = Array.isArray(newQueue) ? newQueue : [];
+    queue = rawQueue.filter(isValidQueueTrack);
     unShuffledQueue = [...queue];
     currentIndex = Math.max(0, Math.min(startIndex, queue.length - 1));
     notify('queueChange', queue);
@@ -1023,7 +1073,7 @@ const Player = (() => {
   }
 
   function appendToQueue(song) {
-    if (!song) return;
+    if (!song || !isValidQueueTrack(song)) return;
     queue.push(song);
     unShuffledQueue.push(song);
     notify('queueChange', queue);
@@ -1035,7 +1085,9 @@ const Player = (() => {
   function insertNext(trackOrTracks) {
     if (!trackOrTracks) return;
     const items = Array.isArray(trackOrTracks) ? trackOrTracks : [trackOrTracks];
-    const normalized = items.map(s => (typeof DataNormalizer !== 'undefined' ? DataNormalizer.normalizeTrack(s) : s)).filter(Boolean);
+    const normalized = items
+      .map(s => (typeof DataNormalizer !== 'undefined' ? DataNormalizer.normalizeTrack(s) : s))
+      .filter(isValidQueueTrack);
     if (normalized.length === 0) return;
 
     // Deduplicate: if these tracks appear further down the queue, remove them from later positions
@@ -1158,10 +1210,30 @@ const Player = (() => {
       return;
     }
 
-    if (currentIndex + 1 < queue.length) {
-      playTrackAtIndex(currentIndex + 1, true);
+    // Find next playable track in queue ahead of currentIndex
+    let targetIndex = -1;
+    for (let i = currentIndex + 1; i < queue.length; i++) {
+      if (queue[i] && queue[i].isPlayable !== false) {
+        targetIndex = i;
+        break;
+      }
+    }
+
+    if (targetIndex !== -1) {
+      playTrackAtIndex(targetIndex, true);
     } else if (repeatMode === 'ALL') {
-      playTrackAtIndex(0, true);
+      let loopIndex = -1;
+      for (let i = 0; i < queue.length; i++) {
+        if (queue[i] && queue[i].isPlayable !== false) {
+          loopIndex = i;
+          break;
+        }
+      }
+      if (loopIndex !== -1) {
+        playTrackAtIndex(loopIndex, true);
+      } else {
+        transitionTo(PlaybackState.COMPLETED);
+      }
     } else {
       // If playing a playlist, respect playlist boundaries and do not replace with radio
       if (queueContext.source === 'playlist' || queueContext.mode === 'playlist') {
@@ -1172,8 +1244,15 @@ const Player = (() => {
       if (current) {
         try {
           await autoPopulateContinuousQueue(current);
-          if (currentIndex + 1 < queue.length) {
-            playTrackAtIndex(currentIndex + 1, true);
+          let newTarget = -1;
+          for (let i = currentIndex + 1; i < queue.length; i++) {
+            if (queue[i] && queue[i].isPlayable !== false) {
+              newTarget = i;
+              break;
+            }
+          }
+          if (newTarget !== -1) {
+            playTrackAtIndex(newTarget, true);
             return;
           }
         } catch (_) {}
@@ -1188,10 +1267,26 @@ const Player = (() => {
       audio.currentTime = 0;
       return;
     }
-    if (currentIndex - 1 >= 0) {
-      playTrackAtIndex(currentIndex - 1, true);
+    // Find previous playable track before currentIndex
+    let prevIndex = -1;
+    for (let i = currentIndex - 1; i >= 0; i--) {
+      if (queue[i] && queue[i].isPlayable !== false) {
+        prevIndex = i;
+        break;
+      }
+    }
+    if (prevIndex !== -1) {
+      playTrackAtIndex(prevIndex, true);
     } else if (repeatMode === 'ALL') {
-      playTrackAtIndex(queue.length - 1, true);
+      for (let i = queue.length - 1; i >= 0; i--) {
+        if (queue[i] && queue[i].isPlayable !== false) {
+          prevIndex = i;
+          break;
+        }
+      }
+      if (prevIndex !== -1) {
+        playTrackAtIndex(prevIndex, true);
+      }
     } else {
       if (audio) audio.currentTime = 0;
     }
@@ -1521,6 +1616,7 @@ const Player = (() => {
     requestTrackPlayback,
     playTrackAtIndex,
     playSong,
+    playTrack: playSong,
     setQueue,
     startRadioQueue,
     appendToQueue,
@@ -1575,6 +1671,7 @@ const Player = (() => {
     updatePlaybackQuality,
     on,
     off,
+    autoPopulateContinuousQueue,
     // iOS Background Audio — exposed for native AppDelegate bridge
     _handleBackgroundTransition,
     _handleForegroundTransition

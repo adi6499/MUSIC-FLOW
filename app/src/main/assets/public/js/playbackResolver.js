@@ -160,16 +160,47 @@ const PlaybackResolver = (() => {
     }
 
     // 2. Local User Audio Check (Blob URL / File / ID3)
-    if (song.source === 'LOCAL' || song.localBlobUrl || (song.streamUrl && song.streamUrl.startsWith('blob:'))) {
-      if (song.localBlobUrl) {
-        return createResult(SourceType.LOCAL, song.localBlobUrl, 'local_file', song);
+    const isLocalTrack = song.source === 'LOCAL' || 
+                         song.isLocal === true || 
+                         (typeof song.id === 'string' && (song.id.startsWith('loc_') || song.id.startsWith('local_'))) ||
+                         Boolean(song.localBlobUrl) || 
+                         (song.streamUrl && song.streamUrl.startsWith('blob:'));
+
+    if (isLocalTrack) {
+      let resolvedUrl = null;
+
+      // 2a. Direct fileBlob on song object
+      if (song.fileBlob && typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
+        resolvedUrl = URL.createObjectURL(song.fileBlob);
       }
-      if (song.fileBlob && typeof URL !== 'undefined') {
-        song.localBlobUrl = URL.createObjectURL(song.fileBlob);
-        return createResult(SourceType.LOCAL, song.localBlobUrl, 'local_file', song);
+
+      // 2b. Local audio URL from Storage / IndexedDB
+      if (!resolvedUrl && typeof Storage !== 'undefined' && typeof Storage.getLocalAudioUrl === 'function') {
+        try {
+          resolvedUrl = await Storage.getLocalAudioUrl(song.id);
+        } catch (e) {
+          console.warn('[PlaybackResolver] getLocalAudioUrl warning:', e);
+        }
       }
-      if (song.streamUrl && song.streamUrl.startsWith('blob:')) {
-        return createResult(SourceType.LOCAL, song.streamUrl, 'local_file', song);
+
+      // 2c. Fallback to existing localBlobUrl or streamUrl
+      if (!resolvedUrl && (song.localBlobUrl || song.streamUrl)) {
+        resolvedUrl = song.localBlobUrl || song.streamUrl;
+      }
+
+      if (resolvedUrl) {
+        song.localBlobUrl = resolvedUrl;
+        song.streamUrl = resolvedUrl;
+        console.log(`[PlaybackResolver] Selected: LOCAL (${title}) -> ${resolvedUrl}`);
+        return createResult(SourceType.LOCAL, resolvedUrl, 'local_file', song);
+      } else {
+        console.warn(`[PlaybackResolver] Local audio source missing for "${title}" (${songId})`);
+        return {
+          type: SourceType.LOCAL,
+          uri: '',
+          error: ErrorCode.FILE_MISSING,
+          message: 'Local audio file could not be found or read from device storage.'
+        };
       }
     }
 

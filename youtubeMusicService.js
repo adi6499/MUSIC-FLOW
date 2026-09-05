@@ -106,17 +106,118 @@ if (typeof window !== 'undefined') {
   window._onNativeHttpResponse = function(requestId, response) {
     if (_pendingHttpRequests[requestId]) {
       try {
+        if (response && response.base64Data && !response.data) {
+          try {
+            const binaryStr = atob(response.base64Data);
+            const bytes = new Uint8Array(binaryStr.length);
+            for (let i = 0; i < binaryStr.length; i++) {
+              bytes[i] = binaryStr.charCodeAt(i);
+            }
+            response.data = new TextDecoder('utf-8').decode(bytes);
+          } catch (_) {
+            response.data = atob(response.base64Data);
+          }
+        }
         _pendingHttpRequests[requestId](response);
       } catch (e) {
         console.warn('[YouTubeMusicService] _onNativeHttpResponse error:', e);
+        _pendingHttpRequests[requestId](response);
       }
     }
   };
 }
 
 /**
-  * Execute YouTube Music Innertube API request
-  */
+ * Cross-platform fetch helper that uses native bridges on iOS/Android to bypass CORS.
+ * On desktop, uses standard fetch.
+ */
+async function nativeFetchJSON(fetchUrl, options = {}) {
+  const method = (options.method || 'GET').toUpperCase();
+  const headers = options.headers || {};
+  const body = options.body || '';
+  const timeoutMs = options.timeout || 8000;
+
+  // iOS Native URLSession Bridge
+  if (typeof window !== 'undefined' && window.webkit?.messageHandlers?.nativeMedia) {
+    const msgPayload = {
+      action: 'executeHttpRequest',
+      url: fetchUrl,
+      method: method,
+      headers: headers,
+      body: body
+    };
+
+    try {
+      const postPromise = window.webkit.messageHandlers.nativeMedia.postMessage(msgPayload);
+      if (postPromise && typeof postPromise.then === 'function') {
+        const resObj = await Promise.race([
+          postPromise,
+          new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), timeoutMs))
+        ]);
+        if (resObj && resObj.base64Data) {
+          const binaryStr = atob(resObj.base64Data);
+          const bytes = new Uint8Array(binaryStr.length);
+          for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+          return JSON.parse(new TextDecoder('utf-8').decode(bytes));
+        } else if (resObj && resObj.data) {
+          return typeof resObj.data === 'string' ? JSON.parse(resObj.data) : resObj.data;
+        }
+      } else {
+        // Legacy callback bridge
+        const result = await new Promise((resolve, reject) => {
+          const reqId = `nf_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+          const timer = setTimeout(() => { delete _pendingHttpRequests[reqId]; reject(new Error('timeout')); }, timeoutMs);
+          _pendingHttpRequests[reqId] = (resObj) => {
+            clearTimeout(timer);
+            delete _pendingHttpRequests[reqId];
+            if (resObj && resObj.success && (resObj.data || resObj.base64Data)) {
+              if (resObj.base64Data) {
+                try {
+                  const bs = atob(resObj.base64Data);
+                  const bt = new Uint8Array(bs.length);
+                  for (let i = 0; i < bs.length; i++) bt[i] = bs.charCodeAt(i);
+                  resolve(JSON.parse(new TextDecoder('utf-8').decode(bt)));
+                } catch (_) { resolve(JSON.parse(atob(resObj.base64Data))); }
+              } else {
+                resolve(typeof resObj.data === 'string' ? JSON.parse(resObj.data) : resObj.data);
+              }
+            } else {
+              reject(new Error(resObj?.error || 'native fetch failed'));
+            }
+          };
+          window.webkit.messageHandlers.nativeMedia.postMessage({ ...msgPayload, requestId: reqId });
+        });
+        if (result) return result;
+      }
+    } catch (e) {
+      // Fall through to standard fetch
+    }
+  }
+
+  // Android Native OkHttp Bridge
+  if (typeof window !== 'undefined' && window.AndroidMediaBridge && typeof window.AndroidMediaBridge.executeHttpRequest === 'function') {
+    try {
+      const resStr = window.AndroidMediaBridge.executeHttpRequest(fetchUrl, method, JSON.stringify(headers), body);
+      const resObj = typeof resStr === 'string' ? JSON.parse(resStr) : resStr;
+      if (resObj.success && resObj.data) {
+        return typeof resObj.data === 'string' ? JSON.parse(resObj.data) : resObj.data;
+      }
+    } catch (_) {}
+  }
+
+  // Standard fetch (Desktop / environments without CORS issues)
+  const res = await fetch(fetchUrl, {
+    method: method,
+    headers: headers,
+    signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(timeoutMs) : undefined
+  });
+  if (res.ok) return await res.json();
+  throw new Error(`HTTP ${res.status}`);
+}
+
+/**
+ * Execute YouTube Music Innertube API request
+ */
 async function callInnertube(endpoint, body) {
   const url = `${YTM_BASE_URL}/${endpoint}`;
   const payload = {
@@ -147,40 +248,84 @@ async function callInnertube(endpoint, body) {
   // 2. iOS Native URLSession Bridge (bypasses WKWebView CORS/origin restrictions)
   if (typeof window !== 'undefined' && window.webkit?.messageHandlers?.nativeMedia) {
     try {
-      const nativeResult = await new Promise((resolve, reject) => {
-        const reqId = `ytm_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
-        const timer = setTimeout(() => {
-          delete _pendingHttpRequests[reqId];
-          reject(new Error('iOS native HTTP request timed out'));
-        }, 9000);
+      const msgPayload = {
+        action: 'executeHttpRequest',
+        url: url,
+        method: 'POST',
+        headers: YTM_HEADERS,
+        body: JSON.stringify(payload)
+      };
 
-        _pendingHttpRequests[reqId] = (resObj) => {
-          clearTimeout(timer);
-          delete _pendingHttpRequests[reqId];
-          if (resObj && resObj.success && resObj.data) {
-            try {
-              resolve(JSON.parse(resObj.data));
-            } catch (_) {
-              resolve(resObj.data);
+      let nativeResult = null;
+
+      // Check if postMessage returns a Promise (iOS 14+ WKScriptMessageHandlerWithReply)
+      const postPromise = window.webkit.messageHandlers.nativeMedia.postMessage(msgPayload);
+      if (postPromise && typeof postPromise.then === 'function') {
+        const resObj = await Promise.race([
+          postPromise,
+          new Promise((_, reject) => setTimeout(() => reject(new Error('iOS native HTTP request timed out')), 15000))
+        ]);
+        if (resObj && resObj.base64Data) {
+          try {
+            const binaryStr = atob(resObj.base64Data);
+            const bytes = new Uint8Array(binaryStr.length);
+            for (let i = 0; i < binaryStr.length; i++) {
+              bytes[i] = binaryStr.charCodeAt(i);
             }
-          } else {
-            reject(new Error(resObj?.error || `Native HTTP status ${resObj?.status || 500}`));
+            const jsonText = new TextDecoder('utf-8').decode(bytes);
+            nativeResult = JSON.parse(jsonText);
+          } catch (_) {
+            nativeResult = JSON.parse(atob(resObj.base64Data));
           }
-        };
+        } else if (resObj && resObj.data) {
+          nativeResult = typeof resObj.data === 'string' ? JSON.parse(resObj.data) : resObj.data;
+        }
+      } else {
+        // Fallback for older WebKit versions using _onNativeHttpResponse
+        nativeResult = await new Promise((resolve, reject) => {
+          const reqId = `ytm_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+          const timer = setTimeout(() => {
+            delete _pendingHttpRequests[reqId];
+            reject(new Error('iOS native HTTP request timed out'));
+          }, 15000);
 
-        window.webkit.messageHandlers.nativeMedia.postMessage({
-          action: 'executeHttpRequest',
-          requestId: reqId,
-          url: url,
-          method: 'POST',
-          headers: YTM_HEADERS,
-          body: JSON.stringify(payload)
+          _pendingHttpRequests[reqId] = (resObj) => {
+            clearTimeout(timer);
+            delete _pendingHttpRequests[reqId];
+            if (resObj && resObj.success && (resObj.data || resObj.base64Data)) {
+              if (resObj.data) {
+                try {
+                  resolve(typeof resObj.data === 'string' ? JSON.parse(resObj.data) : resObj.data);
+                } catch (_) {
+                  resolve(resObj.data);
+                }
+              } else if (resObj.base64Data) {
+                try {
+                  const binaryStr = atob(resObj.base64Data);
+                  const bytes = new Uint8Array(binaryStr.length);
+                  for (let i = 0; i < binaryStr.length; i++) {
+                    bytes[i] = binaryStr.charCodeAt(i);
+                  }
+                  resolve(JSON.parse(new TextDecoder('utf-8').decode(bytes)));
+                } catch (_) {
+                  resolve(JSON.parse(atob(resObj.base64Data)));
+                }
+              }
+            } else {
+              reject(new Error(resObj?.error || `Native HTTP status ${resObj?.status || 500}`));
+            }
+          };
+
+          window.webkit.messageHandlers.nativeMedia.postMessage({
+            ...msgPayload,
+            requestId: reqId
+          });
         });
-      });
+      }
 
       if (nativeResult) return nativeResult;
     } catch (iosErr) {
-      console.warn('[YouTubeMusicService] iOS native bridge fallback:', iosErr.message);
+      console.warn('[YouTubeMusicService] iOS native bridge notice:', iosErr.message);
     }
   }
 
@@ -195,10 +340,20 @@ async function callInnertube(endpoint, body) {
       });
       if (proxyRes.ok) {
         return await proxyRes.json();
+      } else {
+        console.warn(`[YouTubeMusicService] Local proxy HTTP ${proxyRes.status} for ${endpoint}`);
+        return null;
       }
     } catch (proxyErr) {
       console.warn('[YouTubeMusicService] Local proxy notice:', proxyErr.message);
+      return null;
     }
+  }
+
+  // In browser context, direct fetch to music.youtube.com triggers CORS violations
+  if (typeof window !== 'undefined' && window.document && window.location && window.location.protocol.startsWith('http')) {
+    console.warn(`[YouTubeMusicService] Direct browser fetch to ${endpoint} skipped to prevent CORS violations`);
+    return null;
   }
 
   const res = await fetch(url, {
@@ -214,73 +369,154 @@ async function callInnertube(endpoint, body) {
 
   return res.json();
 }
+/**
+ * Recursively extract all playlist and song items from Innertube browse payload
+ */
+function extractItemsFromBrowseData(data) {
+  if (!data) return [];
+  const items = [];
+
+  function traverse(obj) {
+    if (!obj || typeof obj !== 'object') return;
+
+    if (Array.isArray(obj)) {
+      for (const el of obj) traverse(el);
+      return;
+    }
+
+    if (obj.musicResponsiveListItemRenderer || obj.playlistVideoRenderer || obj.videoRenderer || obj.compactVideoRenderer || obj.musicTwoRowItemRenderer) {
+      items.push(obj);
+      return;
+    }
+
+    if (obj.musicPlaylistShelfRenderer && Array.isArray(obj.musicPlaylistShelfRenderer.contents)) {
+      for (const it of obj.musicPlaylistShelfRenderer.contents) items.push(it);
+      return;
+    }
+
+    if (obj.playlistVideoListRenderer && Array.isArray(obj.playlistVideoListRenderer.contents)) {
+      for (const it of obj.playlistVideoListRenderer.contents) items.push(it);
+      return;
+    }
+
+    if (obj.musicShelfRenderer && Array.isArray(obj.musicShelfRenderer.contents)) {
+      for (const it of obj.musicShelfRenderer.contents) items.push(it);
+      return;
+    }
+
+    for (const key of Object.keys(obj)) {
+      if (key !== 'responseContext' && key !== 'trackingParams') {
+        traverse(obj[key]);
+      }
+    }
+  }
+
+  traverse(data);
+  return items;
+}
 
 /**
  * Parse an item renderer (Song, Video, Artist, Album, Playlist)
  */
 function parseMusicItem(item) {
   if (!item) return null;
-  const renderer = item.musicResponsiveListItemRenderer || item.musicCardShelfRenderer;
-  if (!renderer) return null;
 
-  // Title
-  const titleRuns = renderer.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs;
-  const title = titleRuns?.[0]?.text || renderer.title?.runs?.[0]?.text || '';
-  const videoId = renderer.playlistItemData?.videoId || 
-    titleRuns?.[0]?.navigationEndpoint?.watchEndpoint?.videoId ||
-    renderer.navigationEndpoint?.watchEndpoint?.videoId || '';
+  // 1. YouTube Music Responsive List Item
+  if (item.musicResponsiveListItemRenderer || item.musicCardShelfRenderer) {
+    const renderer = item.musicResponsiveListItemRenderer || item.musicCardShelfRenderer;
+    const titleRuns = renderer.flexColumns?.[0]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs;
+    const title = titleRuns?.[0]?.text || renderer.title?.runs?.[0]?.text || '';
+    const videoId = renderer.playlistItemData?.videoId || 
+      titleRuns?.[0]?.navigationEndpoint?.watchEndpoint?.videoId ||
+      renderer.navigationEndpoint?.watchEndpoint?.videoId || '';
 
-  // Flex column 1: Type, Artist, Album, Duration, Plays
-  const flex1Runs = renderer.flexColumns?.[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs || [];
-  let artist = '';
-  let album = '';
-  let duration = '';
-  let itemType = 'song';
+    const flex1Runs = renderer.flexColumns?.[1]?.musicResponsiveListItemFlexColumnRenderer?.text?.runs || [];
+    let artist = '';
+    let album = '';
+    let duration = '';
+    let itemType = 'song';
 
-  const texts = flex1Runs.map(r => r.text).filter(t => t && t !== ' • ' && t !== '•');
-  if (texts.length > 0) {
-    const firstLower = texts[0].toLowerCase();
-    if (firstLower === 'song' || firstLower === 'video' || firstLower === 'artist' || firstLower === 'album' || firstLower === 'playlist') {
-      itemType = firstLower;
-      artist = texts[1] || '';
-      album = texts[2] || '';
-      duration = texts[3] || '';
-    } else {
-      artist = texts[0] || '';
-      album = texts[1] || '';
-      duration = texts[2] || '';
+    const texts = flex1Runs.map(r => r.text).filter(t => t && t !== ' • ' && t !== '•');
+    if (texts.length > 0) {
+      const firstLower = texts[0].toLowerCase();
+      if (firstLower === 'song' || firstLower === 'video' || firstLower === 'artist' || firstLower === 'album' || firstLower === 'playlist') {
+        itemType = firstLower;
+        artist = texts[1] || '';
+        album = texts[2] || '';
+        duration = texts[3] || '';
+      } else {
+        artist = texts[0] || '';
+        album = texts[1] || '';
+        duration = texts[2] || '';
+      }
     }
+
+    const artistRun = flex1Runs.find(r => r.navigationEndpoint?.browseEndpoint?.browseId?.startsWith('UC'));
+    const artistBrowseId = artistRun?.navigationEndpoint?.browseEndpoint?.browseId || '';
+    const albumRun = flex1Runs.find(r => r.navigationEndpoint?.browseEndpoint?.browseId?.startsWith('MPRE'));
+    const albumBrowseId = albumRun?.navigationEndpoint?.browseEndpoint?.browseId || '';
+    const thumbs = renderer.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails;
+    const image = getHighResImage(thumbs);
+
+    return {
+      id: `yt_${videoId || Math.random().toString(36).substring(2, 9)}`,
+      videoId: videoId,
+      name: title,
+      title: title,
+      artists: artist || 'YouTube Artist',
+      primaryArtist: artist || 'YouTube Artist',
+      artistBrowseId: artistBrowseId,
+      album: album || title,
+      albumBrowseId: albumBrowseId,
+      duration: parseDurationSec(duration),
+      durationSeconds: parseDurationSec(duration),
+      durationText: duration,
+      image: image,
+      type: itemType,
+      provider: 'youtube_music',
+      providerId: videoId,
+      source: 'youtube_music',
+      sourceId: videoId,
+      isPlayable: true,
+      metadataAvailable: true,
+      playbackAvailable: true
+    };
   }
 
-  // Browse IDs
-  const artistRun = flex1Runs.find(r => r.navigationEndpoint?.browseEndpoint?.browseId?.startsWith('UC'));
-  const artistBrowseId = artistRun?.navigationEndpoint?.browseEndpoint?.browseId || '';
+  // 2. Standard YouTube Playlist Video Renderer (playlistVideoRenderer / videoRenderer / compactVideoRenderer)
+  if (item.playlistVideoRenderer || item.videoRenderer || item.compactVideoRenderer) {
+    const renderer = item.playlistVideoRenderer || item.videoRenderer || item.compactVideoRenderer;
+    const title = renderer.title?.runs?.[0]?.text || renderer.title?.simpleText || 'YouTube Track';
+    const videoId = renderer.videoId || renderer.navigationEndpoint?.watchEndpoint?.videoId || '';
+    const artist = renderer.shortBylineText?.runs?.[0]?.text || renderer.ownerText?.runs?.[0]?.text || 'YouTube Artist';
+    const duration = renderer.lengthSeconds ? Number(renderer.lengthSeconds) : parseDurationSec(renderer.lengthText?.simpleText || renderer.lengthText?.runs?.[0]?.text || '');
+    const thumbs = renderer.thumbnail?.thumbnails;
+    const image = getHighResImage(thumbs) || (videoId ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : 'assets/logo.png');
 
-  const albumRun = flex1Runs.find(r => r.navigationEndpoint?.browseEndpoint?.browseId?.startsWith('MPRE'));
-  const albumBrowseId = albumRun?.navigationEndpoint?.browseEndpoint?.browseId || '';
+    return {
+      id: `yt_${videoId || Math.random().toString(36).substring(2, 9)}`,
+      videoId: videoId,
+      name: title,
+      title: title,
+      artists: artist,
+      primaryArtist: artist,
+      album: title,
+      duration: duration,
+      durationSeconds: duration,
+      durationText: `${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, '0')}`,
+      image: image,
+      type: 'song',
+      provider: 'youtube_music',
+      providerId: videoId,
+      source: 'youtube_music',
+      sourceId: videoId,
+      isPlayable: true,
+      metadataAvailable: true,
+      playbackAvailable: true
+    };
+  }
 
-  // Thumbnails
-  const thumbs = renderer.thumbnail?.musicThumbnailRenderer?.thumbnail?.thumbnails;
-  const image = getHighResImage(thumbs);
-
-  return {
-    id: `yt_${videoId || Math.random().toString(36).substring(2, 9)}`,
-    videoId: videoId,
-    name: title,
-    title: title,
-    artists: artist || 'YouTube Music',
-    primaryArtist: (artist || 'YouTube Music').split(/[,&/]/)[0].trim(),
-    artistBrowseId,
-    album: album,
-    albumBrowseId,
-    duration: parseDurationSec(duration),
-    image: image,
-    type: itemType,
-    provider: 'youtube_music',
-    providerId: videoId,
-    metadataAvailable: true,
-    playbackAvailable: false
-  };
+  return null;
 }
 
 const YouTubeMusicService = {
@@ -367,16 +603,31 @@ const YouTubeMusicService = {
    */
   async getRadioCandidates(videoId, seedTitle = '', seedArtist = '', limit = 25) {
     let resolvedVideoId = videoId;
+    const isValidYTVideoId = typeof resolvedVideoId === 'string' && /^[a-zA-Z0-9_-]{11}$/.test(resolvedVideoId);
+    if (!isValidYTVideoId) {
+      resolvedVideoId = null;
+    }
 
-    // If videoId is missing, resolve by searching seed title + artist
+    // If videoId is missing or non-YT, resolve by searching seed title + artist
     if (!resolvedVideoId && (seedTitle || seedArtist)) {
       const searchRes = await this.search(`${seedTitle} ${seedArtist}`.trim(), 3);
-      if (searchRes.songs.length > 0) {
+      if (searchRes && searchRes.songs && searchRes.songs.length > 0) {
         resolvedVideoId = searchRes.songs[0].videoId;
       }
     }
 
-    if (!resolvedVideoId) return { candidates: [], resolvedVideoId: null };
+    if (!resolvedVideoId) {
+      // Fallback directly to catalog search for artist/title tracks
+      if (seedTitle || seedArtist) {
+        try {
+          const searchRes = await this.search(`${seedArtist || seedTitle}`.trim(), limit);
+          if (searchRes && searchRes.songs && searchRes.songs.length > 0) {
+            return { seedVideoId: null, candidates: searchRes.songs.slice(0, limit) };
+          }
+        } catch (_) {}
+      }
+      return { candidates: [], resolvedVideoId: null };
+    }
 
     const cacheKey = `radio_${resolvedVideoId}_${limit}`;
     const cached = getFromCache(cacheKey);
@@ -389,7 +640,7 @@ const YouTubeMusicService = {
         playlistId: `RDAMVM${resolvedVideoId}`
       });
 
-      const tabs = data.contents?.singleColumnMusicWatchNextResultsRenderer?.tabbedRenderer?.watchNextTabbedResultsRenderer?.tabs || [];
+      const tabs = data?.contents?.singleColumnMusicWatchNextResultsRenderer?.tabbedRenderer?.watchNextTabbedResultsRenderer?.tabs || [];
       const queueItems = tabs[0]?.tabRenderer?.content?.musicQueueRenderer?.content?.playlistPanelRenderer?.contents || [];
 
       const candidates = [];
@@ -418,6 +669,18 @@ const YouTubeMusicService = {
         });
       }
 
+      // If automix returned empty, fallback to catalog search
+      if (candidates.length === 0 && (seedTitle || seedArtist)) {
+        const searchFallback = await this.search(`${seedArtist || seedTitle}`.trim(), limit);
+        if (searchFallback && searchFallback.songs && searchFallback.songs.length > 0) {
+          for (const s of searchFallback.songs) {
+            if (s.videoId && s.videoId !== resolvedVideoId) {
+              candidates.push(s);
+            }
+          }
+        }
+      }
+
       const result = {
         seedVideoId: resolvedVideoId,
         candidates: candidates.slice(0, limit)
@@ -427,6 +690,14 @@ const YouTubeMusicService = {
       return result;
     } catch (err) {
       console.warn('[YouTubeMusicService] getRadioCandidates failed:', err.message);
+      if (seedTitle || seedArtist) {
+        try {
+          const searchFallback = await this.search(`${seedArtist || seedTitle}`.trim(), limit);
+          if (searchFallback && searchFallback.songs) {
+            return { seedVideoId: resolvedVideoId, candidates: searchFallback.songs.slice(0, limit) };
+          }
+        } catch (_) {}
+      }
       return { seedVideoId: resolvedVideoId, candidates: [] };
     }
   },
@@ -550,53 +821,113 @@ const YouTubeMusicService = {
     const cached = getFromCache(cacheKey);
     if (cached) return cached;
 
+    // Strategy 1: YouTube Music Innertube API (via native bridge on iOS/Android)
     try {
       const data = await callInnertube('browse', { browseId });
-      const header = data.header?.musicDetailHeaderRenderer || data.header?.musicEditablePlaylistDetailHeaderRenderer?.header?.musicDetailHeaderRenderer;
-      const title = header?.title?.runs?.[0]?.text || 'YouTube Playlist';
-      const description = header?.description?.runs?.[0]?.text || '';
-      const thumbs = header?.thumbnail?.croppedMusicThumbnailRenderer?.thumbnail?.thumbnails || [];
-
-      const sections = data.contents?.twoColumnBrowseResultsRenderer?.secondaryContents?.sectionListRenderer?.contents
-        || data.contents?.singleColumnBrowseResultsRenderer?.tabs?.[0]?.tabRenderer?.content?.sectionListRenderer?.contents
-        || data.contents?.sectionListRenderer?.contents
+      const header = data.header?.musicDetailHeaderRenderer 
+        || data.header?.musicEditablePlaylistDetailHeaderRenderer?.header?.musicDetailHeaderRenderer
+        || data.header?.playlistHeaderRenderer;
+      const title = header?.title?.runs?.[0]?.text || header?.title?.simpleText || 'YouTube Playlist';
+      const description = header?.description?.runs?.[0]?.text || header?.description?.simpleText || '';
+      const thumbs = header?.thumbnail?.croppedMusicThumbnailRenderer?.thumbnail?.thumbnails 
+        || header?.playlistHeaderBanner?.heroPlaylistThumbnailRenderer?.thumbnail?.thumbnails
+        || header?.thumbnail?.thumbnails
         || [];
 
-      let items = [];
-      for (const sec of sections) {
-        const shelf = sec.musicPlaylistShelfRenderer || sec.musicShelfRenderer;
-        if (shelf && shelf.contents) {
-          items = shelf.contents;
-          break;
-        }
-      }
-
+      const rawItems = extractItemsFromBrowseData(data);
       const songs = [];
-      for (const it of items) {
+      const seenIds = new Set();
+
+      for (const it of rawItems) {
         const parsed = parseMusicItem(it);
-        if (parsed && parsed.name) {
+        if (parsed && parsed.name && parsed.videoId && !seenIds.has(parsed.videoId)) {
+          seenIds.add(parsed.videoId);
           songs.push(parsed);
         }
       }
 
-      const result = {
-        playlist: {
-          id: rawId,
-          browseId: browseId,
-          name: title,
-          description: description,
-          image: getHighResImage(thumbs),
-          songCount: songs.length,
-          songs: songs
-        }
-      };
+      if (songs.length > 0) {
+        const result = {
+          playlist: {
+            id: rawId,
+            browseId: browseId,
+            name: title,
+            description: description,
+            image: getHighResImage(thumbs) || (songs[0]?.image || 'assets/logo.png'),
+            songCount: songs.length,
+            songs: songs
+          }
+        };
 
-      setInCache(cacheKey, result);
-      return result;
+        setInCache(cacheKey, result);
+        return result;
+      }
     } catch (err) {
-      console.warn('[YouTubeMusicService] getPlaylist failed:', err.message);
-      return { playlist: null };
+      console.warn('[YouTubeMusicService] Innertube browse notice:', err.message);
     }
+
+    // Strategy 2: High-Availability Invidious Public Mirrors Fallback
+    // Uses nativeFetchJSON() which routes through native bridges on iOS/Android to bypass CORS
+    const invidiousHosts = [
+      'https://inv.nadeko.net',
+      'https://invidious.nerdvpn.de',
+      'https://yt.artemislena.eu',
+      'https://invidious.jing.rocks',
+      'https://invidious.privacyredirect.com'
+    ];
+
+    const cleanPlaylistId = rawId.replace(/^VL/i, '');
+
+    for (const host of invidiousHosts) {
+      try {
+        const invUrl = `${host}/api/v1/playlists/${cleanPlaylistId}`;
+        const plData = await nativeFetchJSON(invUrl, { method: 'GET', timeout: 6000 });
+        const streams = plData.relatedStreams || plData.videos || [];
+        if (streams.length > 0) {
+          const songs = streams.map(v => {
+            const vId = v.videoId || (v.url ? v.url.replace('/watch?v=', '') : '');
+            return {
+              id: `yt_${vId || Math.random().toString(36).substring(2, 9)}`,
+              videoId: vId,
+              name: v.title || 'YouTube Track',
+              title: v.title || 'YouTube Track',
+              artists: v.author || v.uploaderName || 'YouTube Artist',
+              primaryArtist: v.author || v.uploaderName || 'YouTube Artist',
+              album: plData.title || v.title || 'YouTube Playlist',
+              duration: Number(v.lengthSeconds || 0),
+              durationSeconds: Number(v.lengthSeconds || 0),
+              durationText: `${Math.floor((v.lengthSeconds || 0) / 60)}:${String((v.lengthSeconds || 0) % 60).padStart(2, '0')}`,
+              image: (Array.isArray(v.videoThumbnails) && v.videoThumbnails[0]?.url) ? v.videoThumbnails[0].url : (vId ? `https://i.ytimg.com/vi/${vId}/hqdefault.jpg` : 'assets/logo.png'),
+              provider: 'youtube_music',
+              providerId: vId,
+              source: 'youtube_music',
+              sourceId: vId,
+              isPlayable: true,
+              metadataAvailable: true,
+              playbackAvailable: true
+            };
+          }).filter(s => s.videoId);
+
+          if (songs.length > 0) {
+            const result = {
+              playlist: {
+                id: rawId,
+                browseId: browseId,
+                name: plData.title || 'YouTube Playlist',
+                description: plData.description || '',
+                image: plData.playlistThumbnail || songs[0]?.image || 'assets/logo.png',
+                songCount: songs.length,
+                songs: songs
+              }
+            };
+            setInCache(cacheKey, result);
+            return result;
+          }
+        }
+      } catch (_) {}
+    }
+
+    return { playlist: null };
   },
 
   /**
@@ -613,17 +944,12 @@ const YouTubeMusicService = {
     let ytAuthor = 'YouTube Music';
     let ytThumbnail = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
 
-    // 1. Fetch real video metadata via oEmbed
+    // 1. Fetch real video metadata via oEmbed (uses native bridge on iOS to bypass CORS)
     try {
-      const oembedRes = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`, {
-        signal: AbortSignal.timeout(4000)
-      });
-      if (oembedRes.ok) {
-        const oembedData = await oembedRes.json();
-        if (oembedData.title) ytTitle = oembedData.title;
-        if (oembedData.author_name) ytAuthor = oembedData.author_name;
-        if (oembedData.thumbnail_url) ytThumbnail = oembedData.thumbnail_url;
-      }
+      const oembedData = await nativeFetchJSON(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`, { method: 'GET', timeout: 4000 });
+      if (oembedData && oembedData.title) ytTitle = oembedData.title;
+      if (oembedData && oembedData.author_name) ytAuthor = oembedData.author_name;
+      if (oembedData && oembedData.thumbnail_url) ytThumbnail = oembedData.thumbnail_url;
     } catch (_) {}
 
     let cleanArtist = ytAuthor.replace(/ - Topic$/i, '').trim();
@@ -663,9 +989,7 @@ const YouTubeMusicService = {
       const saavnBase = (typeof ApiConfig !== 'undefined' && typeof ApiConfig.getJioSaavnApiBase === 'function')
         ? ApiConfig.getJioSaavnApiBase()
         : 'https://spoton-trpn.vercel.app/api';
-      const saavnRes = await fetch(`${saavnBase}/search/songs?query=${encodeURIComponent(searchQuery)}&limit=3`, {
-        signal: AbortSignal.timeout(5000)
-      }).then(r => r.ok ? r.json() : null).catch(() => null);
+      const saavnRes = await nativeFetchJSON(`${saavnBase}/search/songs?query=${encodeURIComponent(searchQuery)}&limit=3`, { method: 'GET', timeout: 5000 }).catch(() => null);
 
       const candidateList = saavnRes?.data?.results || saavnRes?.results || [];
       if (candidateList.length > 0) {
@@ -801,9 +1125,7 @@ const YouTubeMusicService = {
             ? ApiConfig.getJioSaavnApiBase()
             : 'https://spoton-trpn.vercel.app/api';
 
-          const saavnRes = await fetch(`${saavnBase}/search/songs?query=${encodeURIComponent(searchQuery)}&limit=3`, {
-            signal: AbortSignal.timeout(5000)
-          }).then(r => r.ok ? r.json() : null).catch(() => null);
+          const saavnRes = await nativeFetchJSON(`${saavnBase}/search/songs?query=${encodeURIComponent(searchQuery)}&limit=3`, { method: 'GET', timeout: 5000 }).catch(() => null);
 
           const candidateList = saavnRes?.data?.results || saavnRes?.results || [];
           if (candidateList.length > 0) {
@@ -885,6 +1207,7 @@ const YouTubeMusicService = {
     }
 
     return {
+      success: true,
       type: 'playlist',
       isSingleSong: false,
       playlistId: pl.id,

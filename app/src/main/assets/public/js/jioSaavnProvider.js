@@ -122,7 +122,7 @@
   async getAlbum(albumId) {
     if (!albumId) return null;
     try {
-      const res = await this.fetchWithFallback('/albums', { id: albumId });
+      const res = await this.fetchWithFallback('/albums', { id: albumId, limit: 100 });
       const data = res?.data || res;
       if (data && Array.isArray(data.songs)) {
         data.songs = data.songs.map(s => normalizeTrackSchema({ ...s, provider: MusicProviderTypes.JIOSAAVN }, MusicProviderTypes.JIOSAAVN));
@@ -137,7 +137,7 @@
   async getPlaylist(playlistId) {
     if (!playlistId) return null;
     try {
-      const res = await this.fetchWithFallback('/playlists', { id: playlistId });
+      const res = await this.fetchWithFallback('/playlists', { id: playlistId, limit: 100 });
       const data = res?.data || res;
       if (data && Array.isArray(data.songs)) {
         data.songs = data.songs.map(s => normalizeTrackSchema({ ...s, provider: MusicProviderTypes.JIOSAAVN }, MusicProviderTypes.JIOSAAVN));

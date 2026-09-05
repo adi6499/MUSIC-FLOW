@@ -192,21 +192,21 @@ async function getLatestReleaseData(forceRefresh = false) {
       title: targetRelease.name || `MusicFlow ${cleanVersion}`,
       message: (targetRelease.body && targetRelease.body.slice(0, 140).trim()) || 'New update with performance and discovery improvements.',
       releaseNotes: releaseNotes,
-      releaseUrl: targetRelease.html_url || `https://github.com/${GITHUB_REPO}/releases/tag/${tagName}`,
+      releaseUrl: 'https://adi6499.github.io/MUSICFLOW/',
       publishedAt: targetRelease.published_at || new Date().toISOString(),
       android: {
-        available: !!androidAsset,
+        available: true,
         version: cleanVersion,
-        downloadUrl: androidAsset ? androidAsset.browser_download_url : (targetRelease.html_url || ''),
+        downloadUrl: 'https://adi6499.github.io/MUSICFLOW/downloads/MusicFlow.apk',
         fileName: androidAsset ? androidAsset.name : `MusicFlow-Android-v${cleanVersion}.apk`,
-        size: androidAsset ? androidAsset.size : 0
+        size: androidAsset ? androidAsset.size : 25188956
       },
       ios: {
-        available: !!iosAsset,
+        available: true,
         version: cleanVersion,
-        downloadUrl: iosAsset ? iosAsset.browser_download_url : (targetRelease.html_url || ''),
+        downloadUrl: 'https://adi6499.github.io/MUSICFLOW/downloads/MusicFlow.ipa',
         fileName: iosAsset ? iosAsset.name : `MusicFlow-iOS-v${cleanVersion}.ipa`,
-        size: iosAsset ? iosAsset.size : 0
+        size: iosAsset ? iosAsset.size : 5571930
       }
     };
 
@@ -283,10 +283,10 @@ async function handleUpdateRequest(req, res) {
       title: releaseData.title,
       message: releaseData.message,
       releaseNotes: releaseData.releaseNotes,
-      releaseUrl: releaseData.releaseUrl,
+      releaseUrl: 'https://adi6499.github.io/MUSICFLOW/',
       publishedAt: releaseData.publishedAt,
       assetAvailable: assetAvailable,
-      downloadUrl: platformAsset ? platformAsset.downloadUrl : (targetPlatform === 'ios' ? 'https://adi6499.github.io/MUSICFLOW/downloads/MusicFlow.ipa' : 'https://adi6499.github.io/MUSICFLOW/downloads/MusicFlow.apk'),
+      downloadUrl: targetPlatform === 'ios' ? 'https://adi6499.github.io/MUSICFLOW/downloads/MusicFlow.ipa' : 'https://adi6499.github.io/MUSICFLOW/downloads/MusicFlow.apk',
       apkUrl: 'https://adi6499.github.io/MUSICFLOW/downloads/MusicFlow.apk',
       fileName: platformAsset ? platformAsset.fileName : (targetPlatform === 'ios' ? 'MusicFlow.ipa' : 'MusicFlow.apk'),
       fileSize: platformAsset ? platformAsset.size : 34296622,
@@ -333,7 +333,7 @@ async function handleUpdateRequest(req, res) {
         'Non-blocking startup and Stale-While-Revalidate caching',
         'Lock-screen media controls and background playback'
       ],
-      releaseUrl: 'https://github.com/adi6499/MUSIC-FLOW',
+      releaseUrl: 'https://adi6499.github.io/MUSICFLOW/',
       downloadUrl: targetPlatform === 'ios'
         ? 'https://adi6499.github.io/MUSICFLOW/downloads/MusicFlow.ipa'
         : 'https://adi6499.github.io/MUSICFLOW/downloads/MusicFlow.apk',

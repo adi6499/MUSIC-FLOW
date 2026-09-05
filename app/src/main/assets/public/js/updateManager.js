@@ -9,7 +9,7 @@ const UpdateManager = (() => {
   const BUILD_NUMBER = 29;
 
   // Throttling & Auto-Check Configuration
-  const AUTO_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000; // 12 hours between auto checks
+  const AUTO_CHECK_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes between auto checks (instant update delivery)
   const FETCH_TIMEOUT_MS = 8000; // 8 second network timeout
 
   let updateState = {
@@ -134,7 +134,7 @@ const UpdateManager = (() => {
     const timeoutId = controller ? setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS) : null;
 
     try {
-      const updatePath = `/api/update?platform=${encodeURIComponent(platform)}&version=${encodeURIComponent(APP_VERSION)}${manual ? '&force=true' : ''}`;
+      const updatePath = `/api/update?platform=${encodeURIComponent(platform)}&version=${encodeURIComponent(APP_VERSION)}${manual ? '&force=true' : ''}&_t=${Date.now()}`;
       const primaryUrl = (typeof ApiConfig !== 'undefined' && typeof ApiConfig.buildUrl === 'function')
         ? ApiConfig.buildUrl(updatePath)
         : (typeof ApiConfig !== 'undefined' && ApiConfig.PRODUCTION_UPDATE_API_URL) || updatePath;
@@ -143,6 +143,7 @@ const UpdateManager = (() => {
       try {
         response = await fetch(primaryUrl, {
           method: 'GET',
+          cache: 'no-cache',
           headers: { 'Accept': 'application/json' },
           signal: controller ? controller.signal : undefined
         });
@@ -153,8 +154,10 @@ const UpdateManager = (() => {
           : null;
         if (fallbackUrl && fallbackUrl !== primaryUrl) {
           try {
-            response = await fetch(fallbackUrl, {
+            const fallbackWithBuster = fallbackUrl.includes('?') ? `${fallbackUrl}&_t=${Date.now()}` : `${fallbackUrl}?_t=${Date.now()}`;
+            response = await fetch(fallbackWithBuster, {
               method: 'GET',
+              cache: 'no-cache',
               headers: { 'Accept': 'application/json' },
               signal: controller ? controller.signal : undefined
             });
@@ -275,33 +278,56 @@ const UpdateManager = (() => {
   // ----------------------------------------------------------------------------
   // 4. ACTION HANDLERS
   // ----------------------------------------------------------------------------
-  function openUpdate(downloadUrl) {
-    const url = downloadUrl || (updateState.updateData && updateState.updateData.downloadUrl) || (updateState.updateData && updateState.updateData.releaseUrl);
-    if (!url) {
-      if (typeof UI !== 'undefined' && UI.showToast) {
-        UI.showToast('Update download is temporarily unavailable.');
-      }
-      return;
+  const OFFICIAL_WEBSITE_URL = 'https://adi6499.github.io/MUSICFLOW/';
+  const ANDROID_APK_DOWNLOAD_URL = 'https://adi6499.github.io/MUSICFLOW/downloads/MusicFlow.apk';
+  const IOS_IPA_DOWNLOAD_URL = 'https://adi6499.github.io/MUSICFLOW/downloads/MusicFlow.ipa';
+
+  function sanitizeTargetUrl(rawUrl) {
+    if (!rawUrl || typeof rawUrl !== 'string') return OFFICIAL_WEBSITE_URL;
+    // Strictly block GitHub redirects - always redirect users to official website where APK is available
+    if (rawUrl.includes('github.com')) {
+      return OFFICIAL_WEBSITE_URL;
     }
+    return rawUrl;
+  }
+
+  function openUpdate(downloadUrl) {
+    let url = downloadUrl;
+    if (!url && updateState.updateData) {
+      url = updateState.updateData.downloadUrl || updateState.updateData.apkUrl || updateState.updateData.releaseUrl;
+    }
+    url = sanitizeTargetUrl(url || OFFICIAL_WEBSITE_URL);
 
     try {
-      if (typeof window !== 'undefined') {
+      if (typeof window !== 'undefined' && typeof window.open === 'function') {
         window.open(url, '_blank');
+      } else if (typeof window !== 'undefined' && window.location) {
+        window.location.href = url;
       }
     } catch (e) {
-      console.error('[UpdateManager] Could not open download URL:', e);
+      console.error('[UpdateManager] Could not open update URL:', e);
+      try { if (window && window.location) window.location.href = OFFICIAL_WEBSITE_URL; } catch (_) {}
     }
   }
 
   function openReleasePage(releaseUrl) {
-    const url = releaseUrl || (updateState.updateData && updateState.updateData.releaseUrl) || 'https://github.com/adi6499/MUSIC-FLOW/releases';
+    let url = releaseUrl || (updateState.updateData && updateState.updateData.releaseUrl);
+    url = sanitizeTargetUrl(url);
+
     try {
-      if (typeof window !== 'undefined') {
+      if (typeof window !== 'undefined' && typeof window.open === 'function') {
         window.open(url, '_blank');
+      } else if (typeof window !== 'undefined' && window.location) {
+        window.location.href = url;
       }
     } catch (e) {
       console.error('[UpdateManager] Could not open release URL:', e);
+      try { if (window && window.location) window.location.href = OFFICIAL_WEBSITE_URL; } catch (_) {}
     }
+  }
+
+  function openWebsite() {
+    openReleasePage(OFFICIAL_WEBSITE_URL);
   }
 
   function dismissUpdate(version) {
@@ -319,19 +345,37 @@ const UpdateManager = (() => {
   // ----------------------------------------------------------------------------
   let _lastCheckTime = 0;
 
+  function showImprovementsPanel() {
+    const currentImprovements = {
+      title: "What's New in MusicFlow",
+      latestVersion: updateState.updateData?.latestVersion || APP_VERSION,
+      releaseNotes: updateState.updateData?.releaseNotes || [
+        "⚡ 120 FPS Instant Search & 0ms Playback: Eliminated typing lag with AbortSignal request pruning and instant pre-cached audio streams.",
+        "✨ Zero-Scroll Playlist & Album Navigation: Opening any playlist or album immediately resets view to top header with smooth animations.",
+        "💿 Resilient Discography & Top Albums: Multi-tier fallback ensures album shelves never get stuck loading.",
+        "♾️ Infinite Unbroken Radio & Up Next: Automatic dynamic fallback queues guarantee non-stop playback without dead ends.",
+        "🎧 3D Spatial Audio & Equalizer v2: Ultra-crisp audio tuning with bass boost and surround virtualization.",
+        "🚀 Sideload APK Direct Updates: Instant delivery of new releases and APK downloads with 1-click update."
+      ]
+    };
+    if (typeof UI !== 'undefined' && UI.showUpdateDialog) {
+      UI.showUpdateDialog(currentImprovements, false, true);
+    }
+  }
+
   function init() {
-    // Non-blocking asynchronous startup check after UI render (delay 5000ms)
+    // Non-blocking asynchronous startup check after UI render (2.5s delay for instant ready)
     setTimeout(() => {
       _lastCheckTime = Date.now();
       checkForUpdates({ manual: false, silent: true }).catch(() => {});
-    }, 5000);
+    }, 2500);
 
-    // Check on app resume / foreground return (throttled to at most once per 6 hours)
+    // Check on app resume / foreground return (throttled to at most once per 15 minutes)
     if (typeof document !== 'undefined') {
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
           const now = Date.now();
-          if (now - _lastCheckTime > 6 * 3600 * 1000) {
+          if (now - _lastCheckTime > AUTO_CHECK_INTERVAL_MS) {
             _lastCheckTime = now;
             checkForUpdates({ manual: false, silent: true }).catch(() => {});
           }
@@ -358,8 +402,11 @@ const UpdateManager = (() => {
     BUILD_NUMBER: BUILD_NUMBER,
     init,
     checkForUpdates,
+    showImprovementsPanel,
     openUpdate,
     openReleasePage,
+    openWebsite,
+    OFFICIAL_WEBSITE_URL,
     dismissUpdate,
     compareVersions,
     parseSemVer,

@@ -152,7 +152,7 @@ const QdrantManager = require('./qdrantManager.js');
 const RecommendationEngine = require('./web-app/js/recommendationEngine.js');
 const HomeDataLayer = require('./web-app/js/homeDataLayer.js');
 const ExploreDataLayer = require('./web-app/js/exploreDataLayer.js');
-const YouTubeMusicService = require('./youtubeMusicService.js');
+const YouTubeMusicService = require('./web-app/js/youtubeMusicService.js');
 
 // In-Memory Recommendation Cache (5-minute TTL)
 const recCache = new Map();
@@ -295,11 +295,13 @@ async function handleIndexTrack(req, res) {
   });
 }
 
-const server = http.createServer((req, res) => {
-  // Enable CORS
+// ============================================================================
+// YOUTUBE MUSIC INNERTUBE REVERSE PROXY (Local Web Dev CORS Bypass)
+// ============================================================================
+async function handleInnertubeProxy(req, res, parsedUrl) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-TYPESENSE-API-KEY');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-YouTube-Client-Name, X-YouTube-Client-Version, Authorization, Range');
 
   if (req.method === 'OPTIONS') {
     res.writeHead(200);
@@ -307,7 +309,226 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  const urlPath = req.url.split('?')[0];
+  const endpoint = parsedUrl.searchParams.get('endpoint') || 'next';
+  if (!/^[a-zA-Z0-9_\/]+$/.test(endpoint)) {
+    res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify({ error: 'Invalid Innertube endpoint parameter' }));
+    return;
+  }
+
+  let body = '';
+  req.on('data', chunk => { body += chunk; });
+  req.on('end', async () => {
+    try {
+      const targetUrl = `https://music.youtube.com/youtubei/v1/${endpoint}`;
+      const forwardHeaders = {
+        'Content-Type': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'X-YouTube-Client-Name': '67',
+        'X-YouTube-Client-Version': '1.20240101.01.00',
+        'Origin': 'https://music.youtube.com',
+        'Referer': 'https://music.youtube.com/'
+      };
+
+      let jsonPayload;
+      try {
+        jsonPayload = JSON.parse(body || '{}');
+      } catch (_) {
+        jsonPayload = {};
+      }
+
+      if (!jsonPayload.context) {
+        jsonPayload.context = {
+          client: {
+            clientName: 'WEB_REMIX',
+            clientVersion: '1.20240101.01.00',
+            hl: 'en',
+            gl: 'US'
+          }
+        };
+      }
+
+      const response = await fetch(targetUrl, {
+        method: 'POST',
+        headers: forwardHeaders,
+        body: JSON.stringify(jsonPayload),
+        signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(10000) : undefined
+      });
+
+      const responseText = await response.text();
+      res.writeHead(response.status, {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Access-Control-Allow-Origin': '*'
+      });
+      res.end(responseText);
+    } catch (proxyErr) {
+      console.warn('[InnertubeProxy] Error proxying to YouTube Music:', proxyErr.message);
+      res.writeHead(502, {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      });
+      res.end(JSON.stringify({ error: 'Innertube proxy failed', message: proxyErr.message }));
+    }
+  });
+}
+
+// ============================================================================
+// REAL YOUTUBE COMMENTS SERVICE
+// ============================================================================
+const commentsCache = new Map();
+
+async function handleGetYouTubeComments(req, res, parsedUrl) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+
+  if (req.method === 'OPTIONS') {
+    res.writeHead(200);
+    res.end();
+    return;
+  }
+
+  const videoId = parsedUrl.searchParams.get('videoId');
+  if (!videoId) {
+    res.writeHead(400);
+    res.end(JSON.stringify({ success: false, error: 'videoId parameter required' }));
+    return;
+  }
+
+  const cached = commentsCache.get(videoId);
+  if (cached && (Date.now() - cached.time < 10 * 60 * 1000)) {
+    res.writeHead(200);
+    res.end(JSON.stringify(cached.data));
+    return;
+  }
+
+  try {
+    const targetUrl = 'https://www.youtube.com/youtubei/v1/next';
+    const webHeaders = {
+      'Content-Type': 'application/json',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      'X-YouTube-Client-Name': '1',
+      'X-YouTube-Client-Version': '2.20240726.01.00',
+      'Origin': 'https://www.youtube.com'
+    };
+
+    const payload = {
+      context: { client: { clientName: 'WEB', clientVersion: '2.20240726.01.00', hl: 'en', gl: 'US' } },
+      videoId: videoId
+    };
+
+    const response = await fetch(targetUrl, {
+      method: 'POST',
+      headers: webHeaders,
+      body: JSON.stringify(payload),
+      signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(8000) : undefined
+    });
+
+    if (!response.ok) {
+      throw new Error(`YouTube API returned HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    const items = data.contents?.twoColumnWatchNextResults?.results?.results?.contents || [];
+    const commentsItem = items.find(i => i.itemSectionRenderer?.targetId === 'comments-section');
+
+    if (!commentsItem) {
+      const result = {
+        success: true,
+        enabled: false,
+        countText: '0 Comments',
+        comments: [],
+        message: 'Comments are turned off for this track by YouTube'
+      };
+      commentsCache.set(videoId, { data: result, time: Date.now() });
+      res.writeHead(200);
+      res.end(JSON.stringify(result));
+      return;
+    }
+
+    const token = commentsItem.itemSectionRenderer?.contents?.[0]?.continuationItemRenderer?.continuationEndpoint?.continuationCommand?.token;
+    if (!token) {
+      const result = {
+        success: true,
+        enabled: false,
+        countText: '0 Comments',
+        comments: [],
+        message: 'Comments are unavailable for this track'
+      };
+      commentsCache.set(videoId, { data: result, time: Date.now() });
+      res.writeHead(200);
+      res.end(JSON.stringify(result));
+      return;
+    }
+
+    const contRes = await fetch(targetUrl, {
+      method: 'POST',
+      headers: webHeaders,
+      body: JSON.stringify({
+        context: { client: { clientName: 'WEB', clientVersion: '2.20240726.01.00', hl: 'en', gl: 'US' } },
+        continuation: token
+      }),
+      signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(8000) : undefined
+    });
+
+    const contData = await contRes.json();
+    const eps = contData.onResponseReceivedEndpoints || [];
+    const header = eps[0]?.reloadContinuationItemsCommand?.continuationItems?.[0]?.commentsHeaderRenderer;
+    const countText = header?.countText?.runs?.map(r => r.text).join('') || 'Comments';
+
+    const mutations = contData.frameworkUpdates?.entityBatchUpdate?.mutations || [];
+    const comments = [];
+
+    for (const m of mutations) {
+      const p = m.payload?.commentEntityPayload;
+      if (p && p.properties?.content?.content) {
+        comments.push({
+          author: p.author?.displayName || 'YouTube User',
+          text: p.properties.content.content,
+          time: p.properties?.publishedTime || 'Recently',
+          avatar: p.author?.avatarThumbnailUrl || 'assets/logo.png',
+          likes: p.toolbar?.likeCountNotliked || p.toolbar?.likeCount || '0'
+        });
+      }
+    }
+
+    const result = {
+      success: true,
+      enabled: true,
+      countText,
+      comments: comments.slice(0, 30)
+    };
+    commentsCache.set(videoId, { data: result, time: Date.now() });
+    res.writeHead(200);
+    res.end(JSON.stringify(result));
+  } catch (err) {
+    console.warn('[YouTubeComments] Error fetching comments:', err.message);
+    res.writeHead(200);
+    res.end(JSON.stringify({
+      success: true,
+      enabled: false,
+      countText: '0 Comments',
+      comments: [],
+      message: 'Comments are unavailable for this track'
+    }));
+  }
+}
+
+const server = http.createServer((req, res) => {
+  // Enable CORS
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-TYPESENSE-API-KEY, X-YouTube-Client-Name, X-YouTube-Client-Version, Authorization, Range');
+
+  if (req.method === 'OPTIONS') {
+    res.writeHead(200);
+    res.end();
+    return;
+  }
+
+  const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost:3000'}`);
+  const urlPath = parsedUrl.pathname;
 
   // API Routes
   if (urlPath === '/api/recommendations/status' && req.method === 'GET') {
@@ -649,6 +870,16 @@ const server = http.createServer((req, res) => {
         }
       }));
     })();
+    return;
+  }
+
+  if (urlPath === '/api/proxy/innertube') {
+    handleInnertubeProxy(req, res, parsedUrl);
+    return;
+  }
+
+  if (urlPath === '/api/youtube/comments' && req.method === 'GET') {
+    handleGetYouTubeComments(req, res, parsedUrl);
     return;
   }
 
